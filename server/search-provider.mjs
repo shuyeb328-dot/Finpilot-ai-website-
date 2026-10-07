@@ -8,7 +8,7 @@ async function providerFetch(url,options={}){
  finally{clearTimeout(t)}
 }
 function normalize(items,provider){
- return (items||[]).map((x,i)=>({id:`${provider}-${i}-${Buffer.from(String(x.url||x.link||'' )).toString('base64url').slice(0,12)}`,title:String(x.title||x.name||'Untitled'),url:String(x.url||x.link||''),snippet:String(x.snippet||x.description||x.content||''),source:String(x.source||provider),publishedAt:x.publishedAt||x.published_date||x.date||null})).filter(x=>/^https?:\\/\\//i.test(x.url));
+ return (items||[]).map((x,i)=>({id:`${provider}-${i}-${Buffer.from(String(x.url||x.link||'' )).toString('base64url').slice(0,12)}`,title:String(x.title||x.name||'Untitled'),url:String(x.url||x.link||''),snippet:String(x.snippet||x.description||x.content||''),source:String(x.source||provider),publishedAt:x.publishedAt||x.published_date||x.date||null})).filter(x=>/^https?:\/\//i.test(x.url));
 }
 async function brave(q,count){
  const d=await providerFetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${count}`,{headers:{...jsonHeaders,'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY}});
