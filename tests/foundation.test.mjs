@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source=fs.readFileSync(new URL('../public/foundation-engine.js',import.meta.url),'utf8');
+const context={window:{},document:undefined,localStorage:{getItem:()=>null,setItem:()=>{}},Date,Math,String,Number,JSON};
+vm.runInNewContext(source,context);
+const f=context.window.FinPilotFoundation;
+assert.equal(typeof f.benchmark,'function');
+const report=f.benchmark();
+assert.equal(report.candidateCount,48);
+assert.equal(report.candidates.length,48);
+assert.equal(new Set(report.candidates.map(x=>x.id)).size,48);
+assert.ok(report.winner.score>=80);
+assert.ok(report.winner.scores.safety>=10);
+assert.ok(report.winner.scores.auditability>=10);
+assert.ok(report.winner.scores.modularity>=10);
+assert.equal(f.quantumSearchSignal('analyze IRFC stock and risk', {count:5,confidence:80,stance:'Positive'}).intent,'market');
+assert.ok(f.quantumSearchSignal('analyze IRFC stock and risk', {count:5,confidence:80,stance:'Positive'}).confidence>60);
+console.log('Foundation benchmark: 48/48 candidates compared');
+console.log('Winner:',report.winner.id,report.winner.score+'/100');
+console.log('Quantum routing test: PASS');
