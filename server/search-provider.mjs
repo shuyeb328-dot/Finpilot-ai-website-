@@ -12,7 +12,7 @@ function normalize(items,provider){
   id:provider+'-'+i+'-'+Buffer.from(String(x.url||x.link||'')).toString('base64url').slice(0,12),
   title:String(x.title||x.name||'Untitled'),
   url:String(x.url||x.link||''),
-  snippet:String(x.snippet||x.description||x.content||x.summary||''),
+  snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
   source:String(x.source?.name||x.source||provider),
   publishedAt:x.publishedAt||x.published_date||x.date||null
  })).filter(x=>/^https?:\/\//i.test(x.url));
