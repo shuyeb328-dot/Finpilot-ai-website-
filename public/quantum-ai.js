@@ -99,7 +99,9 @@
     document.querySelectorAll('.qapprove').forEach(b=>b.onclick=()=>{approveMutation(b.dataset.id);render()});
   }
   function mount(){
-    if(!document.getElementById('quantumV5Script')){const s=document.createElement('script');s.id='quantumV5Script';s.src='/quantum-v5-ui.js';s.defer=true;document.head.appendChild(s)}
+    if(!window.FinPilotQuantumV5&&!document.getElementById('quantumV5Script')){
+      const s=document.createElement('script');s.id='quantumV5Script';s.src='/quantum-v5-ui.js';s.defer=true;document.head.appendChild(s)
+    }
     if(document.getElementById('quantum-launcher'))return;
     const b=document.createElement('button');b.id='quantum-launcher';b.className='btn primary';b.textContent='◈ Quantum AI';
     b.style.cssText='position:fixed;right:14px;bottom:14px;z-index:90;box-shadow:0 10px 30px rgba(49,94,251,.25)';
