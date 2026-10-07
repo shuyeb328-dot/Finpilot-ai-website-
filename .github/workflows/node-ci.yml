@@ -42,7 +42,6 @@ jobs:
           curl -fsS "http://127.0.0.1:8787/api/stock-report?ticker=SBC" | grep -q '"ticker":"SBC"'
           echo "FinPilot server smoke test passed"
       - name: Live Internet Search smoke test
-        if: ${{ secrets.SERPAPI_API_KEY != '' }}
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           SERPAPI_ENGINE: google_news
@@ -50,6 +49,10 @@ jobs:
           SERPAPI_HL: en
           SEARCH_PROVIDER: serpapi
         run: |
+          if [ -z "$SERPAPI_API_KEY" ]; then
+            echo "SERPAPI_API_KEY is not configured in GitHub Actions; live search smoke test skipped."
+            exit 0
+          fi
           body="$(curl -fsS --get --data-urlencode "q=IRFC" --data-urlencode "count=3" http://127.0.0.1:8787/api/search)"
           echo "$body"
           echo "$body" | grep -q '"live":true'
