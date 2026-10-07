@@ -124,5 +124,18 @@
     }).sort((a,b)=>b.returnPct-a.returnPct);
   }
 
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,roundTable,leaderboard};
+
+  function markToMarket(state,prices){
+    const p=ensure(state); const px=prices||p.marketSnapshot||{}; let total=0,unreal=0;
+    p.agents.forEach(a=>a.positions.forEach(pos=>{const last=Math.max(0,Number(px[pos.symbol]??pos.last??pos.avg));pos.last=last;const value=pos.qty*last;total+=value;unreal+=(last-pos.avg)*pos.qty;}));
+    p.unrealizedPnl=Number(unreal.toFixed(2)); p.updatedAt=new Date().toISOString(); return {exposure:Number(total.toFixed(2)),unrealizedPnl:p.unrealizedPnl,equity:Number((p.cash+total).toFixed(2))};
+  }
+  function riskReport(state){
+    const p=ensure(state); const eq=Math.max(1,p.cash+p.agents.reduce((n,a)=>n+a.positions.reduce((m,x)=>m+x.qty*x.last,0),0));
+    const exposure=p.agents.reduce((n,a)=>n+a.positions.reduce((m,x)=>m+x.qty*x.last,0),0);
+    const concentration=p.agents.flatMap(a=>a.positions).reduce((m,x)=>{m[x.symbol]=(m[x.symbol]||0)+x.qty*x.last;return m;},{});
+    const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value,weight:Number((value/eq*100).toFixed(1))}));
+    return {equity:eq,exposure,exposurePct:Number((exposure/eq*100).toFixed(1)),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxAgentExposurePct:60}};
+  }
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,roundTable,leaderboard,markToMarket,riskReport};
 })();
