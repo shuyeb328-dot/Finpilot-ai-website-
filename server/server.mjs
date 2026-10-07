@@ -3,6 +3,7 @@ import {URL} from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import 'node:process';
+import {searchWeb} from './search-provider.mjs';
 
 const PORT=Number(process.env.PORT||8787);
 const HOST=process.env.HOST||'127.0.0.1';
@@ -65,10 +66,15 @@ async function learn(req,res){
 }
 async function search(req,res,u){
  const q=(u.searchParams.get('q')||'').trim();
+ const count=Math.min(10,Math.max(1,Number(u.searchParams.get('count')||8)));
  if(!q)return send(res,400,{ok:false,error:'Missing query'});
- // No search API key is required for the website shell. We return a real Google query URL and a structured fallback.
- const google=`https://www.google.com/search?q=${encodeURIComponent(q)}`;
- send(res,200,{ok:true,query:q,provider:'internet',results:[],externalUrl:google,message:'Open the live web results or configure a search provider for embedded results.'});
+ try{
+  const d=await searchWeb(q,{count});
+  return send(res,200,{ok:true,query:q,...d});
+ }catch(e){
+  const google=`https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  return send(res,502,{ok:false,error:e.code||'SEARCH_PROVIDER_UNAVAILABLE',query:q,provider:null,results:[],externalUrl:google,message:e.message||'Search provider unavailable.',live:false});
+ }
 }
 
 
