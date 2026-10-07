@@ -1,5 +1,6 @@
 name: FinPilot Node CI
 # Automated agent-core and paper-arena validation
+# Final verification trigger
 
 on:
   push:
