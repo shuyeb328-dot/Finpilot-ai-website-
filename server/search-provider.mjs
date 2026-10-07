@@ -8,7 +8,37 @@ async function providerFetch(url,options={}){
  finally{clearTimeout(t)}
 }
 function normalize(items,provider){
- return (items||[]).map((x,i)=>({id:`${provider}-${i}-${Buffer.from(String(x.url||x.link||'' )).toString('base64url').slice(0,12)}`,title:String(x.title||x.name||'Untitled'),url:String(x.url||x.link||''),snippet:String(x.snippet||x.description||x.content||''),source:String(x.source||provider),publishedAt:x.publishedAt||x.published_date||x.date||null})).filter(x=>/^https?:\/\//i.test(x.url));
+ return (items||[]).map((x,i)=>({
+  id:provider+'-'+i+'-'+Buffer.from(String(x.url||x.link||'')).toString('base64url').slice(0,12),
+  title:String(x.title||x.name||'Untitled'),
+  url:String(x.url||x.link||''),
+  snippet:String(x.snippet||x.description||x.content||x.summary||''),
+  source:String(x.source?.name||x.source||provider),
+  publishedAt:x.publishedAt||x.published_date||x.date||null
+ })).filter(x=>/^https?:\/\//i.test(x.url));
+}
+function cleanText(v){
+ return String(v||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
+}
+async function fetchPageText(url){
+ const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);
+ try{
+  const r=await fetch(url,{signal:c.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotEvidence/1.0','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok)return '';
+  const html=await r.text();
+  const metas=[...html.matchAll(/<meta\s+[^>]*(?:name|property)=["'](?:description|og:description)["'][^>]*content=["']([^"']+)["'][^>]*>/gi)];
+  for(const m of metas){const s=cleanText(m[1]);if(s.length>40)return s.slice(0,500);}
+  const reverse=[...html.matchAll(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:name|property)=["'](?:description|og:description)["'][^>]*>/gi)];
+  for(const m of reverse){const s=cleanText(m[1]);if(s.length>40)return s.slice(0,500);}
+  return '';
+ }catch{return ''}finally{clearTimeout(t)}
+}
+async function enrichResults(results){
+ return await Promise.all(results.map(async x=>{
+  if(x.snippet)return x;
+  const snippet=await fetchPageText(x.url);
+  return snippet?{...x,snippet}:x;
+ }));
 }
 async function brave(q,count){
  const d=await providerFetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${count}`,{headers:{...jsonHeaders,'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY}});
@@ -36,7 +66,8 @@ async function serpapi(q,count){
  u.searchParams.set('hl',hl);
  const d=await providerFetch(u.toString(),{headers:jsonHeaders});
  if(d.error) throw providerError(String(d.error));
- return normalize((d.news_results||[]).map(x=>({...x,url:x.link,source:x.source?.name||'Google News'})).slice(0,count),'serpapi');
+ const results=normalize((d.news_results||[]).map(x=>({...x,url:x.link,source:x.source?.name||'Google News'})).slice(0,count),'serpapi');
+ return enrichResults(results);
 }
 
 export async function searchWeb(q,{count=8}={}){
