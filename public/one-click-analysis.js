@@ -148,6 +148,34 @@
     box.prepend(d);
   }
 
+
+  function installProductionDiagnostics(){
+    if(window.__finpilotDiagnosticsInstalled)return;
+    window.__finpilotDiagnosticsInstalled=true;
+    const showErr=(title,detail)=>{
+      let el=document.getElementById('fpBootGuard');
+      if(!el){
+        el=document.createElement('div');el.id='fpBootGuard';
+        el.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#fff;border:1px solid #e4e8ef;border-radius:12px;padding:12px;box-shadow:0 16px 50px rgba(15,23,42,.18);font:13px system-ui;color:#172033';
+        document.body.appendChild(el);
+      }
+      el.style.display='block';
+      el.innerHTML='<b style="color:#c23d4f">'+escLocal(title)+'</b><div style="margin-top:5px;color:#6b7688">'+escLocal(detail)+'</div>';
+    };
+    window.addEventListener('error',e=>showErr('FinPilot frontend error',e.message||'Script failure'));
+    window.addEventListener('unhandledrejection',e=>showErr('FinPilot async error',e.reason?.message||String(e.reason||'Unhandled rejection')));
+    fetch('/api/health',{cache:'no-store'}).then(async r=>{
+      const d=await r.json();
+      const s=document.getElementById('engineStatus'),detail=document.getElementById('engineDetail');
+      if(s){s.textContent=d.ok?'ONLINE':'OFFLINE';s.style.color=d.ok?'#138a5b':'#c23d4f'}
+      if(detail)detail.textContent=d.ok?'Gateway connected · '+new Date().toLocaleTimeString():'Gateway unavailable · local engine only';
+    }).catch(e=>{
+      const s=document.getElementById('engineStatus'),detail=document.getElementById('engineDetail');
+      if(s){s.textContent='OFFLINE';s.style.color='#c23d4f'}
+      if(detail)detail.textContent='Gateway unavailable · '+e.message;
+    });
+  }
+
   function install(){
     if(!rawDoSearch && typeof window.doSearch==='function'){
       rawDoSearch=window.doSearch;
@@ -159,7 +187,7 @@
     mountSearchActions();
   }
   window.runFullStockAnalysis=runFullStockAnalysis;
-  window.addEventListener('load',install);
-  setTimeout(install,0);
+  window.addEventListener('load',()=>{install();installProductionDiagnostics();});
+  setTimeout(()=>{install();installProductionDiagnostics();},0);
   setTimeout(install,100);
 })();
