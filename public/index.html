@@ -148,7 +148,54 @@ function actions(){
  `<div class="grid cards"><div class="card kpi"><span class="label">Pending</span><div class="metric">${pending}</div><span class="yellow">Requires attention</span></div><div class="card kpi"><span class="label">Completed</span><div class="metric">${items.length-pending}</div><span class="green">Recorded locally</span></div><div class="card kpi"><span class="label">Approval required</span><div class="metric">${items.filter(a=>a.priority==='HIGH').length}</div><span class="muted">High-impact actions</span></div><div class="card kpi"><span class="label">Source</span><div class="metric">CEO</div><span class="muted">Round Table / local engine</span></div></div><div style="height:14px"></div>`+
  `<div class="grid two"><div class="card"><div class="sectionTitle"><h3>Execution queue</h3><span class="subtle">${pending} open</span></div><div>${items.map((a,i)=>`<div class="actionRow"><div class="actionMain"><b>${a.title}</b><span class="muted">${a.reason}</span><div class="actionMeta"><span class="pill ${a.priority==='HIGH'?'high':a.priority==='MEDIUM'?'med':'low'}">${a.priority}</span><span class="subtle">${a.status==='Done'?'Completed':'Pending'}</span></div></div><div class="actionBtns">${a.priority==='HIGH'&&a.status!=='Done'?`<button class="btn warn checkBtn" onclick="approveAction(${i})">Approve</button>`:''}<button class="btn checkBtn" onclick="completeAction(${i})">${a.status==='Done'?'Done':'Complete'}</button></div></div>`).join('')}</div></div><div class="card"><div class="sectionTitle"><h3>Safety policy</h3><span class="pill low">ENFORCED</span></div><div class="notice">FinPilot can analyze, simulate and prepare recommendations autonomously. It cannot move money, place trades, change accounts or execute other high-impact actions without explicit user approval.</div><div style="height:12px"></div><div class="statStack"><div class="statLine"><span>Analyze</span><span class="pill low">Allowed</span></div><div class="statLine"><span>Recommend</span><span class="pill low">Allowed</span></div><div class="statLine"><span>Prepare action</span><span class="pill low">Allowed</span></div><div class="statLine"><span>Execute high-impact action</span><span class="pill med">Approval</span></div></div></div></div>`;
 }
-function transactions(){return document.getElementById('transactions').innerHTML=header('Money flow','Transactions','Local ledger with import/export and category intelligence.',`<button class="btn" onclick="openModal('quickModal')">+ Add</button><button class="btn" onclick="exportJSON()">Export</button><button class="btn" onclick="document.getElementById('file').click()">Import</button>`)+`<input id="file" type="file" accept="application/json,.json" hidden onchange="importJSON(event)"><div class="card"><table class="table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th>Amount</th></tr></thead><tbody>${state.transactions.slice().reverse().map((t,i)=>`<tr><td>${t.date}</td><td>${t.desc}</td><td>${t.cat||'Other'}</td><td>${t.type}</td><td class="${t.type==='Expense'?'red':'green'}">${t.type==='Expense'?'-':''}${money(t.amount)}</td></tr>`).join('')}</tbody></table></div>`}
+function transactions(){
+ const q=String(window.txSearch||'').toLowerCase().trim();
+ const type=window.txTypeFilter||'All', cat=window.txCatFilter||'All', sort=window.txSort||'date-desc';
+ const cats=[...new Set(state.transactions.map(t=>t.cat||'Other'))].sort();
+ let rows=state.transactions.map((t,i)=>({...t,_i:i})).filter(t=>{
+   const hay=[t.date,t.desc,t.cat,t.type,t.account].join(' ').toLowerCase();
+   return (!q||hay.includes(q))&&(type==='All'||t.type===type)&&(cat==='All'||(t.cat||'Other')===cat);
+ });
+ rows.sort((a,b)=>{
+   if(sort==='date-asc')return String(a.date).localeCompare(String(b.date));
+   if(sort==='amount-desc')return Number(b.amount)-Number(a.amount);
+   if(sort==='amount-asc')return Number(a.amount)-Number(b.amount);
+   return String(b.date).localeCompare(String(a.date));
+ });
+ const total=rows.reduce((s,t)=>s+(t.type==='Expense'?-Number(t.amount):Number(t.amount)),0);
+ const actions='<button class="btn primary" onclick="openModal(\'quickModal\')">+ Add</button><button class="btn" onclick="runTransactionAnalysis()">Run analysis</button><button class="btn" onclick="exportTransactionsCSV()">CSV</button><button class="btn" onclick="exportJSON()">Backup</button><button class="btn" onclick="document.getElementById(\'file\').click()">Import</button>';
+ const table=rows.length?rows.map(t=>'<tr><td>'+esc(t.date)+'</td><td><b>'+esc(t.desc)+'</b>'+(t.account?'<div class="muted" style="font-size:11px">'+esc(t.account)+'</div>':'')+'</td><td>'+esc(t.cat||'Other')+'</td><td><span class="pill '+(t.type==='Expense'?'med':'low')+'">'+esc(t.type)+'</span></td><td class="'+(t.type==='Expense'?'red':'green')+'">'+(t.type==='Expense'?'-':'')+money(t.amount)+'</td><td><div class="action"><button class="btn" onclick="editTransaction('+t._i+')">Edit</button><button class="btn" onclick="deleteTransaction('+t._i+')">Delete</button></div></td></tr>').join(''):'<tr><td colspan="6" class="muted" style="padding:28px;text-align:center">No transactions match your filters.</td></tr>';
+ return document.getElementById('transactions').innerHTML=header('Money flow','Transactions','Your editable financial ledger — search, correct, analyze and export every entry.',actions)+
+ '<input id="file" type="file" accept="application/json,.json" hidden onchange="importJSON(event)">'+
+ '<div class="grid cards" style="margin-bottom:12px"><div class="card"><span class="muted">Showing</span><div class="metric">'+rows.length+'</div><span class="muted">of '+state.transactions.length+' transactions</span></div><div class="card"><span class="muted">Filtered net</span><div class="metric '+(total>=0?'green':'red')+'">'+(total>=0?'+':'')+money(total)+'</div><span class="muted">Income minus expenses</span></div><div class="card"><span class="muted">Expense entries</span><div class="metric">'+rows.filter(t=>t.type==='Expense').length+'</div><span class="muted">in current view</span></div><div class="card"><span class="muted">Income entries</span><div class="metric">'+rows.filter(t=>t.type==='Income').length+'</div><span class="muted">in current view</span></div></div>'+
+ '<div class="card" style="margin-bottom:12px"><div class="grid formGrid"><label>Search<input value="'+esc(window.txSearch||'')+'" placeholder="Search description, category, account…" oninput="window.txSearch=this.value;transactions()"></label><label>Type<select onchange="window.txTypeFilter=this.value;transactions()"><option>All</option><option '+(type==='Income'?'selected':'')+'>Income</option><option '+(type==='Expense'?'selected':'')+'>Expense</option></select></label><label>Category<select onchange="window.txCatFilter=this.value;transactions()"><option>All</option>'+cats.map(x=>'<option '+(cat===x?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></label><label>Sort<select onchange="window.txSort=this.value;transactions()"><option value="date-desc" '+(sort==='date-desc'?'selected':'')+'>Newest first</option><option value="date-asc" '+(sort==='date-asc'?'selected':'')+'>Oldest first</option><option value="amount-desc" '+(sort==='amount-desc'?'selected':'')+'>Highest amount</option><option value="amount-asc" '+(sort==='amount-asc'?'selected':'')+'>Lowest amount</option></select></label></div></div>'+
+ '<div class="card"><div style="overflow:auto"><table class="table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th>Amount</th><th>Actions</th></tr></thead><tbody>'+table+'</tbody></table></div></div>';
+}
+function editTransaction(index){
+ const t=state.transactions[index];if(!t)return;
+ const date=prompt('Date (YYYY-MM-DD)',t.date);if(date===null)return;
+ const desc=prompt('Description',t.desc);if(desc===null)return;
+ const amount=prompt('Amount (₹)',String(t.amount));if(amount===null)return;
+ const type=prompt('Type: Income or Expense',t.type);if(type===null)return;
+ const cat=prompt('Category',t.cat||'Other');if(cat===null)return;
+ const n=Math.max(0,Number(amount));if(!desc.trim()||!n){toast('Edit cancelled: description and positive amount are required');return}
+ const oldIncome=t.type==='Income'?Number(t.amount):0,oldSpend=t.type==='Expense'?Number(t.amount):0;
+ const nextType=String(type).toLowerCase().includes('income')?'Income':'Expense';
+ const nextIncome=nextType==='Income'?n:0,nextSpend=nextType==='Expense'?n:0;
+ state.income=Math.max(0,state.income-oldIncome+nextIncome);
+ state.spending=Math.max(0,state.spending-oldSpend+nextSpend);
+ state.transactions[index]={...t,date:date.trim(),desc:desc.trim(),amount:n,type:nextType,cat:cat.trim()||'Other',editedAt:new Date().toISOString()};
+ save();transactions();toast('Transaction updated');
+}
+function deleteTransaction(index){
+ const t=state.transactions[index];if(!t)return;
+ if(!confirm('Delete "'+String(t.desc).replace(/"/g,'')+'" for '+money(t.amount)+'? This cannot be undone.'))return;
+ if(t.type==='Income')state.income=Math.max(0,state.income-Number(t.amount));else state.spending=Math.max(0,state.spending-Number(t.amount));
+ state.transactions.splice(index,1);save();transactions();toast('Transaction deleted');
+}
+function runTransactionAnalysis(){
+ try{refreshBrain();runMonitoring(false);state.memory.unshift({title:'Transaction ledger analyzed',text:'Analyzed '+state.transactions.length+' ledger entries using the Financial Brain.',time:new Date().toLocaleString()});state.memory=state.memory.slice(0,200);save();show('brain');toast('Financial Brain analysis complete')}catch(e){console.error(e);toast('Analysis could not complete')}
+}
 function csvEscape(v){const x=String(v??'');return /[",\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x}
 function exportTransactionsCSV(){const rows=[['date','type','amount','description','category','account']];for(const t of state.transactions)rows.push([t.date,t.type,t.amount,t.desc,t.cat||'Other',t.account||'Imported']);const csv=rows.map(r=>r.map(csvEscape).join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='finpilot-transactions.csv';a.click();URL.revokeObjectURL(a.href);toast('Normalized CSV exported')}
 function parseCSV(text){const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(quoted){if(c==='"'&&n==='"'){cell+='"';i++;}else if(c==='"')quoted=false;else cell+=c}else{if(c==='"')quoted=true;else if(c===','){row.push(cell);cell='';}else if(c==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell='';}else cell+=c}}if(cell.length||row.length){row.push(cell);rows.push(row)}return rows.filter(r=>r.some(x=>String(x).trim()!==''))}
