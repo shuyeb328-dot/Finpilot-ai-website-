@@ -1,13 +1,13 @@
 {
   "name": "finpilot-ai-web",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
     "dev": "node server/server.mjs",
-    "check": "node --check server/server.mjs",
-    "test": "node tests/ceo-cfo-judge.test.mjs"
+    "check": "node --check server/server.mjs && node --check public/paper-engine.js && node --check public/paper-lab.js",
+    "test": "node tests/ceo-cfo-judge.test.mjs && node tests/paper-engine.test.mjs"
   },
   "engines": {
     "node": ">=18"
