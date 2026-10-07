@@ -34,12 +34,21 @@
   `;
   function style(){if(document.getElementById(STYLE_ID))return;const s=document.createElement('style');s.id=STYLE_ID;s.textContent=css;document.head.appendChild(s)}
   function visual(){return '<svg viewBox="0 0 900 300" preserveAspectRatio="none" aria-label="Quantum finance intelligence visualization"><defs><linearGradient id="qg" x1="0" x2="1"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><path d="M0 235 C110 210 135 245 220 190 S365 210 450 135 S595 170 670 90 S790 110 900 45" fill="none" stroke="url(#qg)" stroke-width="5"/><path d="M0 260 C150 250 230 225 340 240 S570 205 690 220 S800 180 900 185" fill="none" stroke="#cbd5e1" stroke-width="2"/><circle cx="670" cy="90" r="8" fill="#fff" stroke="#2563eb" stroke-width="4"/><circle cx="900" cy="45" r="9" fill="#fff" stroke="#7c3aed" stroke-width="4"/><g fill="#64748b" font-family="system-ui" font-size="16"><text x="30" y="35">LIVE INTELLIGENCE</text><text x="30" y="62">Evidence → agents → decision</text></g></svg>'}
-  function run(q){
+  async function run(q){
     q=String(q||'').trim();if(!q)return;
-    if(typeof window.runFullStockAnalysis==='function'){close();window.runFullStockAnalysis(q);return}
-    const input=document.getElementById('globalSearch')||document.getElementById('searchQuery');if(input){input.value=q;input.dispatchEvent(new Event('input',{bubbles:true}));}
-    if(typeof window.doSearch==='function')window.doSearch(q);
-    close();
+    try{
+      if(typeof window.runFullStockAnalysis==='function'){close();await window.runFullStockAnalysis(q);return}
+      if(typeof window.show==='function')window.show('search');
+      const input=document.getElementById('globalSearch')||document.getElementById('searchQuery');
+      if(input){input.value=q;input.dispatchEvent(new Event('input',{bubbles:true}));}
+      if(typeof window.doSearch==='function')await window.doSearch(q);
+      else throw new Error('Search engine is still loading. Please try again in a moment.');
+      close();
+    }catch(e){
+      close();
+      if(typeof window.toast==='function')window.toast(e?.message||'Quantum Search failed');
+      else console.error('Quantum Search failed',e);
+    }
   }
   function close(){document.getElementById(ROOT_ID)?.remove()}
   function open(){
