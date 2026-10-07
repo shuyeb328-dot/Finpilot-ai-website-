@@ -1,4 +1,5 @@
 name: FinPilot Node CI
+# Automated agent-core and paper-arena validation
 
 on:
   push:
