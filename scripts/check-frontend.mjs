@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
-const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)]
+const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
   .map(m=>m[1])
   .filter(s=>s.trim());
 if(!scripts.length)throw new Error('No inline frontend script found');
