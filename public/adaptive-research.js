@@ -7,7 +7,7 @@
   const pct=(n)=>Number((Number(n||0)*100).toFixed(2));
   function signal(c){
     const momentum=Number(c.momentum||0), quality=Number(c.quality??50), valuation=Number(c.valuation??50), risk=Number(c.risk??50);
-    const edge=50+(quality-50)*.22+(valuation-50)*.18+momentum*.28-(risk-50)*.22;
+    const edge=(quality-50)*.6+(valuation-50)*.4+momentum*.5-(risk-50)*.6;
     return edge>=12?'BUY':edge<=-12?'SELL':'HOLD';
   }
   function backtest(series,opts={}){
