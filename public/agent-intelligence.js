@@ -74,7 +74,7 @@
 
   function mountMatrix(){
     const host=document.getElementById('agents'); if(!host||document.getElementById('agentIntelMatrix'))return;
-    const rows=fleetMatrix(window.state||{},typeof window.liveWebSignal==='function'?window.liveWebSignal():null);
+    const rows=fleetMatrix(typeof state!=='undefined'?state:{},typeof liveWebSignal==='function'?liveWebSignal():null);
     const box=document.createElement('div'); box.id='agentIntelMatrix'; box.className='card';
     box.innerHTML='<div class="sectionTitle"><div><h3>Agent Intelligence Matrix</h3><span class="subtle">Live specialist score, risk, confidence and liquidity</span></div><span class="pill low">UPGRADED</span></div><div class="grid cards">'+rows.map(x=>'<div class="card"><b>'+x.name+'</b><div class="muted">'+x.mission+'</div><div class="row"><span>Domain</span><b>'+x.domainScore+'</b></div><div class="row"><span>Risk</span><b>'+x.risk+'</b></div><div class="row"><span>Confidence</span><b>'+x.confidence+'%</b></div><div class="row"><span>Reserve</span><b>'+x.reserveMonths+' mo</b></div></div>').join('')+'</div>';
     host.appendChild(box);
