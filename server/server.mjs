@@ -4,7 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import 'node:process';
 import vm from 'node:vm';
+import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+const {Pool}=pg;
+let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
+async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
+async function ensureMarketSchema(){const pool=await marketStore();if(!pool||MARKET_SCHEMA_READY)return !!pool;await pool.query('CREATE TABLE IF NOT EXISTS market_ticks (id BIGSERIAL PRIMARY KEY,ticker TEXT NOT NULL,symbol TEXT,price DOUBLE PRECISION,change_pct DOUBLE PRECISION,volume DOUBLE PRECISION,high DOUBLE PRECISION,low DOUBLE PRECISION,source TEXT,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');await pool.query('CREATE INDEX IF NOT EXISTS market_ticks_ticker_time_idx ON market_ticks(ticker,observed_at DESC)');MARKET_SCHEMA_READY=true;return true;}
+async function storeMarketTick(x){try{if(!(await ensureMarketSchema()))return false;await MARKET_POOL.query('INSERT INTO market_ticks(ticker,symbol,price,change_pct,volume,high,low,source,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[x.ticker,x.symbol,Number(x.price),Number(x.changePct),Number(x.volume),Number(x.high),Number(x.low),x.source||'Binance public market data',x.time||new Date().toISOString()]);return true}catch(e){MARKET_SCHEMA_READY=false;return false;}}
+async function marketHistory(req,res,u){try{if(!(await ensureMarketSchema()))return send(res,200,{ok:true,cloud:false,rows:[],message:'Cloud archive adapter ready; connect DATABASE_URL on Render.'});const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();const limit=Math.min(500,Math.max(10,Number(u.searchParams.get('limit')||100)));const q=await MARKET_POOL.query('SELECT ticker,symbol,price,change_pct AS "changePct",volume,high,low,source,observed_at AS time FROM market_ticks WHERE ticker=$1 ORDER BY observed_at DESC LIMIT $2',[ticker,limit]);return send(res,200,{ok:true,cloud:true,ticker,rows:q.rows});}catch(e){return send(res,200,{ok:true,cloud:false,rows:[],error:e.message});}}
+
 
 const PORT=Number(process.env.PORT||8787);
 const HOST=process.env.HOST||'0.0.0.0';
@@ -353,7 +361,7 @@ function marketStream(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const symbol=CRYPTO_ASSETS[ticker]||'BTCUSDT';
  res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'7.0'});
  let closed=false, timer; req.on('close',()=>{closed=true;clearInterval(timer);});
- const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'Binance spot',live:true,time:SECURITY.lastRefresh})}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
+ const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'Binance spot',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
  push(); timer=setInterval(push,AUTO.marketRefreshMs);
 }
 
@@ -470,6 +478,8 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/security-status')return securityStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/realtime-status')return realtimeStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/auto-optimize')return autoOptimize(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/market-history')return marketHistory(req,res,u);
+  if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
   if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',time:new Date().toISOString(),security:'hardened',realtime:true,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
