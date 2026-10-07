@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source=fs.readFileSync(new URL('../public/money-scenario.js',import.meta.url),'utf8');
-const context={}; context.window=context;
-vm.runInNewContext(source,context);
-const e=context.window.FinpilotMoneyEngine;
+const context={};
+vm.runInNewContext(source.replace('window.FinPilotMoneyEngine={analyze};','globalThis.__money={analyze};'),context);
+const e=context.__money;
 assert.equal(typeof e.analyze,'function');
 const result=e.analyze({
   risk:40,confidence:72,webSignal:{stance:'Positive'},quantumSignal:{confidence:78},
