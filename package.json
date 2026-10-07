@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/server.mjs",
     "dev": "node server/server.mjs",
-    "check": "node --check server/server.mjs && node --check public/paper-engine.js && node --check public/paper-lab.js && node --check public/one-click-analysis.js",
+    "check": "node --check server/server.mjs && node --check public/paper-engine.js && node --check public/agent-intelligence.js && node --check public/paper-lab.js && node --check public/one-click-analysis.js",
     "test": "node tests/ceo-cfo-judge.test.mjs && node tests/paper-engine.test.mjs"
   },
   "engines": {
