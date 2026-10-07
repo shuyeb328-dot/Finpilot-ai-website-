@@ -3,6 +3,7 @@ import {URL} from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import 'node:process';
+import vm from 'node:vm';
 import {searchWeb} from './search-provider.mjs';
 
 const PORT=Number(process.env.PORT||8787);
@@ -438,7 +439,8 @@ function optimizeOS(req,res){
  const after={maxConcurrency:SCHEDULER.maxConcurrency,marketRefreshMs:AUTO.marketRefreshMs,cacheTtlMs:AUTO.cacheTtlMs};audit('AUTO_OPTIMIZE',{before,after});return send(res,200,{ok:true,version:'6.9',mode:'BOUNDED_SELF_OPTIMIZATION',before,after,protected:POLICY});
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
-function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated'});}
+function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
+function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
 
 const server=http.createServer(async(req,res)=>{
  const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
