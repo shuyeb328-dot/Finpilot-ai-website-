@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: finpilot-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: SERPAPI_ENGINE
+        value: google_news
+      - key: SERPAPI_GL
+        value: in
+      - key: SERPAPI_HL
+        value: en
