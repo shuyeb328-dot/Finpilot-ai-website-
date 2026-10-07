@@ -28,14 +28,12 @@ async function serpapi(q,count){
  const engine=process.env.SERPAPI_ENGINE||'google_news';
  const gl=process.env.SERPAPI_GL||'in';
  const hl=process.env.SERPAPI_HL||'en';
- const sort=process.env.SERPAPI_SORT||'1';
  const u=new URL('https://serpapi.com/search.json');
  u.searchParams.set('engine',engine);
  u.searchParams.set('api_key',key);
  u.searchParams.set('q',q);
  u.searchParams.set('gl',gl);
  u.searchParams.set('hl',hl);
- u.searchParams.set('so',sort);
  const d=await providerFetch(u.toString(),{headers:jsonHeaders});
  if(d.error) throw providerError(String(d.error));
  return normalize((d.news_results||[]).map(x=>({...x,url:x.link,source:x.source?.name||'Google News'})).slice(0,count),'serpapi');
@@ -44,6 +42,7 @@ async function serpapi(q,count){
 export async function searchWeb(q,{count=8}={}){
  const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
  const order=requested==='serpapi'?['serpapi']:requested==='brave'?['brave']:requested==='tavily'?['tavily']:requested==='google'?['google']:['serpapi','brave','tavily','google'];
+ const errors=[];
  for(const p of order){
   try{
    let results=[];
@@ -52,7 +51,8 @@ export async function searchWeb(q,{count=8}={}){
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(results.length)return {provider:p,results,externalUrl:`https://www.google.com/search?q=${encodeURIComponent(q)}`,message:`${results.length} live result(s) returned by ${p}.`,live:true,fetchedAt:new Date().toISOString()};
-  }catch(e){continue}
+  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));continue}
  }
- throw providerError('No working search provider is configured. Set SEARCH_PROVIDER and the matching server-side API key.');
+ const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
+ throw providerError('No live results were returned by the configured search provider.'+detail);
 }
