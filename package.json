@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/server.mjs",
     "dev": "node server/server.mjs",
-    "check": "node --check server/server.mjs"
+    "check": "node --check server/server.mjs",
+    "test": "node tests/ceo-cfo-judge.test.mjs"
   },
   "engines": {
     "node": ">=18"
