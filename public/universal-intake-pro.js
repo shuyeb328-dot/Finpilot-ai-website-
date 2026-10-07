@@ -74,7 +74,7 @@
   window.exportNormalizedCSV=exportNormalizedCSV;window.exportIntakeJSON=exportIntakeJSON;window.clearReview=clearReview;window.setAuto=setAuto;window.acceptReview=acceptReview;window.mapHint=mapHint;
   window.__FinPilotUniversalIntakeProFeatures=FEATURES;
   const originalIngest=window.ingestFile;
-  window.ingestFile=async function(file){await originalIngest(file);if(window.__uiaPack){const a=analyze(window.__uiaPack,file.name);if(state.intakePro.settings.autoApply&&a.quality>=state.intakePro.settings.threshold){window.applyCurrent()};else{save();const s=document.getElementById('uiaStatus');if(s)s.textContent='Decoded · quality '+a.quality+'% · review before applying'}}};
+  window.ingestFile=async function(file){await originalIngest(file);if(window.__uiaPack){const a=analyze(window.__uiaPack,file.name);if(state.intakePro.settings.autoApply&&a.quality>=state.intakePro.settings.threshold){window.applyCurrent()}else{save();const s=document.getElementById('uiaStatus');if(s)s.textContent='Decoded · quality '+a.quality+'% · review before applying'}}};
   const originalGoogle=window.ingestGoogle;
   window.ingestGoogle=async function(){await originalGoogle();if(window.__uiaPack){analyze(window.__uiaPack,'Google Sheet');save()}};
 })();
