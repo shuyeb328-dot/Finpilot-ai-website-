@@ -1,0 +1,25 @@
+{
+  "version": "7.0",
+  "base": "5.1",
+  "release": "Autonomous Command OS",
+  "layers": [
+    "5.2 Event Bus",
+    "5.3 Priority Scheduler",
+    "5.4 Data Health",
+    "5.5 Resilience",
+    "6.0 Agent Swarm",
+    "6.1 Policy Guard",
+    "6.5 Self-Healing",
+    "6.8 Audit Plane",
+    "6.9 Bounded Self-Optimization",
+    "7.0 Governed Autonomous Command OS"
+  ],
+  "safety": {
+    "humanApprovalForHighImpact": true,
+    "moneyMovement": "blocked",
+    "credentialAccess": "blocked",
+    "complianceMutation": "blocked",
+    "cfoVeto": "enforced",
+    "selfModification": "bounded-only"
+  }
+}

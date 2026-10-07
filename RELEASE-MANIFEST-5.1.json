@@ -1,0 +1,15 @@
+{
+  "version": "5.1",
+  "name": "FinPilot AI — Security, Real-Time Automation & Bounded Agent Autonomy",
+  "base": "5.0",
+  "features": [
+    "security headers and CSP",
+    "server-side rate limiting",
+    "server-sent real-time market stream",
+    "live/unavailable evidence state",
+    "bounded automatic agent performance optimization",
+    "protected compliance and execution controls",
+    "server-only secret handling",
+    "security telemetry"
+  ]
+}

@@ -1,0 +1,1 @@
+{"version":"5.0.0","stack":["4.2-agent-memory","4.3-decision-continuity","4.4-evidence-fusion-events","4.5-portfolio-risk","4.6-research-queue","4.7-decision-cache","4.8-execution-guard","4.9-observability","5.0-autonomous-core"],"autoExecution":false,"humanApprovalRequired":true,"cfoVetoEnabled":true}
