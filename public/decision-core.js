@@ -1,0 +1,20 @@
+(function(){
+function computeExecutiveDecision(state,findings,web,money,sourceAge){
+ const high=findings.filter(f=>f.severity==='HIGH');
+ const emergencyLow=(state.emergency/Math.max(1,state.spending))<3;
+ const webCaution=web&&web.stance==='Cautious';
+ const webPositive=web&&web.stance==='Positive';
+ const surplus=state.income-state.spending;
+ const reserveMonths=state.emergency/Math.max(1,state.spending);
+ const ceo=webPositive?'Opportunity exists, but live headlines must be confirmed against fundamentals before increasing exposure.':webCaution?'Protect capital until the negative live signals are verified.':'Focus on durable compounding and avoid acting on headlines alone.';
+ const cfo=reserveMonths<3?'Liquidity is the binding constraint: '+reserveMonths.toFixed(1)+' months of emergency coverage is below the preferred buffer.':high.length?'Resolve the high-severity financial findings before adding material risk.':'Cash flow and reserves can support measured progress toward goals.';
+ const judge=emergencyLow||reserveMonths<3?'CFO wins: strengthen liquidity before increasing risk':high.length?'Risk gate wins: resolve the highest-severity finding before adding new risk':webCaution?'CFO/Risk wins: verify live negative signals before taking market risk':'CEO wins: protect surplus while allocating selectively toward goals';
+ const risk=Math.min(95,25+high.length*18+(reserveMonths<3?25:0)+(webCaution?12:0));
+ const confidence=Math.max(68,Math.min(96,94-high.length*4-(web&&web.stance==='Mixed'?6:0)));
+ const webView=web?'Live web search for “'+web.query+'” is '+web.stance.toLowerCase()+' based on '+web.count+' headline/evidence item(s). '+(webPositive?'The news flow is supportive, but should be verified against fundamentals.':webCaution?'The news flow contains caution signals; verify primary sources before acting.':'The news flow is mixed; do not treat headlines alone as a trade signal.'):'No live web evidence is attached to this council.';
+ const voices=[['Bull','Preserve long-term compounding while avoiding forced selling',78],['Bear',emergencyLow?'Liquidity shock is the key threat':webCaution?'Recent live headlines add downside uncertainty':'Unexpected spending remains the main downside',webCaution?89:87],['Value','Prioritize decisions with durable cash-flow value',80],['Quant','Monthly free cash is '+money(surplus)+' and reserve coverage is '+reserveMonths.toFixed(1)+' months',90],['Risk',high.length?high.length+' high-severity finding(s) require attention':webCaution?'Live evidence contains caution signals; require verification':'No high-severity finding detected',92],['Macro',web?webView:'Live rates and market conditions should be verified before market-sensitive decisions',web?web.confidence:68],['Fundamental',web?'Use live headlines as evidence, not as proof; validate revenue, debt and cash flow before acting':'Keep actions tied to cash generation and goal probability',web?82:81]];
+ const stale=(!state.lastEvidenceSync||sourceAge(state.lastEvidenceSync)==='Stale');
+ return {decision:judge,summary:'CEO/Judge synthesized '+findings.length+' Financial Brain findings. '+(high.length?high.length+' high-severity finding(s) constrain the recommendation.':'No high-severity constraint is currently detected.')+' '+(web?webView+' ':'')+(stale?'Live evidence is stale; verify current sources before market-sensitive action.':''),risk:stale?Math.max(risk,40):risk,confidence:Math.max(0,Math.min(99,(stale?Math.min(confidence,82):confidence)+(state.learning?.confidenceAdjustment||0))),voices:voices.map(v=>({name:v[0],view:v[1],conf:v[2]})),evidenceFreshness:stale?'STALE':'FRESH',executive:{ceo,cfo,judge,ceoConfidence:webPositive?78:72,cfoConfidence:reserveMonths<3?94:82,judgeConfidence:confidence},webSignal:web};
+}
+window.FinPilotDecisionCore={computeExecutiveDecision};
+})();
