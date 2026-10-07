@@ -14,6 +14,8 @@ const required=[
 for(const marker of required) assert.ok(html.includes(marker),`Missing dashboard/research marker: ${marker}`);
 assert.ok(html.includes('id="editCash"'));
 assert.ok(html.includes('id="editIncome"'));
+assert.ok(html.includes('</div>`+`<div class="card" id="dashboardEditor"'), 'Dashboard editor must be part of the dashboard HTML return value');
+assert.ok(!html.includes('</div>`;+`<div class="card" id="dashboardEditor"'), 'Dashboard editor must not be detached by a semicolon');
 assert.ok(html.includes('researchPrices'));
 assert.ok(html.includes("researchRuns:Array.isArray(state.researchRuns)"));
 console.log('Dashboard edit + research UI tests passed');
