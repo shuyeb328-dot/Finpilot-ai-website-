@@ -229,7 +229,40 @@ function dashboardEditValues(){return {cash:Number(state.cash)||0,investments:Nu
 function toggleDashboardEditor(open=true){const el=document.getElementById('dashboardEditor');if(!el){dashboard();return}el.style.display=open?'block':'none';if(open){const v=dashboardEditValues();Object.entries({editCash:v.cash,editInvestments:v.investments,editOtherAssets:v.otherAssets,editLiabilities:v.liabilities,editIncome:v.income,editSpending:v.spending,editEmergency:v.emergency}).forEach(([id,val])=>{const x=document.getElementById(id);if(x)x.value=val});el.scrollIntoView({behavior:'smooth',block:'start'})}}
 function zeroDashboardEditor(){['editCash','editInvestments','editOtherAssets','editLiabilities','editIncome','editSpending','editEmergency'].forEach(id=>{const x=document.getElementById(id);if(x)x.value=0});toast('Editor prepared with zero values. Press Save numbers to apply.')}
 function saveDashboardNumbers(){const read=id=>Math.max(0,Number(document.getElementById(id)?.value||0));state.cash=read('editCash');state.investments=read('editInvestments');state.otherAssets=read('editOtherAssets');state.liabilities=read('editLiabilities');state.income=read('editIncome');state.spending=read('editSpending');state.emergency=read('editEmergency');state.profile={...state.profile,currency:'INR'};state.memory=Array.isArray(state.memory)?state.memory:[];state.memory.unshift({title:'Dashboard numbers updated',text:`Cash ${money(state.cash)}, investments ${money(state.investments)}, liabilities ${money(state.liabilities)}, income ${money(state.income)}, spending ${money(state.spending)}, emergency ${money(state.emergency)}.`,time:new Date().toLocaleString()});state.memory=state.memory.slice(0,200);save();try{runMonitoring(false)}catch{}dashboard();toast('Dashboard numbers saved')}
-function runAgent(){if(['Investment','Markets','Tax'].includes(document.getElementById('agentSelect')?.value||'')){if(!state.compliance.termsAccepted){show('compliance');toast('Acknowledge the financial-risk notice first');return}}refreshBrain();const findings=state.findings;const alerts=[];findings.filter(f=>f.severity==='HIGH').forEach(f=>alerts.push({title:f.title,reason:f.detail,priority:'HIGH',status:'Pending',source:'Financial Brain',findingId:f.domain}));if((state.income-state.spending)>0)alerts.push({title:'Protect monthly surplus',reason:`${money(state.income-state.spending)} free cash is available before allocation.`,priority:'MEDIUM',status:'Pending',source:'CFO Agent'});const enabled=AGENTS.map(a=>a[0]).concat((state.agents||[]).filter(a=>a.enabled).map(a=>a.name));const web=typeof liveWebSignal==='function'?liveWebSignal():null;enabled.forEach(name=>{const profile=window.FinPilotAgentIntelligence?.profile(name);const rec=window.FinPilotAgentIntelligence?.enrich(state,name,{analysis:`${name} reviewed ${findings.length} Financial Brain findings.`,evidence:findings.map(f=>f.detail).slice(0,5),recommendation:'Verify evidence before acting.',confidence:profile?70:62,risk:'MEDIUM',decision:'VERIFY'},web)||{agent:name,time:new Date().toISOString(),finding:`${name} reviewed ${findings.length} structured findings.`,outcome:'PENDING'};if(window.FinPilotAgentIntelligence)window.FinPilotAgentIntelligence.record(state,rec);state.agentRuns.unshift({...rec,finding:rec.analysis});});state.agentRuns=state.agentRuns.slice(0,100);state.actions=alerts;state.lastAgent=new Date().toISOString();state.memory.push({title:'Agent fleet cycle completed',text:`${enabled.length} agents reviewed ${findings.length} structured findings.`,time:new Date().toLocaleTimeString()});save();toast(`Fleet cycle completed: ${enabled.length} agents`);show('actions')}
+function runAgent(){
+ const selected=document.getElementById('agentSelect')?.value||'';
+ if(['Investment','Markets','Tax'].includes(selected)&&!state.compliance.termsAccepted){show('compliance');toast('Acknowledge the financial-risk notice first');return}
+ refreshBrain();
+ const findings=state.findings||[],alerts=[];
+ findings.filter(f=>f.severity==='HIGH').forEach(f=>alerts.push({title:f.title,reason:f.detail,priority:'HIGH',status:'Pending',source:'Financial Brain',findingId:f.domain}));
+ const surplus=state.income-state.spending;
+ if(surplus>0)alerts.push({title:'Protect monthly surplus',reason:`${money(surplus)} free cash is available before allocation.`,priority:'MEDIUM',status:'Pending',source:'CFO Agent'});
+ const enabled=AGENTS.map(a=>a[0]).concat((state.agents||[]).filter(a=>a.enabled).map(a=>a.name));
+ const web=typeof liveWebSignal==='function'?liveWebSignal():null;
+ enabled.forEach(name=>{
+   const intel=window.FinPilotAgentIntelligence;
+   const score=intel?.score?.(state,name,web)||{confidence:60,risk:50,domainScore:60};
+   const riskLabel=score.risk>=70?'HIGH':score.risk>=45?'MEDIUM':'LOW';
+   const decision=score.domainScore>=70&&score.risk<60?'CONSIDER':score.risk>=70?'DEFEND':'VERIFY';
+   const rec=intel?.enrich?.(state,name,{
+     hypothesis:`${name} should change its conclusion if the underlying evidence materially changes.`,
+     analysis:`${name} evaluated ${findings.length} Financial Brain findings using its ${score.domainScore.toFixed(1)} domain score and current liquidity/risk state.`,
+     evidence:findings.map(f=>f.detail).slice(0,6),
+     challenge:score.risk>=70?'What evidence would disprove the defensive thesis?':'What is the strongest downside case against the current thesis?',
+     recommendation:score.risk>=70?'Reduce or defer added risk until the constraint is resolved.':'Verify primary evidence and keep any high-impact action approval-gated.',
+     confidence:score.confidence,
+     risk:riskLabel,
+     decision
+   },web)||{agent:name,time:new Date().toISOString(),finding:`${name} reviewed ${findings.length} structured findings.`,outcome:'PENDING',confidence:score.confidence};
+   if(intel)intel.record(state,rec);
+   state.agentRuns.unshift({...rec,finding:rec.analysis});
+ });
+ state.agentRuns=state.agentRuns.slice(0,100);
+ state.actions=alerts;
+ state.lastAgent=new Date().toISOString();
+ state.memory.push({title:'Agent fleet cycle completed',text:`${enabled.length} agents executed dynamic scoring across ${findings.length} findings.`,time:new Date().toLocaleTimeString()});
+ save();toast(`Fleet cycle completed: ${enabled.length} agents · dynamic confidence`);show('actions');
+}
 function liveWebSignal(){
  const rows=(state.evidence||[]).filter(e=>e.type==='Live web evidence').slice(0,8);
  const s=state.lastSearchEvidence||null;
