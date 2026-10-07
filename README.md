@@ -9,12 +9,22 @@ FinPilot AI is a website-first financial operating system. Version 2.3 upgrades 
 - Round Table Assist
 - Action Center with approval gates
 - Transactions, budgets, goals, investments, debt and What-If Lab
-- Intelligence Search fallback
+- Live Internet Search
+- One-Click Full Stock Analysis
+- Isolated pseudo paper-trading agent arena
 - Financial Health
 - Cloud Vault adapter UI
 - Persistent Memory
 - Local/offline decision engine
 - Server-side AI gateway reference (API key stays server-side)
+
+## Production deployment
+
+This repository now includes `render.yaml` for a Node.js Web Service deployment. Render Web Services provide a public `onrender.com` URL for server-side apps like FinPilot, and the service is configured to bind to `0.0.0.0` and use the server health endpoint. citeturn1search1
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/shuyeb328-dot/Finpilot-ai-website-)
+
+After deployment, add the `SERPAPI_API_KEY` secret in Render. Do not commit the key to GitHub; Render environment variables are designed for secrets. citeturn1search5
 
 ## 2.3 changes
 - Schema version `2300`
