@@ -101,14 +101,25 @@
     box.insertAdjacentHTML('afterbegin',html);
   }
 
+  function ensureRawSearch(){
+    if(typeof rawDoSearch==='function')return rawDoSearch;
+    if(typeof window.doSearch==='function'){
+      rawDoSearch=window.doSearch;
+      return rawDoSearch;
+    }
+    throw new Error('Search engine is still loading. Please try again in a moment.');
+  }
+
   async function runFullStockAnalysis(query){
     query=String(query||'').trim();
     if(!query||running)return;
     running=true;
+    try{if(typeof window.show==='function')window.show('search')}catch{}
     const box=document.getElementById('searchResults');
     if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>Running full analysis…</b> Search → evidence → agents → CEO/CFO/Judge → paper council</div>');
     try{
-      await rawDoSearch(query);
+      const search=ensureRawSearch();
+      await search(query);
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,money,sourceAge);
