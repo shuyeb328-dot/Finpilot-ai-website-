@@ -97,21 +97,21 @@
           <div class="decision"><span class="pill">⚖ JUDGE · FINAL</span><h2>${escLocal(e.judge||report.decision||'VERIFY')}</h2><b>${report.confidence||0}% confidence</b></div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid #d8e0ef;background:#fbfcff">
-          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 REAL-MONEY SCENARIO</span><h3 style="font-size:18px;margin-top:5px">Current AI evaluation translated into money</h3></div><span class="pill \${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">\${money?.riskBand||'CHECK'}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 REAL-MONEY SCENARIO</span><h3 style="font-size:18px;margin-top:5px">Current AI evaluation translated into money</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
           <div class="grid cards" style="margin-bottom:10px">
-            <div class="card"><span class="muted">AI action</span><div class="metric" style="font-size:19px">\${escLocal(money?.action||'CHECK')}</div><span class="muted">\${money?.horizon||30}-day scenario</span></div>
-            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">\${money?.buyProbability||0}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">\${money?.sellProbability||0}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">\${money?.holdProbability||0}%</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">AI action</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
+            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability||0}%</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability||0}%</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability||0}%</div><span class="muted">Model estimate</span></div>
           </div>
           <div class="grid four">
-            <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">+₹\${money?.estimatedProfit?.toLocaleString('en-IN')||0}</div><span class="muted">+\${money?.upsidePct||0}% scenario</span></div>
-            <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">−₹\${money?.estimatedLoss?.toLocaleString('en-IN')||0}</div><span class="muted">−\${money?.downsidePct||0}% scenario</span></div>
-            <div class="card"><span class="muted">Risk : Reward</span><div class="metric" style="font-size:20px">\${money?.riskReward||0}:1</div><span class="muted">Potential upside / downside</span></div>
-            <div class="card"><span class="muted">Expected value</span><div class="metric \${Number(money?.expectedValue||0)>=0?'green':'red'}" style="font-size:20px">\${Number(money?.expectedValue||0)>=0?'+':''}₹\${money?.expectedValue?.toLocaleString('en-IN')||0}</div><span class="muted">Probability-weighted scenario</span></div>
+            <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">+₹${money?.estimatedProfit?.toLocaleString('en-IN')||0}</div><span class="muted">+${money?.upsidePct||0}% scenario</span></div>
+            <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">−₹${money?.estimatedLoss?.toLocaleString('en-IN')||0}</div><span class="muted">−${money?.downsidePct||0}% scenario</span></div>
+            <div class="card"><span class="muted">Risk : Reward</span><div class="metric" style="font-size:20px">${money?.riskReward||0}:1</div><span class="muted">Potential upside / downside</span></div>
+            <div class="card"><span class="muted">Expected value</span><div class="metric ${Number(money?.expectedValue||0)>=0?'green':'red'}" style="font-size:20px">${Number(money?.expectedValue||0)>=0?'+':''}₹${money?.expectedValue?.toLocaleString('en-IN')||0}</div><span class="muted">Probability-weighted scenario</span></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>How the AI got this:</b> current risk \${money?.inputs?.risk||0} · CEO \${money?.inputs?.ceo||0}% · CFO \${money?.inputs?.cfo||0}% · Judge \${money?.inputs?.judge||0}% · evidence \${money?.inputs?.evidence||0} · market \${money?.inputs?.market||0}.<br><span class="muted">\${escLocal(money?.probabilityBasis||'')}</span></div>
-          <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> \${escLocal(money?.disclaimer||'Scenario only.')}</div>
+          <div class="notice" style="margin-top:10px"><b>How the AI got this:</b> current risk ${money?.inputs?.risk||0} · CEO ${money?.inputs?.ceo||0}% · CFO ${money?.inputs?.cfo||0}% · Judge ${money?.inputs?.judge||0}% · evidence ${money?.inputs?.evidence||0} · market ${money?.inputs?.market||0}.<br><span class="muted">${escLocal(money?.probabilityBasis||'')}</span></div>
+          <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> ${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid #cfd8ea;background:#fff">
           <div class="sectionTitle"><div><span class="eyebrow">FINPILOT v8 · 50 UPGRADES</span><h3 style="font-size:18px;margin-top:5px">Risk-controlled execution intelligence</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
