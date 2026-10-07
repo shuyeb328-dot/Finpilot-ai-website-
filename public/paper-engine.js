@@ -27,9 +27,9 @@
   function ensure(state){
     if(!state.paperTrading)state.paperTrading=defaultPaper();
     const p=state.paperTrading;
-    p.agents=p.agents||[];p.positions=p.positions||[];p.orders=p.orders||[];
-    p.journal=p.journal||[];p.rounds=p.rounds||[];p.leaderboard=p.leaderboard||[];
-    p.marketSnapshot=p.marketSnapshot||{};
+    p.agents=Array.isArray(p.agents)?p.agents:[];p.positions=Array.isArray(p.positions)?p.positions:[];p.orders=Array.isArray(p.orders)?p.orders:[];
+    p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
+    p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
     return p;
   }
 
