@@ -495,4 +495,4 @@ const server=http.createServer(async(req,res)=>{
  }catch(e){send(res,500,{ok:false,error:e.message})}
 });
 server.on('error',(e)=>{console.error(`FinPilot Web server error: ${e.message}`);process.exitCode=1;});
-server.listen(PORT,HOST,()=>console.log(`FinPilot Web running on http://${HOST}:${PORT}`));
+server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
