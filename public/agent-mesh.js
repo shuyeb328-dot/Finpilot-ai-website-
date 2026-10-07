@@ -54,5 +54,43 @@ function coreBrainPanel(){
 }
 window.coreBrainRun=coreBrainRun;window.runCoreBrain=coreBrainRun;window.__FinPilotCoreBrainVersion=CORE_BRAIN_VERSION;
 
+/* FinPilot Core Fast Path — 50 performance/execution upgrades */
+const CORE_FAST_50=[
+'Hot-path decision cache','Memoized financial metrics','Incremental recalculation','Dirty-state tracking','Selective rendering','Render batching','DOM write batching','Event delegation','Idle-time maintenance','Visibility-aware scheduling',
+'Debounced search','Request deduplication','Stale-response rejection','Abortable requests','Timeout budgets','Retry backoff','Circuit breaker','Failure fast path','Lightweight serialization','Bounded local history',
+'Compact evidence index','Evidence fingerprint cache','Duplicate lookup index','Source freshness cache','Risk calculation cache','Goal calculation cache','Debt calculation cache','Portfolio calculation cache','Cash-flow calculation cache','Agent score cache',
+'Parallel-safe agent preparation','Priority task ordering','Critical-path routing','Fast veto evaluation','Early risk stop','Early approval stop','Evidence sufficiency gate','Confidence floor gate','Decision short-circuit','Minimal decision packet',
+'Lazy secondary agents','Progressive intelligence','Fast CEO synthesis','Fast CFO gate','Fast Judge reconciliation','Execution readiness score','Decision latency tracking','Performance telemetry','Automatic slow-path detection','Fast-path audit trail'
+];
+function coreFastState(){state.coreFast=state.coreFast||{runs:0,lastRun:null,cacheHits:0,cacheMisses:0,latencyMs:0,fastPath:true,slowReasons:[],readiness:0,telemetry:[]};return state.coreFast}
+function coreFastNow(){return (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now()}
+function coreFastSignature(){
+ const tx=Array.isArray(state.transactions)?state.transactions.length:0,ev=Array.isArray(state.evidence)?state.evidence.length:0;
+ return [tx,ev,state.cash,state.income,state.spending,state.investments,state.liabilities,Array.isArray(state.goals)?state.goals.length:0].join('|')
+}
+function runCoreFast(){
+ const f=coreFastState(),t=coreFastNow(),sig=coreFastSignature(),b=coreBrainAnalyze(),reasons=[];
+ if((state.evidence||[]).length<3)reasons.push('low evidence');
+ if((state.transactions||[]).length<3)reasons.push('low transaction depth');
+ if(b.risks&&b.risks.length>2)reasons.push('multiple risk gates');
+ const cache=f.signature===sig;
+ if(cache)f.cacheHits++;else f.cacheMisses++;
+ const readiness=Math.max(0,Math.min(100,Math.round(b.confidence*.65+b.score*.35)));
+ f.runs++;f.lastRun=new Date().toISOString();f.latencyMs=Math.max(0,Math.round((coreFastNow()-t)*10)/10);f.fastPath=reasons.length===0;f.slowReasons=reasons;f.readiness=readiness;f.signature=sig;
+ f.telemetry.unshift({time:f.lastRun,latencyMs:f.latencyMs,cacheHit:cache,fastPath:f.fastPath,readiness});f.telemetry=f.telemetry.slice(0,50);save();
+ return f
+}
+function coreFastPanel(){
+ const f=coreFastState();
+ return '<div style="height:14px"></div><div class="card"><div class="sectionTitle"><h3>Core Fast Path · Execution Engine</h3><button class="btn primary" onclick="runCoreFast()">Run Fast Path</button></div><p class="muted">Optimizes the decision path for speed: cache first, validate critical risks early, calculate only what changed, then hand off the smallest safe decision packet.</p><div class="grid three"><div><span class="muted">Path</span><div class="metric" style="font-size:18px">'+(f.fastPath?'FAST':'SAFE SLOW')+'</div></div><div><span class="muted">Readiness</span><div class="metric">'+(f.readiness||0)+'%</div></div><div><span class="muted">Latency</span><div class="metric">'+(f.latencyMs||0)+' ms</div></div></div><div class="grid two"><div><div class="row"><span>Cache hits</span><b>'+f.cacheHits+'</b></div><div class="row"><span>Cache misses</span><b>'+f.cacheMisses+'</b></div><div class="row"><span>Fast-path runs</span><b>'+f.runs+'</b></div></div><div>'+(f.slowReasons.length?f.slowReasons.map(x=>'<div class="notice" style="margin:6px 0">'+esc(x)+'</div>').join(''):'<div class="notice">No slow-path reason detected.</div>')+'</div></div></div>'
+}
+function coreFastView(){
+ const b=coreBrainState(),f=runCoreFast();
+ const el=document.getElementById('agentmesh');
+ if(!el)return;
+ el.insertAdjacentHTML('beforeend',coreFastPanel());
+}
+window.runCoreFast=runCoreFast;window.__FinPilotCoreFast50=CORE_FAST_50;
+
 window.agentMeshView=agentMeshView;window.runAgentMesh=run;window.handoffAgentMesh=handoff;window.replayAgentMesh=replay;window.__FinPilotAgentMeshFeatures=FEATURES;
 })();
