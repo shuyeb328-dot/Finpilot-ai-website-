@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source=fs.readFileSync(new URL('../public/money-scenario.js',import.meta.url),'utf8');
-const context={window:{}};
+const context={}; context.window=context;
 vm.runInNewContext(source,context);
 const e=context.window.FinpilotMoneyEngine;
 assert.equal(typeof e.analyze,'function');
