@@ -75,6 +75,7 @@
     const web=report.webSignal||{};
     const paper=report.paper;
     const money=window.FinpilotMoneyEngine?.analyze(report,1000,30)||null;
+    const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
@@ -112,7 +113,23 @@
           <div class="notice" style="margin-top:10px"><b>How the AI got this:</b> current risk \${money?.inputs?.risk||0} · CEO \${money?.inputs?.ceo||0}% · CFO \${money?.inputs?.cfo||0}% · Judge \${money?.inputs?.judge||0}% · evidence \${money?.inputs?.evidence||0} · market \${money?.inputs?.market||0}.<br><span class="muted">\${escLocal(money?.probabilityBasis||'')}</span></div>
           <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> \${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
-        <div class="notice" style="margin-top:12px"><b>All-in-one pipeline:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → isolated paper council. No real order was placed.</div>
+<div class="card" style="margin-top:12px;border:1px solid #cfd8ea;background:#fff">
+          <div class="sectionTitle"><div><span class="eyebrow">FINPILOT v8 · 50 UPGRADES</span><h3 style="font-size:18px;margin-top:5px">Risk-controlled execution intelligence</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
+          <div class="grid four">
+            <div class="card"><span class="muted">Safe position</span><div class="metric" style="font-size:20px">₹${v8?.position?.recommended?.toLocaleString('en-IN')||0}</div><span class="muted">of ₹${v8?.position?.requested?.toLocaleString('en-IN')||0} requested</span></div>
+            <div class="card"><span class="muted">Risk-adjusted return</span><div class="metric" style="font-size:20px">${v8?.riskMetrics?.riskAdjustedReturn||0}%</div><span class="muted">quality-adjusted</span></div>
+            <div class="card"><span class="muted">7-day stress</span><div class="metric red" style="font-size:20px">−${v8?.scenarios?.stress7||0}%</div><span class="muted">stress case</span></div>
+            <div class="card"><span class="muted">Signal stability</span><div class="metric" style="font-size:20px">${v8?.quality?.signalStability||0}%</div><span class="muted">CEO/CFO/evidence</span></div>
+          </div>
+          <div class="grid three" style="margin-top:10px">
+            <div class="card"><span class="muted">Target / stop</span><div class="metric" style="font-size:17px">+${v8?.scenarios?.targetMovePct||0}% / ${v8?.scenarios?.stopMovePct||0}%</div><span class="muted">scenario boundaries</span></div>
+            <div class="card"><span class="muted">Maximum loss</span><div class="metric red" style="font-size:18px">₹${v8?.riskMetrics?.maxLoss?.toLocaleString('en-IN')||0}</div><span class="muted">risk budget</span></div>
+            <div class="card"><span class="muted">Audit ID</span><div class="metric" style="font-size:15px">${escLocal(v8?.auditId||'—')}</div><span class="muted">decision trace</span></div>
+          </div>
+          <div class="notice" style="margin-top:10px"><b>Re-evaluation triggers:</b> ${v8?.triggers?.length?v8.triggers.map(escLocal).join(' · '):'No immediate trigger; continue monitoring.'}</div>
+          <div class="notice" style="margin-top:8px"><b>v8 decision trace:</b> ${v8?.trace?.map(escLocal).join(' → ')||'Not available'}</div>
+          <div class="muted" style="margin-top:8px">${escLocal(v8?.disclaimer||'')}</div>
+        </div>        <div class="notice" style="margin-top:12px"><b>All-in-one pipeline:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → isolated paper council. No real order was placed.</div>
       </div>`;
     const old=document.getElementById('oneClickResult');
     if(old)old.remove();
