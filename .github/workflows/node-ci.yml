@@ -29,6 +29,18 @@ jobs:
         run: node tests/adaptive-research.test.mjs
       - name: Run dashboard editor tests
         run: node tests/dashboard-edit.test.mjs
+      - name: Run agent evolution tests
+        run: node tests/agent-evolution.test.mjs
+      - name: Validate final release assets
+        run: |
+          test -f public/index.html
+          test -f public/quantum-ai.js
+          test -f public/quantum-v5-ui.js
+          test -f public/agent-evolution.js
+          test -f public/paper-engine.js
+          test -f public/adaptive-research.js
+          test -f public/decision-core.js
+          echo "FinPilot final release assets present"
       - name: Run syntax checks
         run: npm run check
       - name: Start FinPilot server
