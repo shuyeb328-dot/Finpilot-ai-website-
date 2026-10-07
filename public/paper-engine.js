@@ -124,5 +124,5 @@
     }).sort((a,b)=>b.returnPct-a.returnPct);
   }
 
-  window.FinPilotPaperCore={defaultPaper,ensure,think,paperOrder,roundTable,leaderboard};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,roundTable,leaderboard};
 })();
