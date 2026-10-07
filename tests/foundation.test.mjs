@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source=fs.readFileSync(new URL('../public/foundation-engine.js',import.meta.url),'utf8');
-const context={window:{},document:undefined,localStorage:{getItem:()=>null,setItem:()=>{}},Date,Math,String,Number,JSON};
+const context={window:{addEventListener:()=>{}},document:undefined,localStorage:{getItem:()=>null,setItem:()=>{}},Date,Math,String,Number,JSON,setTimeout:()=>{}};
 vm.runInNewContext(source,context);
 const f=context.window.FinPilotFoundation;
 assert.equal(typeof f.benchmark,'function');
