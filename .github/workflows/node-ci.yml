@@ -21,6 +21,11 @@ jobs:
       - name: Run CEO/CFO/Judge tests
         run: npm test
       - name: Start FinPilot server
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          SERPAPI_ENGINE: google_news
+          SERPAPI_GL: in
+          SERPAPI_HL: en
         run: |
           PORT=8787 HOST=127.0.0.1 npm start > /tmp/finpilot.log 2>&1 &
           for i in {1..20}; do
@@ -36,3 +41,18 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/compliance | grep -q '"jurisdiction":"India"'
           curl -fsS "http://127.0.0.1:8787/api/stock-report?ticker=SBC" | grep -q '"ticker":"SBC"'
           echo "FinPilot server smoke test passed"
+      - name: Live Internet Search smoke test
+        if: ${{ secrets.SERPAPI_API_KEY != '' }}
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          SERPAPI_ENGINE: google_news
+          SERPAPI_GL: in
+          SERPAPI_HL: en
+          SEARCH_PROVIDER: serpapi
+        run: |
+          body="$(curl -fsS --get --data-urlencode "q=IRFC" --data-urlencode "count=3" http://127.0.0.1:8787/api/search)"
+          echo "$body"
+          echo "$body" | grep -q '"live":true'
+          echo "$body" | grep -q '"provider":"serpapi"'
+          echo "$body" | grep -q '"results":'
+          echo "Live Internet Search smoke test passed"
