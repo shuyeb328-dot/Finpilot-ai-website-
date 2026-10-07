@@ -7,7 +7,7 @@
     "start": "node server/server.mjs",
     "dev": "node server/server.mjs",
     "check": "node --check server/server.mjs && node --check public/paper-engine.js && node --check public/agent-intelligence.js && node --check public/foundation-engine.js && node --check public/upgrade-v8.js && node --check public/paper-lab.js && node --check public/one-click-analysis.js && node --check public/quantum-ai.js && node --check public/quantum-v5-ui.js && node --check public/agent-evolution.js && node scripts/check-frontend.mjs",
-    "test": "node tests/foundation.test.mjs && node tests/money-scenario.test.mjs && node tests/upgrade-v8.test.mjs && node tests/ceo-cfo-judge.test.mjs && node tests/paper-engine.test.mjs && node tests/adaptive-research.test.mjs && node tests/dashboard-edit.test.mjs && node tests/agent-evolution.test.mjs"
+    "test": "node tests/foundation.test.mjs && node tests/money-scenario.test.mjs && node tests/upgrade-v8.test.mjs && node tests/ceo-cfo-judge.test.mjs && node tests/paper-engine.test.mjs && node tests/adaptive-research.test.mjs && node tests/dashboard-edit.test.mjs && node tests/agent-evolution.test.mjs && node tests/professional-themes.test.mjs"
   },
   "engines": {
     "node": ">=18"
