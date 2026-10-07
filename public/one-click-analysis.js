@@ -2,6 +2,11 @@
    Search -> evidence -> Financial Brain -> all agents -> CEO/CFO/Judge -> paper council.
    This is decision support only. It never places a real trade. */
 (function(){
+  function loadEvolutionEngine(){
+    if(window.FinPilotEvolution||document.getElementById('finpilotEvolutionScript'))return;
+    const s=document.createElement('script');s.id='finpilotEvolutionScript';s.src='/agent-evolution.js';s.defer=true;document.head.appendChild(s);
+  }
+  loadEvolutionEngine();
   function loadQuantumControlPlane(){
     if(window.FinPilotQuantum||document.getElementById('finpilotQuantumScript'))return;
     const s=document.createElement('script');s.id='finpilotQuantumScript';s.src='/quantum-ai.js';s.defer=true;document.head.appendChild(s);
