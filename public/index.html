@@ -285,7 +285,7 @@ function runRoundTable(){
  const findings=state.findings;
  const web=liveWebSignal();
  const core=FinPilotDecisionCore.computeExecutiveDecision(state,findings,web,money,sourceAge);
- const decision={decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,findings:findings.map(f=>f.domain),voices:core.voices,evidenceIds:state.evidence.map(e=>e.id),evidenceFreshness:core.evidenceFreshness,webSignal:core.webSignal,executive:core.executive,time:new Date().toISOString()};
+ const decision={decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,findings:findings.map(f=>f.domain),voices:core.voices,evidenceIds:state.evidence.map(e=>e.id),evidenceFreshness:core.evidenceFreshness,webSignal:core.webSignal,quantumSignal:core.quantumSignal,executive:core.executive,time:new Date().toISOString()};
  state.decision=decision;
  state.decisionHistory.unshift(decision);state.decisionHistory=state.decisionHistory.slice(0,50);
  state.memory.push({title:'CEO/CFO/Judge decision',text:decision.decision,time:new Date().toLocaleTimeString()});
