@@ -9,7 +9,7 @@
     const d=decision||{}, ex=d.executive||{}, inputs=ex.inputs||{};
     amount=Math.max(1,Number(amount)||1000);
     horizon=[7,30,90].includes(Number(horizon))?Number(horizon):30;
-    const risk=clamp(d.risk??inputs.stability?100-inputs.stability:50);
+    const risk=clamp(d.risk ?? (inputs.stability!=null ? 100-inputs.stability : 50));
     const confidence=clamp(d.confidence??ex.judgeConfidence??50);
     const ceo=clamp(ex.ceoConfidence??confidence);
     const cfo=clamp(ex.cfoConfidence??confidence);
