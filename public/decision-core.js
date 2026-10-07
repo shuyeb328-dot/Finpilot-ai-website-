@@ -2,6 +2,7 @@
 function clamp(n,a=0,b=100){return Math.max(a,Math.min(b,Number.isFinite(Number(n))?Number(n):0));}
 function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const fs=Array.isArray(findings)?findings:[];
+ const quantum=(window.FinPilotFoundation?.quantumSearchSignal)?window.FinPilotFoundation.quantumSearchSignal(web?.query||'',web):{intent:'research',confidence:60,evidenceCount:Number(web?.count||0),stance:web?.stance||'Mixed',freshness:web?'LIVE':'LOCAL',route:['Quantum Search','Research/Evidence','Specialist Agents','Round Table','CEO','CFO','Judge']};
  const high=fs.filter(f=>f.severity==='HIGH').length;
  const medium=fs.filter(f=>f.severity==='MEDIUM').length;
  const emergency=Number(state.emergency||0);
@@ -35,9 +36,9 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
 
  const liquidityScore=clamp(45+(reserveMonths-3)*9+(surplus>0?12:-18));
  const debtScore=clamp(82-debtRatio*75);
- const evidenceScore=clamp(42+Math.min(30,webCount*4)+Math.min(15,freshLive*3)+Math.min(8,webConfidence*.08));
+ const evidenceScore=clamp(42+Math.min(30,webCount*4)+Math.min(15,freshLive*3)+Math.min(8,webConfidence*.08)+(quantum.confidence-60)*.12);
  const stabilityScore=clamp(100-high*16-medium*5-(reserveMonths<3?18:0)-(debtRatio>.5?14:debtRatio>.25?7:0));
- const marketScore=clamp(50+(positive?18:cautious?-18:0)+(stale?-8:0)+(webCount?Math.min(10,webCount):0));
+ const marketScore=clamp(50+(positive?18:cautious?-18:0)+(stale?-8:0)+(webCount?Math.min(10,webCount):0)+(quantum.intent==='market'||quantum.intent==='portfolio'?4:0));
 
  const ceoSignal=clamp((marketScore*.45)+(avgDomain*.2)+(evidenceScore*.2)+(liquidityScore*.15));
  const cfoSignal=clamp((liquidityScore*.42)+(debtScore*.28)+(stabilityScore*.2)+(cfoAgent?.domainScore||0)*.1);
@@ -72,6 +73,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    - (mixed?3:0)
    - (disagreement>25?7:disagreement>12?3:0)
    + Math.min(5,Math.max(0,webCount-2))
+   + Math.min(5,Math.max(0,quantum.confidence-60)*.12)
  );
  const risk=clamp(
    20+high*17+medium*5+
@@ -95,7 +97,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    ? 'Live web search for “'+web.query+'” is '+web.stance.toLowerCase()+' based on '+webCount+' evidence item(s). '+(positive?'News flow is supportive, but fundamentals still require verification.':cautious?'News flow contains caution signals; verify primary sources before acting.':'News flow is mixed; headlines alone are insufficient for a trade signal.')
    : 'No live web evidence is attached to this council.';
  const evidenceFreshness=stale?'STALE':freshLive>0?'FRESH':'RECENT';
- const summary='CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
+ const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
  return {
    decision:judge,summary,risk:Math.round(risk),confidence:Math.round(decisionConfidence),
    voices,evidenceFreshness,
@@ -107,6 +109,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
      inputs:{liquidity:Math.round(liquidityScore),debt:Math.round(debtScore),stability:Math.round(stabilityScore),evidence:Math.round(evidenceScore),market:Math.round(marketScore),specialistAverage:Math.round(avgConfidence),disagreement:Math.round(disagreement)}
    },
    webSignal:web,
+   quantumSignal:quantum,
    telemetry:{highFindings:high,mediumFindings:medium,reserveMonths:Number(reserveMonths.toFixed(2)),debtRatio:Number(debtRatio.toFixed(3)),evidenceCount:evidence.length,liveEvidenceCount:webCount,freshLiveEvidence:freshLive,specialistCount:matrix.length,stale}
  };
 }
