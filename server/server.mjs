@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import {searchWeb} from './search-provider.mjs';
 
 const PORT=Number(process.env.PORT||8787);
-const HOST=process.env.HOST||'127.0.0.1';
+const HOST=process.env.HOST||'0.0.0.0';
 const ROOT=path.resolve(new URL('../public/', import.meta.url).pathname);
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg'};
 const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>{
