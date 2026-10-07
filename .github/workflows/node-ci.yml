@@ -18,8 +18,10 @@ jobs:
           node-version: "20.x"
       - name: Install dependencies
         run: npm install
-      - name: Run CEO/CFO/Judge tests
+      - name: Run FinPilot test suite
         run: npm test
+      - name: Run syntax checks
+        run: npm run check
       - name: Start FinPilot server
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
