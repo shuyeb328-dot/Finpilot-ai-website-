@@ -16,5 +16,23 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "20.x"
+      - name: Install dependencies
+        run: npm install
       - name: Run CEO/CFO/Judge tests
         run: npm test
+      - name: Start FinPilot server
+        run: |
+          PORT=8787 HOST=127.0.0.1 npm start > /tmp/finpilot.log 2>&1 &
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8787/api/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          cat /tmp/finpilot.log
+          cat /tmp/health.json
+      - name: Smoke-test FinPilot API and dashboard
+        run: |
+          curl -fsS http://127.0.0.1:8787/ | grep -q "FinPilot"
+          curl -fsS http://127.0.0.1:8787/api/core-status | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:8787/api/compliance | grep -q '"jurisdiction":"India"'
+          curl -fsS "http://127.0.0.1:8787/api/stock-report?ticker=SBC" | grep -q '"ticker":"SBC"'
+          echo "FinPilot server smoke test passed"
