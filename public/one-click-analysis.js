@@ -2,7 +2,7 @@
    Search -> evidence -> Financial Brain -> all agents -> CEO/CFO/Judge -> paper council.
    This is decision support only. It never places a real trade. */
 (function(){
-  const rawDoSearch = window.doSearch;
+  let rawDoSearch = null;
   let running = false;
 
   function escLocal(v){
@@ -148,13 +148,18 @@
     box.prepend(d);
   }
 
-  if(typeof rawDoSearch==='function'){
-    window.doSearch=async function(q){
-      await rawDoSearch(q);
-      mountSearchActions(q);
-    };
+  function install(){
+    if(!rawDoSearch && typeof window.doSearch==='function'){
+      rawDoSearch=window.doSearch;
+      window.doSearch=async function(q){
+        await rawDoSearch(q);
+        mountSearchCard(q);
+      };
+    }
+    mountSearchActions();
   }
   window.runFullStockAnalysis=runFullStockAnalysis;
-  window.addEventListener('load',mountSearchActions);
-  setTimeout(mountSearchActions,50);
+  window.addEventListener('load',install);
+  setTimeout(install,0);
+  setTimeout(install,100);
 })();
