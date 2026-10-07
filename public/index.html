@@ -210,6 +210,33 @@ function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileRe
 function resetData(){if(confirm('Reset all local FinPilot data?')){localStorage.removeItem('finpilot_web_v1800');localStorage.removeItem('finpilot_web_v2300');localStorage.removeItem('finpilot_web_v2500');state=structuredClone(defaultState);state.schemaVersion=2700;state.simulationHistory=[];state.outcomes=[];state.learning={accuracy:null,confidenceAdjustment:0,agentScores:{},repeatedMistakes:[]};show('dashboard');toast('Local data reset')}}
 function addMemory(){const t=prompt('Memory title');const x=prompt('What should FinPilot remember?');if(!t||!x)return;state.memory.push({title:t,text:x,time:new Date().toLocaleString()});save();render('memory')}
 function openModal(id){document.getElementById(id).classList.add('open')}function closeModal(id){document.getElementById(id).classList.remove('open')}
+function setFPTheme(theme){
+ const allowed={obsidian:'Quantum Obsidian',emerald:'Emerald Intelligence',executive:'Executive Slate',aurora:'Aurora Finance'};
+ theme=allowed[theme]?theme:'obsidian';
+ document.documentElement.setAttribute('data-theme',theme);
+ localStorage.setItem('finpilot_theme',theme);
+ const label=document.getElementById('themeButtonLabel');if(label)label.textContent=allowed[theme];
+ const choices=document.getElementById('themeChoices');
+ if(choices)choices.querySelectorAll('[data-theme-choice]').forEach(function(x){x.classList.toggle('active',x.dataset.themeChoice===theme)});
+}
+function initFPTheme(){
+ const saved=localStorage.getItem('finpilot_theme')||'obsidian';
+ const allowed=['obsidian','emerald','executive','aurora'];
+ const theme=allowed.includes(saved)?saved:'obsidian';
+ document.documentElement.setAttribute('data-theme',theme);
+ const choices=document.getElementById('themeChoices');
+ if(choices){
+  const data=[
+   ['obsidian','Quantum Obsidian','Deep dark command-center interface','theme-obsidian'],
+   ['emerald','Emerald Intelligence','Calm green wealth-management interface','theme-emerald'],
+   ['executive','Executive Slate','Professional boardroom interface','theme-exec'],
+   ['aurora','Aurora Finance','Premium purple intelligence interface','theme-aurora']
+  ];
+  choices.innerHTML=data.map(function(x){return '<button type="button" class="themeChoice '+x[3]+'" data-theme-choice="'+x[0]+'" onclick="setFPTheme(\''+x[0]+'\')"><span class="themePreview"></span><b>'+x[1]+'</b><small>'+x[2]+'</small></button>'}).join('');
+ }
+ setFPTheme(theme);
+}
+function openThemePicker(){initFPTheme();openModal('themeModal')}
 function startFleetScheduler(){setInterval(()=>{if(state.fleetEnabled&&document.visibilityState!=='hidden')runAgent();},Math.max(1,Number(state.agentInterval||15))*60000)}
 function startMonitorScheduler(){setInterval(()=>{if(state.monitoring&&document.visibilityState!=='hidden')runMonitoring(false);},5*60000)}
 function init(){try{navView()}catch(e){console.error('FinPilot nav init failed',e)}try{document.getElementById("complianceBanner").innerHTML=complianceBannerView()}catch(e){console.error('FinPilot compliance init failed',e)}try{runMonitoring(false)}catch(e){console.error('FinPilot monitoring init failed',e);state.alerts=Array.isArray(state.alerts)?state.alerts:[];state.monitorHistory=Array.isArray(state.monitorHistory)?state.monitorHistory:[]}try{dashboardView()}catch(e){console.error('FinPilot dashboard init failed',e)}try{document.querySelector('[data-view="dashboard"]')?.classList.add('active')}catch(e){}try{document.getElementById('globalSearch')?.addEventListener('keydown',e=>{if(e.key==='Enter')webSearch()})}catch(e){console.error('FinPilot search init failed',e)}}
