@@ -23,7 +23,7 @@ const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>
  const cors=origin&&allowed&&origin===allowed?origin:undefined;
  const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'7.0',
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
-  'Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",...headers};
+  'Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",...headers};
  if(process.env.NODE_ENV==='production')h['Strict-Transport-Security']='max-age=31536000; includeSubDomains';
  if(cors)h['Access-Control-Allow-Origin']=cors;
  res.writeHead(status,h);res.end(typeof body==='string'?body:JSON.stringify(body));
