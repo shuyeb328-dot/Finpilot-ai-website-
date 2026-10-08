@@ -54,10 +54,17 @@ assert.equal(new Set(live.rankings.map(x=>x.agent)).size,12);
 assert.equal(live.rankings[0].rank,1);
 assert.equal(live.rankings[11].rank,12);
 assert.ok(live.averageScore>0);
+assert.ok(live.improvement);
+assert.ok(live.improvement.rounds>=1);
+assert.ok(live.improvement.rounds<=2);
+assert.ok(live.improvement.tests>=4);
 
 const s=status();
 assert.ok(s.evidenceCount>=8);
 assert.ok(s.candidateCount>=1);
 assert.ok(s.trainingCaseCount>=1);
 assert.equal(s.agents.CFO.status,'IDLE');
+assert.equal(s.learningLoop.running,false);
+assert.ok(s.learningLoop.rounds>=1);
+assert.ok(Array.isArray(s.learningLoop.history));
 console.log('Autonomous Learning OS + 12-agent live comparison contract passed');
