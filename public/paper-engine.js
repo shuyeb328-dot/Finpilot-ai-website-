@@ -52,10 +52,77 @@
     else{if(!pos||pos.qty<qty)throw new Error('Paper position limit exceeded');const pnl=(price-pos.avg)*qty;a.cash+=price*qty;pos.qty-=qty;pos.last=price;if(pos.qty===0)a.positions=a.positions.filter(x=>x!==pos);return pnl}
     return 0;
   }
+  function qtyStep(symbol){
+    const s=String(symbol||'').toUpperCase().replace(/[-_/].*$/,'');
+    return ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','MATIC','POL'].includes(s)?0.0001:1;
+  }
+  function normalizeQty(symbol,qty){
+    const step=qtyStep(symbol),n=Math.max(0,num(qty));
+    return step===1?Math.floor(n):Math.floor(n/step+1e-9)*step;
+  }
+  function estimateQuoteAgeSec(meta){
+    const t=meta?.receivedAt||meta?.tick?.receivedAt||meta?.asOf;
+    const ms=t?Date.now()-Date.parse(t):0;
+    return Number.isFinite(ms)&&ms>=0?ms/1000:0;
+  }
+  function preTradeCheck(state,args={}){
+    const p=ensure(state),agent=p.agents.find(x=>x.id===args.agentId);
+    const symbol=String(args.symbol||'').toUpperCase(),side=String(args.side||'').toUpperCase();
+    const qty=normalizeQty(symbol,args.qty),price=Math.max(0,num(args.entryPrice));
+    const meta=args.marketMeta||{},verified=meta.verified!==false && meta.available!==false;
+    const reasons=[],warnings=[];let status='PASS';
+    const block=x=>{reasons.push(x);status='BLOCK'};
+    const warn=x=>{warnings.push(x);if(status!=='BLOCK')status='WARN'};
+    if(!verified)block('Verified market data is required for execution.');
+    if(!agent)block('Selected paper agent is unavailable.');
+    if(!symbol)block('A trading symbol is required.');
+    if(qty<=0)block('Quantity is below the minimum tradable size.');
+    if(price<=0)block('Executable reference price is unavailable.');
+    if(agent&&price>0&&qty>0){
+      const notional=qty*price,fee=notional*p.account.commissionBps/10000,slip=notional*p.account.slippageBps/10000;
+      if(side==='BUY'&&notional+fee+slip>agent.cash)block('Insufficient paper buying power.');
+      if(side==='SELL'){
+        const pos=agent.positions.find(x=>x.symbol===symbol);
+        if(!pos||pos.qty+1e-12<qty)block('SELL quantity exceeds the current paper position.');
+      }
+      const equity=Math.max(1,agent.cash+agent.positions.reduce((n,x)=>n+x.qty*x.last,0));
+      const currentExposure=agent.positions.reduce((n,x)=>n+x.qty*x.last,0);
+      const projectedExposure=side==='BUY'?currentExposure+notional:Math.max(0,currentExposure-Math.min(notional,currentExposure));
+      const exposurePct=projectedExposure/equity*100;
+      if(exposurePct>90)block('Post-trade exposure exceeds the 90% paper risk ceiling.');
+      else if(exposurePct>50)warn('Post-trade exposure will exceed 50% of agent equity.');
+      const age=estimateQuoteAgeSec(meta);
+      if(age>30)block('Verified quote is stale (>30s).');
+      else if(age>10)warn('Quote is older than 10s.');
+      const bid=Number(meta.bid),ask=Number(meta.ask),mid=(bid>0&&ask>0)?(bid+ask)/2:0,spreadBps=mid>0?(ask-bid)/mid*10000:null;
+      if(spreadBps!=null){if(spreadBps>80)block('Quote spread is too wide for controlled execution.');else if(spreadBps>40)warn('Quote spread is elevated.')}
+      const liquidityNotional=Math.max(2500,Math.min(250000,price*50)),liquidityQty=liquidityNotional/price;
+      if(qty>liquidityQty*2)warn('Requested size is larger than simulated immediate liquidity; partial fill is likely.');
+      if(p.account.slippageBps>20)warn('Configured paper slippage is elevated.');
+      const stop=num(args.stopPrice),target=num(args.targetPrice);
+      let riskPerUnit=0,rewardPerUnit=0,rr=null,maxLoss=null;
+      if(stop>0||target>0){
+        if(side==='BUY'){
+          if(stop>0&&stop>=price)block('BUY stop loss must be below the entry reference.');
+          if(target>0&&target<=price)block('BUY target must be above the entry reference.');
+          riskPerUnit=stop>0?price-stop:0;rewardPerUnit=target>0?target-price:0;
+        }else{
+          if(stop>0&&stop<=price)block('SELL stop loss must be above the entry reference.');
+          if(target>0&&target>=price)block('SELL target must be below the entry reference.');
+          riskPerUnit=stop>0?stop-price:0;rewardPerUnit=target>0?price-target:0;
+        }
+        if(riskPerUnit>0&&rewardPerUnit>0){rr=rewardPerUnit/riskPerUnit;maxLoss=riskPerUnit*qty+fee;if(rr<1)block('Risk/reward is below 1:1.');else if(rr<1.5)warn('Risk/reward is below the preferred 1.5:1 threshold.')}
+      }else warn('No protective stop/target configured; maximum loss is not bounded.');
+      const confidence=Math.max(0,Math.min(99,Math.round((verified?72:0)+(Number(meta.providerCount||0)>=2?15:5)+(estimateQuoteAgeSec(meta)<5?8:0)-(status==='BLOCK'?25:status==='WARN'?5:0))));
+      return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:+(qty*price).toFixed(2),estimatedFee:+fee.toFixed(2),estimatedSlippage:+slip.toFixed(2),quoteAgeSec:+estimateQuoteAgeSec(meta).toFixed(1),spreadBps:spreadBps==null?null:+spreadBps.toFixed(1),postTradeExposurePct:+exposurePct.toFixed(1),riskPerUnit:+riskPerUnit.toFixed(6),maxLoss:maxLoss==null?null:+maxLoss.toFixed(2),riskReward:rr==null?null:+rr.toFixed(2),liquidityQty:+liquidityQty.toFixed(4),fillability:qty<=liquidityQty?'FULL':'PARTIAL',dataConfidence:confidence},timestamp:now()};
+    }
+    return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:0,estimatedFee:0,estimatedSlippage:0,quoteAgeSec:estimateQuoteAgeSec(meta),spreadBps:null,postTradeExposurePct:0,riskPerUnit:0,maxLoss:null,riskReward:null,liquidityQty:0,fillability:'BLOCKED',dataConfidence:0},timestamp:now()};
+  }
   function paperOrder(state,agentId,symbol,side,qty,price,reason,opts={}){
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
-    qty=Math.max(0,Math.floor(num(qty)));price=Math.max(0,num(price));side=String(side).toUpperCase();
+    qty=normalizeQty(symbol,qty);price=Math.max(0,num(price));side=String(side).toUpperCase();
     if(!qty||!price||!['BUY','SELL'].includes(side))throw new Error('Valid side, quantity and price are required');
+    if(opts.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty,entryPrice:price,stopPrice:opts.stopPrice,targetPrice:opts.targetPrice,marketMeta:opts.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
     const fill=fillPrice(p,side,price,num(opts.slippageBps||0)),fillValue=qty*fill,c=costs(p,fillValue),slip=Math.abs(fill-price)*qty;
     if(side==='BUY'&&a.cash<fillValue+c.fee)throw new Error('Paper cash limit exceeded');
     let realized=updateAgentPosition(a,symbol,side,qty,fill);
@@ -64,13 +131,14 @@
     const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
     p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER'});a.decisions++;p.updatedAt=now();return o;
   }
-  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null,trailingPercent=0){
-    if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET'});
+  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null,trailingPercent=0,options={}){
+    if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET',...options});
     const p=ensure(state);const a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
+    if(options.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty:oq,entryPrice:(ot==='LIMIT'||ot==='STOP_LIMIT')?num(price):price,stopPrice:stop,targetPrice:target,marketMeta:options.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
     const tif=String(timeInForce||'GTC').toUpperCase();
     if(!['GTC','DAY','IOC','FOK'].includes(tif))throw new Error('Unsupported paper time-in-force');
     const exp=expiresAt?Number(expiresAt):(tif==='DAY'?Date.now()+24*60*60*1000:null);
-    const oq=Math.floor(num(qty));if(oq<1)throw new Error('Order quantity must be positive');const ot=String(orderType).toUpperCase();if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');if(ot==='TRAILING_STOP'&&!num(trailingPercent))throw new Error('Trailing percent required');const trailingPct=ot==='TRAILING_STOP'?Math.max(0.01,num(trailingPercent)):0; const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent:trailingPct,trailHigh:null,trailLow:null,reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq};
+    const oq=normalizeQty(symbol,qty);if(oq<=0)throw new Error('Order quantity must be positive');const ot=String(orderType).toUpperCase();if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');if(ot==='TRAILING_STOP'&&!num(trailingPercent))throw new Error('Trailing percent required');const trailingPct=ot==='TRAILING_STOP'?Math.max(0.01,num(trailingPercent)):0; const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent:trailingPct,trailHigh:null,trailLow:null,reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq};
     p.openOrders.unshift(o);p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER_PLACED'});p.updatedAt=now();return o;
   }
   function expirePaperOrders(state,at=Date.now()){
@@ -162,9 +230,9 @@
       tp.bracketRole='TARGET';tp.bracketGroup=group;tp.reduceOnly=true;tp.parentId=entry.id;
     }
   }
-  function placeBracket(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason){
+  function placeBracket(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason,options={}){
     const p=ensure(state),group=uid('bracket'),et=String(entryType).toUpperCase(),entrySide=String(side).toUpperCase();
-    const entry=placeOrder(state,agentId,symbol,entrySide,qty,et,entryPrice,null,null,reason,'GTC',null);
+    const entry=placeOrder(state,agentId,symbol,entrySide,qty,et,entryPrice,null,null,reason,'GTC',null,0,options);
     entry.bracketRole='ENTRY';entry.bracketGroup=group;entry.bracket={stopPrice:num(stopPrice),targetPrice:num(targetPrice),oco:true};
     if(et==='MARKET') activateBracketChildren(state,entry,qty);
     return entry;
@@ -222,5 +290,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
