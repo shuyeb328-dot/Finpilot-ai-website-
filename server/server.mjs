@@ -816,7 +816,8 @@ async function marketDataStream(req,res,u){
    const ageMs=d?.asOf?Math.max(0,now-Date.parse(d.asOf)):0;
    const stale=ageMs>30000;
    const payload={seq:++seq,ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs};
-   if(verified){const mid=Number(d.price),spread=Math.max(mid*0.0004,0.00000001);payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};payload.tick={price:mid,receivedAt:payload.receivedAt};}\n   const sig=JSON.stringify([payload.status,payload.price,payload.asOf,payload.providerCount]);
+   if(verified){const mid=Number(d.price),spread=Math.max(mid*0.0004,0.00000001);payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};payload.tick={price:mid,receivedAt:payload.receivedAt};}
+   const sig=JSON.stringify([payload.status,payload.price,payload.asOf,payload.providerCount]);
    if(sig!==lastSignature){lastSignature=sig;writeEvent('market',payload);}
   }catch(e){writeEvent('status',{seq:++seq,ticker:raw,status:'UNAVAILABLE',verified:false,stale:true,error:String(e?.message||e),receivedAt:new Date().toISOString()});}
  };
