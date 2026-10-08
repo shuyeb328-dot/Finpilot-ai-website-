@@ -1,4 +1,4 @@
-/* FinPilot Autonomous Agent Learning OS 3.1
+/* FinPilot Autonomous Agent Learning OS 3.2
    Background research + data quality + governed training queue + bounded improvement loops.
 */
 import pg from 'pg';
@@ -24,7 +24,7 @@ const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS
 const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
 
 const state={
-  version:'3.0',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
+  version:'3.2',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
   running:false,cycle:0,cursor:0,activeAgent:null,lastCycleAt:null,lastSuccessAt:null,lastError:null,nextRunAt:null,
   stats:{cycles:0,queries:0,evidenceCollected:0,evidenceAccepted:0,candidates:0,trainingCases:0,duplicates:0,failed:0,primarySources:0,sourceDomains:0,contradictionFlags:0},
   agents:Object.fromEntries(AUTONOMOUS_AGENT_PROFILES.map(a=>[a.id,{status:'IDLE',jobs:0,lastResearchAt:null,lastTopic:null,lastQuality:null,lastCandidate:null}])),
@@ -43,12 +43,23 @@ function tier(row){
 }
 function freshness(row){
   const t=row.publishedAt?Date.parse(row.publishedAt):NaN;
-  if(!Number.isFinite(t))return {score:55,label:'UNKNOWN_AGE',ageDays:null};
+  const text=clean((row.title||'')+' '+(row.snippet||''),1000);
+  if(!Number.isFinite(t)){
+    const iso=text.match(/\\b(20\\d{2})[-\\/](\\d{1,2})[-\\/](\\d{1,2})\\b/);
+    if(iso){
+      const inferred=Date.parse(iso[0]);
+      if(Number.isFinite(inferred))return freshness({...row,publishedAt:new Date(inferred).toISOString()});
+    }
+    return {score:35,label:'UNKNOWN_AGE',ageDays:null};
+  }
   const d=Math.max(0,(Date.now()-t)/86400000);
-  if(d<=1)return {score:100,label:'FRESH',ageDays:+d.toFixed(2)};
-  if(d<=7)return {score:85,label:'RECENT',ageDays:+d.toFixed(2)};
-  if(d<=30)return {score:65,label:'AGING',ageDays:+d.toFixed(2)};
-  return {score:35,label:'STALE',ageDays:+d.toFixed(2)};
+  if(d<=0.25)return {score:100,label:'LIVE',ageDays:+d.toFixed(3)};
+  if(d<=1)return {score:98,label:'FRESH',ageDays:+d.toFixed(2)};
+  if(d<=3)return {score:92,label:'RECENT',ageDays:+d.toFixed(2)};
+  if(d<=7)return {score:82,label:'CURRENT',ageDays:+d.toFixed(2)};
+  if(d<=30)return {score:58,label:'AGING',ageDays:+d.toFixed(2)};
+  if(d<=90)return {score:30,label:'STALE',ageDays:+d.toFixed(2)};
+  return {score:10,label:'OLD',ageDays:+d.toFixed(2)};
 }
 function quality(row){
   const ts=tier(row)==='PRIMARY'?100:tier(row)==='HIGH_QUALITY_SECONDARY'?80:60;
@@ -301,7 +312,7 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     state.stats.primarySources+=primary;
     state.stats.sourceDomains+=diversity;
     state.stats.contradictionFlags+=contradiction;
-    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&freshnessScore>=55&&contradiction===0;
+    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&freshnessScore>=60&&contradiction===0;
     const candidate={
       id:'lc-'+Date.now().toString(36),
       fingerprint:profile.id+'|'+topic+'|'+rows.map(x=>x.fingerprint).sort().join('|').slice(0,900),
