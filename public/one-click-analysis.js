@@ -164,8 +164,6 @@
       const web=liveWebSignal();
       const candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
       const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
-      const candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
-      const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
       const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,money,sourceAge);
       const decision={
         decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,
@@ -177,7 +175,6 @@
       state.decisionHistory.unshift(decision);
       state.decisionHistory=state.decisionHistory.slice(0,50);
       const paper=buildPaperCouncil(query,web);
-      if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
       save();
