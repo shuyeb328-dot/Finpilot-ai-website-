@@ -310,11 +310,18 @@ async function stockReport(req,res,u){
      cached(cacheKey,payload);
      return send(res,200,payload);
    }
-   if(t==='SBC') return send(res,200,{ok:true,report:SBC_SERVER});
    if(yahooSymbol(t)){
-     const payload={ok:true,report:await liveEquity(t)};
-     cached(cacheKey,payload);
-     return send(res,200,payload);
+     try{
+       const payload={ok:true,report:await liveEquity(t)};
+       cached(cacheKey,payload);
+       return send(res,200,payload);
+     }catch(liveErr){
+       if(t==='SBC'){
+         const payload={ok:true,report:{...SBC_SERVER,live:false,provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'}};
+         return send(res,200,payload);
+       }
+       throw liveErr;
+     }
    }
    return send(res,404,{ok:false,error:'Ticker not connected. Use an NSE symbol such as TCS, INFY or RELIANCE.'});
  }catch(e){ if(t==='BTC'||t==='BTCUSDT') return send(res,200,{ok:true,report:btcFallback(),warning:e.message}); return send(res,502,{ok:false,error:`Live market provider unavailable for ${t}: ${e.message}`}); }
