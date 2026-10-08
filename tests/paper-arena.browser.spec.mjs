@@ -65,6 +65,8 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await expect(page.locator('#paperRecommendation')).toContainText(/CFO|Risk|Markets/);
   await expect(page.locator('#paperRiskTower')).toContainText('EXECUTION CONTROL TOWER');
   await expect(page.locator('#paperRiskTower')).toContainText(/PASS|WARN|BLOCK/);
+  await expect(page.locator('#paperRiskTower')).not.toContainText('BLOCK');
+  await expect(page.locator('#paperRecommendation')).not.toContainText('Suggested paper size 0 BTC');
   const recommendation = await page.locator('#paperRecommendation').innerText();
   expect(recommendation).toContain('FINPILOT EXECUTION SIGNAL');
   expect(await page.locator('#paperExecHigh').innerText()).not.toBe('₹0');
