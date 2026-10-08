@@ -221,6 +221,7 @@
             <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability==null?"—":money.buyProbability+"%"}</div><span class="muted">${money?.buyProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
           <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability==null?"—":money.sellProbability+"%"}</div><span class="muted">${money?.sellProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
           <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability==null?"—":money.holdProbability+"%"}</div><span class="muted">${money?.holdProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
+          </div>
           <div class="grid four">
             <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">+₹${money?.estimatedProfit?.toLocaleString('en-IN')||0}</div><span class="muted">+${money?.upsidePct||0}% scenario</span></div>
             <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">−₹${money?.estimatedLoss?.toLocaleString('en-IN')||0}</div><span class="muted">−${money?.downsidePct||0}% scenario</span></div>
