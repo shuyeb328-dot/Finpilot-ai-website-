@@ -222,5 +222,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
