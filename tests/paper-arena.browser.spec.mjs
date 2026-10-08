@@ -61,6 +61,10 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await page.getByRole('button', { name: /BUY · MARKET/i }).click();
   await page.waitForTimeout(1200);
 
+  await expect(page.locator('#paperRecommendation')).toContainText('FINPILOT EXECUTION SIGNAL');
+  await expect(page.locator('#paperRecommendation')).toContainText(/CFO|Risk|Markets/);
+  await expect(page.locator('#paperRiskTower')).toContainText('EXECUTION CONTROL TOWER');
+  await expect(page.locator('#paperRiskTower')).toContainText(/PASS|WARN|BLOCK/);
   const recommendation = await page.locator('#paperRecommendation').innerText();
   expect(recommendation).toContain('FINPILOT EXECUTION SIGNAL');
   expect(await page.locator('#paperExecHigh').innerText()).not.toBe('₹0');
