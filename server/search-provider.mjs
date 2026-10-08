@@ -64,6 +64,13 @@ async function google(q,count){
  const u=`https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(process.env.GOOGLE_SEARCH_API_KEY)}&cx=${encodeURIComponent(process.env.GOOGLE_SEARCH_ENGINE_ID)}&num=${Math.min(10,count)}&q=${encodeURIComponent(q)}`;
  const d=await providerFetch(u,{headers:jsonHeaders}); return normalize(d.items,'google');
 }
+async function exa(q,count){
+ const key=process.env.EXA_API_KEY;
+ if(!key) throw providerError('EXA_API_KEY is not configured');
+ const d=await providerFetch('https://api.exa.ai/search',{method:'POST',headers:{...jsonHeaders,'Content-Type':'application/json','x-api-key':key},body:JSON.stringify({query:q,numResults:Math.min(10,count),type:'auto',contents:{highlights:{maxCharacters:1200}}})});
+ return normalize((d.results||[]).map(x=>({title:x.title,url:x.url,snippet:Array.isArray(x.highlights)?x.highlights.join(' '):(x.text||x.summary||''),source:'Exa',publishedAt:x.publishedDate||x.published_date||null})),'exa');
+}
+
 async function serpapi(q,count){
  const key=process.env.SERPAPI_API_KEY;
  if(!key) throw providerError('SERPAPI_API_KEY is not configured');
@@ -102,7 +109,7 @@ async function googleNewsRss(q,count){
 
 export async function searchWeb(q,{count=8}={}){
  const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
- const order=requested==='serpapi'?['serpapi','google-news-rss']:requested==='brave'?['brave','google-news-rss']:requested==='tavily'?['tavily','google-news-rss']:requested==='google'?['google','google-news-rss']:['serpapi','brave','tavily','google','google-news-rss'];
+ const order=requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['exa','serpapi','brave','tavily','google','google-news-rss'];
  const errors=[];
  for(const p of order){
   try{
@@ -110,6 +117,7 @@ export async function searchWeb(q,{count=8}={}){
    if(p==='brave'&&process.env.BRAVE_SEARCH_API_KEY)results=await brave(q,count);
    if(p==='tavily'&&process.env.TAVILY_API_KEY)results=await tavily(q,count);
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
+   if(p==='exa'&&process.env.EXA_API_KEY)results=await exa(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:`https://www.google.com/search?q=${encodeURIComponent(q)}`,message:`${results.length} live result(s) returned by ${p}.`,live:true,fetchedAt:new Date().toISOString()};
