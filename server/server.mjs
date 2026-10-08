@@ -6,7 +6,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
-import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol} from './global-market-registry.mjs';
+import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -605,10 +605,22 @@ async function liveEquity(ticker){
   }
  }
  if(!INDIA_INDICES[clean]&&GLOBAL_INDEXES.some(x=>x.symbol===symbol)){
-  try{
-   const world=await fetchYahooWorldIndexPage(),row=world.get(symbol);
-   if(row){const result={ticker:clean,symbol,market:'GLOBAL_INDEX',exchange:'Yahoo Finance',name:row.name,currency:'',price:row.price,previous:row.price,changePct:row.changePct,dayHigh:row.price,dayLow:row.price,live:false,provider:row.provider,asOf:row.asOf,dataFreshness:row.dataFreshness,dataDisclaimer:'World index page data may be delayed; verify the exchange or licensed market-data feed before acting.'};EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result;}
-  }catch{}
+  const candidates=[symbol,...(GLOBAL_INDEX_FALLBACKS[symbol]||[])];
+  for(const candidate of candidates){
+   try{
+    const world=await fetchYahooWorldIndexPage(),row=world.get(candidate);
+    if(row){
+     const result={ticker:clean,symbol: candidate,market:'GLOBAL_INDEX',exchange:'Yahoo Finance',name:row.name,currency:'',price:row.price,previous:row.price,changePct:row.changePct,dayHigh:row.price,dayLow:row.price,live:false,provider:row.provider,asOf:row.asOf,dataFreshness:row.dataFreshness,dataDisclaimer:'World index page data may be delayed; verify the exchange or licensed market-data feed before acting.'};
+     EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result;
+    }
+   }catch{}
+   try{
+    const page=await fetchYahooPageQuote(candidate);
+    const isProxy=candidate==='1306.T'&&symbol==='^TOPX';
+    const result={...page,ticker:clean,symbol:candidate,market:'GLOBAL_INDEX',live:false,proxy:isProxy,provider:isProxy?'Yahoo Finance TOPIX ETF proxy · delayed/unofficial':page.provider,dataDisclaimer:isProxy?'TOPIX index proxy using NEXT FUNDS TOPIX ETF (1306.T); not the index itself. Verify the official JPX index before acting.':'Yahoo Finance index quote fallback; verify the exchange or licensed market-data feed before acting.'};
+    EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result;
+   }catch{}
+  }
  }
  let result,sourceRange='5d/1h';
  try{result=await fetchYahooChart(symbol,'5d','1h')}
