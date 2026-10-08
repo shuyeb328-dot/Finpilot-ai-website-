@@ -3,7 +3,7 @@
    It coordinates agents; proposed agent mutations are sandboxed and require approval.
 */
 (function(){
-  const VERSION='QAI-5.0';
+  const VERSION='QAI-6.0';
   const KEY='finpilot_quantum_control_v1';
   const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const builtins=[
@@ -69,6 +69,14 @@
     }
     save(q);return m;
   }
+  function hybridOptimize(input){
+    const payload=window.FinPilotTrainingFabric?.hybridOptimize?.(input||{});
+    return payload||{backend:'TRAINING_FABRIC_FALLBACK',status:'FALLBACK',reason:'Training Fabric not loaded'};
+  }
+  async function quantumOptimize(input){
+    if(window.FinPilotTrainingFabric?.quantumOptimize)return window.FinPilotTrainingFabric.quantumOptimize(input||{});
+    return hybridOptimize(input||{});
+  }
   function snapshot(){
     const q=load(),s=appState(),as=agents();
     return {version:VERSION,agents:as.length,enabled:as.filter(a=>a.enabled).length,
@@ -107,6 +115,6 @@
     b.style.cssText='position:fixed;right:14px;bottom:14px;z-index:90;box-shadow:0 10px 30px rgba(49,94,251,.25)';
     b.onclick=render;document.body.appendChild(b);
   }
-  window.FinPilotQuantum={version:VERSION,plan,broadcast,proposeMutation,approveMutation,snapshot,render};
+  window.FinPilotQuantum={version:VERSION,plan,broadcast,proposeMutation,approveMutation,hybridOptimize,quantumOptimize,snapshot,render};
   window.addEventListener('load',mount);setTimeout(mount,50);
 })();
