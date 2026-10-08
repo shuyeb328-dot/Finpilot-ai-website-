@@ -22,8 +22,10 @@ function connectPaperMarketStream(market){
     const px=Number(d.price); if(!d.verified||!Number.isFinite(px)||px<=0){if(out)out.textContent='STREAM '+(d.status||'UNAVAILABLE')+' · no unverified price used';return}
     market.price=px; market.changePct=Number(d.changePct||market.changePct||0); market.volume=Number(d.volume||market.volume||0); market.dayHigh=Number(d.high||market.dayHigh||0); market.dayLow=Number(d.low||market.dayLow||0); market.provider=d.provider||market.provider; market.asOf=d.asOf||market.asOf; market.receivedAt=d.receivedAt||d.tick?.receivedAt||new Date().toISOString(); market.streamSeq=d.seq; market.streamStatus=d.status; market.streamAgeMs=Number(d.ageMs||0); market.sourceAgeMs=Number(d.sourceAgeMs||d.ageMs||0); market.executionEligible=Boolean(d.executionEligible&&d.status==='LIVE'); market.orderBook=d.orderBook||market.orderBook; market.tick=d.tick||market.tick;
     const input=document.getElementById('paperPrice');if(input)input.value=px;
-    const p=syncPaperAgents();p.lastMarket=market;p.marketSnapshot[sym]=px;FinPilotPaperCore.markToMarket(state,p.marketSnapshot);window.FinPilotBridge.save();
-    if(out)out.textContent=(d.status==='STALE'?'STALE ':d.executionEligible?'LIVE ':'VERIFY ')+(d.provider||'verified provider')+' · '+px+' · '+Number(d.providerCount||0)+' source(s) · source '+Math.round(Number(d.sourceAgeMs||d.ageMs||0)/1000)+'s old';
+    const p=syncPaperAgents();p.lastMarket=market;p.marketSnapshot[sym]=px;
+    const tickResult=FinPilotPaperCore.processMarketTick(state,{symbol:sym,ticker:sym,price:px,bid:Number(market.orderBook?.bid||0)||undefined,ask:Number(market.orderBook?.ask||0)||undefined,provider:market.provider,providerCount:Number(d.providerCount||0),asOf:market.asOf,sourceAsOf:market.asOf,receivedAt:market.receivedAt,seq:d.seq,status:d.status,verified:Boolean(d.verified),executionEligible:Boolean(d.executionEligible),verification:market.verification});
+    window.__paperLastTickResult=tickResult;window.FinPilotBridge.save();
+    if(out)out.textContent=(d.status==='STALE'?'STALE ':d.executionEligible?'LIVE ':'VERIFY ')+(d.provider||'verified provider')+' · '+px+' · '+Number(d.providerCount||0)+' source(s) · source '+Math.round(Number(d.sourceAgeMs||d.ageMs||0)/1000)+'s old'+(tickResult.fills?.length?' · '+tickResult.fills.length+' fill(s)':'');
     renderPaperChart(market);
    }catch(e){console.error('Paper stream event failed',e)}
   });
@@ -70,7 +72,7 @@ function paperSubmitSide(side,overrides={}){
  if((ot==='STOP'||ot==='STOP_LIMIT')&&stop<=0){window.FinPilotBridge.toast('Enter a valid stop price');return null}
  try{
    const o=FinPilotPaperCore.placeOrder(state,a.id,m.symbol,side,qty,ot,executionPrice,stop,target,overrides.reason||('Manual paper '+side),tif,null,trailing,{
-     enforceRisk:true,marketMeta:paperMarketMeta(m),clientOrderId:'ticket-'+side+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
+     enforceRisk:true,marketMeta:paperMarketMeta(m),realistic:true,clientOrderId:'ticket-'+side+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
      source:'PAPER_TICKET',reduceOnly:overrides.reduceOnly!=null?Boolean(overrides.reduceOnly):reduceOnly
    });
    window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper '+side+' '+o.status+' · '+ot+' · '+qty+' '+m.symbol);
