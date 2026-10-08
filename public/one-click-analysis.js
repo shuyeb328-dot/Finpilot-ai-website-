@@ -131,6 +131,22 @@
     if(document.getElementById('fp-market-chart-styles'))return;
     const s=document.createElement('style');s.id='fp-market-chart-styles';s.textContent='.tv-chart{min-height:360px;border-radius:10px;overflow:hidden;background:#fff}.tradingview-widget-container{font-family:Inter,system-ui,sans-serif}@media(max-width:640px){#live-equity-snapshot .grid.four{grid-template-columns:1fr 1fr!important}.tv-chart{min-height:330px}}';document.head.appendChild(s);
   }
+  function detectChartPattern(ca){
+    const candles=Array.isArray(ca?.candles)?ca.candles.filter(x=>Number.isFinite(Number(x?.close))):[];
+    if(candles.length<8)return {name:"Pattern not clear",confidence:35,reason:"Not enough verified candles."};
+    const cls=candles.map(x=>Number(x.close)), highs=candles.map(x=>Number(x.high??x.close)), lows=candles.map(x=>Number(x.low??x.close));
+    const n=cls.length,last=cls[n-1],prev=cls[n-2],h20=Math.max(...highs.slice(-20)),l20=Math.min(...lows.slice(-20));
+    const first=cls[Math.max(0,n-10)],slope=((last-first)/Math.max(1,first))*100,range=Math.max(.01,h20-l20),pos=(last-l20)/range;
+    const body=Math.abs(last-prev)/Math.max(.01,prev),higherHigh=highs[n-1]>=Math.max(...highs.slice(-5,-1)),lowerLow=lows[n-1]<=Math.min(...lows.slice(-5,-1));
+    let name="Sideways / mixed",confidence=52,reason="Price is moving without a strong breakout.";
+    if(higherHigh&&slope>2&&pos>.65){name="Uptrend / breakout attempt";confidence=72;reason="Recent highs are rising and price is near the upper part of its recent range."}
+    else if(lowerLow&&slope<-2&&pos<.35){name="Downtrend / breakdown attempt";confidence=72;reason="Recent lows are falling and price is near the lower part of its recent range."}
+    else if(pos>.72&&body<.008){name="Resistance test";confidence=64;reason="Price is testing the upper range with a relatively small recent move."}
+    else if(pos<.28&&body<.008){name="Support test";confidence=64;reason="Price is testing the lower range with a relatively small recent move."}
+    else if(Math.abs(slope)<1.5&&range/Math.max(.01,last)<.08){name="Tight range / possible breakout";confidence=61;reason="Volatility is compressed and price is near a range boundary."}
+    return {name,confidence,reason,slope};
+  }
+
   function renderOneClickPanel(q,report){
     const box=document.getElementById('searchResults');
     if(!box)return;
@@ -146,15 +162,15 @@
     const html=`
       <div id="oneClickResult" class="card" style="margin-bottom:14px;border:2px solid #315efb;background:linear-gradient(180deg,#f8faff,#fff)">
         <div class="sectionTitle">
-          <div><span class="eyebrow">FinPilot One-Click Intelligence</span><h3 style="font-size:18px;margin-top:5px">Full decision stack · ${escLocal(q)}</h3></div>
+          <div><span class="eyebrow">Simple One-Click Analysis</span><h3 style="font-size:18px;margin-top:5px">Complete analysis · ${escLocal(q)}</h3></div>
           <span class="pill low">COMPLETE</span>
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
-          <div class="sectionTitle"><div><span class="eyebrow">AI MARKET CANDIDATE</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
-          ${candidate?`<div class="grid three"><div class="card"><span class="muted">Candidate score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">Evidence mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Signal balance</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why selected:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
+          <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
+          ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
-          <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'LIVE TECHNICAL CHART':'VERIFIED TECHNICAL CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'EOD + TV':'TV FALLBACK')}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'EOD + TV':'TV FALLBACK')}</span></div>
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
             <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">₹${Number(report.chartAnalysis?.price||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
@@ -162,13 +178,14 @@
             <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.sma20||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.sma50||0).toFixed(2)}</div></div>
             <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.support||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.resistance||0).toFixed(2)}</div></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>
+          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
+
         </div>
         <div class="grid cards" style="margin-bottom:12px">
-          <div class="card"><span class="muted">Web evidence</span><div class="metric">${web.count||0}</div><span class="muted">${escLocal(web.provider||'web')} · ${escLocal(web.stance||'Mixed')}</span></div>
-          <div class="card"><span class="muted">Decision risk</span><div class="metric ${riskClass==='high'?'red':riskClass==='med'?'yellow':'green'}">${risk}</div><span class="muted">${escLocal(report.evidenceFreshness||'CHECK')}</span></div>
-          <div class="card"><span class="muted">Agent fleet</span><div class="metric">${report.agentCount}</div><span class="muted">specialists completed</span></div>
-          <div class="card"><span class="muted">Paper council</span><div class="metric" style="font-size:18px">${escLocal(paperLabel)}</div><span class="muted">virtual only</span></div>
+          <div class="card"><span class="muted">News & evidence</span><div class="metric">${web.count||0}</div><span class="muted">${escLocal(web.provider||'web')} · ${escLocal(web.stance||'Mixed')}</span></div>
+          <div class="card"><span class="muted">Risk level</span><div class="metric ${riskClass==='high'?'red':riskClass==='med'?'yellow':'green'}">${risk}</div><span class="muted">${escLocal(report.evidenceFreshness||'CHECK')}</span></div>
+          <div class="card"><span class="muted">AI specialists</span><div class="metric">${report.agentCount}</div><span class="muted">specialists completed</span></div>
+          <div class="card"><span class="muted">Final check</span><div class="metric" style="font-size:18px">${escLocal(paperLabel)}</div><span class="muted">virtual only</span></div>
         </div>
         <div class="grid three">
           <div class="decision"><span class="pill low">CEO · OPPORTUNITY</span><p>${escLocal(e.ceo||'No CEO view')}</p><b>${e.ceoConfidence||0}% confidence</b></div>
@@ -176,9 +193,9 @@
           <div class="decision"><span class="pill">⚖ JUDGE · FINAL</span><h2>${escLocal(e.judge||report.decision||'VERIFY')}</h2><b>${report.confidence||0}% confidence</b></div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid #d8e0ef;background:#fbfcff">
-          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 REAL-MONEY SCENARIO</span><h3 style="font-size:18px;margin-top:5px">Current AI evaluation translated into money</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 EXAMPLE</span><h3 style="font-size:18px;margin-top:5px">What ₹1,000 could look like</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
           <div class="grid cards" style="margin-bottom:10px">
-            <div class="card"><span class="muted">AI action</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
+            <div class="card"><span class="muted">Suggested view</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
             <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability||0}%</div><span class="muted">Model estimate</span></div>
             <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability||0}%</div><span class="muted">Model estimate</span></div>
             <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability||0}%</div><span class="muted">Model estimate</span></div>
@@ -193,7 +210,7 @@
           <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> ${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid #cfd8ea;background:#fff">
-          <div class="sectionTitle"><div><span class="eyebrow">FINPILOT v8 · 50 UPGRADES</span><h3 style="font-size:18px;margin-top:5px">Risk-controlled execution intelligence</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">RISK CHECK</span><h3 style="font-size:18px;margin-top:5px">Safety and risk checks</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Safe position</span><div class="metric" style="font-size:20px">₹${v8?.position?.recommended?.toLocaleString('en-IN')||0}</div><span class="muted">of ₹${v8?.position?.requested?.toLocaleString('en-IN')||0} requested</span></div>
             <div class="card"><span class="muted">Risk-adjusted return</span><div class="metric" style="font-size:20px">${v8?.riskMetrics?.riskAdjustedReturn||0}%</div><span class="muted">quality-adjusted</span></div>
@@ -209,7 +226,7 @@
           <div class="notice" style="margin-top:8px"><b>v8 decision trace:</b> ${v8?.trace?.map(escLocal).join(' → ')||'Not available'}</div>
           <div class="muted" style="margin-top:8px">${escLocal(v8?.disclaimer||'')}</div>
         </div>        <div class="card" style="margin-top:12px;border:2px solid #315efb;background:#f7f9ff">
-          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 TOP-TIER RISK PLAN</span><h3 style="font-size:18px;margin-top:5px">Capital plan · target · stop · loss budget</h3></div><span class="pill ${money.plan?.approval==='CONDITIONAL'?'low':'high'}">${escLocal(money.plan?.approval||'BLOCKED')}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 RISK PLAN</span><h3 style="font-size:18px;margin-top:5px">Amount · target · stop · loss</h3></div><span class="pill ${money.plan?.approval==='CONDITIONAL'?'low':'high'}">${escLocal(money.plan?.approval||'BLOCKED')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Requested</span><div class="metric">₹${Number(money.plan?.requestedAmount||1000).toLocaleString('en-IN')}</div><span class="muted">scenario capital</span></div>
             <div class="card"><span class="muted">Recommended exposure</span><div class="metric ${Number(money.plan?.recommendedAmount||0)>0?'green':'red'}">₹${Number(money.plan?.recommendedAmount||0).toLocaleString('en-IN')}</div><span class="muted">${money.plan?.approval==='CONDITIONAL'?'paper-only conditional size':'capital protected'}</span></div>
@@ -230,7 +247,7 @@
           </div>
           <div class="notice highNotice" style="margin-top:10px"><b>Safety:</b> ${escLocal((money.plan?.gateReasons||[]).join(' · ')||'No blocking gate detected.')} — This is a paper scenario; no real order is placed.</div>
         </div>
-        <div class="notice" style="margin-top:12px"><b>All-in-one pipeline:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → isolated paper council. No real order was placed.</div>
+        <div class="notice" style="margin-top:12px"><b>Analysis used:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → final virtual check. No real order was placed.</div>
       </div>`;
     const old=document.getElementById('oneClickResult');
     if(old)old.remove();
@@ -262,7 +279,7 @@
     running=true;
     try{if(typeof window.show==='function')window.show('search')}catch{}
     const box=document.getElementById('searchResults');
-    if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>⚡ FinPilot Full Analysis</b><br><span id="fpStage">Connecting to live evidence and market data…</span></div>');
+    if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>⚡ FinPilot Analysis</b><br><span id="fpStage">Connecting to live evidence and market data…</span></div>');
     const stage=t=>{const el=document.getElementById('fpStage');if(el)el.textContent=t};
     try{
       let searchWarning='';
@@ -340,7 +357,7 @@
       if(marketReport){publishEquitySnapshot(marketReport);setTimeout(mountTradingViewFallbacks,60)}
       stage('6/6 · Complete — decision stack restored.');
       setTimeout(()=>{const progress=document.getElementById('oneClickProgress');if(progress)progress.remove()},250);
-      toast((searchWarning?'Market fallback used · ':'')+'1-click full analysis complete · chart + risk plan + council updated');
+      toast((searchWarning?'Market fallback used · ':'')+'analysis complete · chart + risk plan + council updated');
     }catch(e){
       const progress=document.getElementById('oneClickProgress');
       if(progress)progress.innerHTML='<b>Analysis stopped.</b> '+escLocal(e?.message||'Unknown error');
@@ -352,7 +369,7 @@
     const searchForm=document.querySelector('.search');
     if(searchForm&&!document.getElementById('oneClickTop')){
       const b=document.createElement('button');
-      b.id='oneClickTop';b.className='btn primary';b.type='button';b.textContent='⚡ Run All';
+      b.id='oneClickTop';b.className='btn primary';b.type='button';b.textContent='⚡ Analyze';
       b.title='Run the complete FinPilot decision stack for the current search';
       b.onclick=()=>window.finpilotLaunch?.(document.getElementById('globalSearch')?.value||document.getElementById('searchQuery')?.value||'');
       searchForm.appendChild(b);
@@ -365,7 +382,7 @@
     const d=document.createElement('div');
     d.id='oneClickLauncher';d.className='decision';
     d.style.marginBottom='14px';
-    d.innerHTML='<div class="sectionTitle"><div><span class="eyebrow">Decision automation</span><h3>Run the entire analysis in one click</h3></div><span class="pill low">SEARCH READY</span></div><p class="muted">Uses the live search evidence you just fetched, refreshes the Financial Brain, runs the full agent fleet, reconciles CEO + CFO + Judge, updates Action Center, and runs the isolated paper council.</p><div class="action"><button class="btn primary" type="button">⚡ 1-Click Full Analysis</button><button class="btn" type="button">Open Evidence Ledger</button></div>';
+    d.innerHTML='<div class="sectionTitle"><div><span class="eyebrow">Decision automation</span><h3>Run the entire analysis in one click</h3></div><span class="pill low">SEARCH READY</span></div><p class="muted">Uses the live search evidence you just fetched, refreshes the Financial Brain, runs the full agent fleet, reconciles CEO + CFO + Judge, updates Action Center, and runs the final virtual check.</p><div class="action"><button class="btn primary" type="button">⚡ ⚡ Analyze</button><button class="btn" type="button">Open Evidence Ledger</button></div>';
     d.querySelector('.btn.primary').onclick=()=>window.finpilotLaunch?.(q)||runFullStockAnalysis(q);
     d.querySelectorAll('.btn')[1].onclick=()=>show('evidence');
     box.prepend(d);
