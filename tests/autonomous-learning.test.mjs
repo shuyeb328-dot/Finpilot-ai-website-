@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {AUTONOMOUS_AGENT_PROFILES,runCycle,status} from '../server/autonomous-learning.mjs';
+import {AUTONOMOUS_AGENT_PROFILES,runCycle,runLiveAgentComparison,status} from '../server/autonomous-learning.mjs';
 
 assert.equal(AUTONOMOUS_AGENT_PROFILES.length,12);
 assert.ok(AUTONOMOUS_AGENT_PROFILES.some(x=>x.id==='Research'));
@@ -36,8 +36,28 @@ assert.equal(r.evidence,8);
 assert.equal(r.accepted,8);
 assert.equal(r.candidateStatus,'PENDING_TRAINING_VALIDATION');
 assert.ok(r.qualityScore>=70);
+
+const live=await runLiveAgentComparison({
+  searchWeb:async(q)=>({provider:'test',results:[
+    {title:'Primary evidence',url:'https://www.sec.gov/'+encodeURIComponent(q.slice(0,18)),snippet:'Official recent evidence from a primary source with risk context.',publishedAt:new Date().toISOString(),source:'SEC'},
+    {title:'Independent evidence',url:'https://www.reuters.com/'+encodeURIComponent(q.slice(18,36)),snippet:'Independent recent evidence for comparison and uncertainty.',publishedAt:new Date().toISOString(),source:'Reuters'},
+    {title:'Government evidence',url:'https://www.gov.in/'+encodeURIComponent(q.slice(36,54)),snippet:'Official guidance relevant to the research question.',publishedAt:new Date().toISOString(),source:'Gov'}
+  ]}),
+  emitEvent:()=>{},
+  audit:()=>{}
+});
+assert.equal(live.ok,true);
+assert.equal(live.status,'COMPLETED');
+assert.equal(live.tests,12);
+assert.equal(live.rankings.length,12);
+assert.equal(new Set(live.rankings.map(x=>x.agent)).size,12);
+assert.equal(live.rankings[0].rank,1);
+assert.equal(live.rankings[11].rank,12);
+assert.ok(live.averageScore>0);
+
 const s=status();
 assert.ok(s.evidenceCount>=8);
 assert.ok(s.candidateCount>=1);
 assert.ok(s.trainingCaseCount>=1);
-console.log('Autonomous Learning OS contract passed');
+assert.equal(s.agents.CFO.status,'IDLE');
+console.log('Autonomous Learning OS + 12-agent live comparison contract passed');
