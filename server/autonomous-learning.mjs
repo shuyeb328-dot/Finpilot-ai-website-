@@ -1,0 +1,192 @@
+/* FinPilot Autonomous Agent Learning OS 2.0
+   Background research + data quality + governed training queue.
+*/
+import pg from 'pg';
+const {Pool}=pg;
+
+export const AUTONOMOUS_AGENT_PROFILES=[
+  {id:'CFO',priority:100,topics:['cash flow','capital allocation','liquidity','profit quality'],querySuffix:'official filings financial statements cash flow capital allocation risk'},
+  {id:'Debt',priority:85,topics:['credit','interest rates','refinancing','duration'],querySuffix:'credit markets rates refinancing debt risk official sources'},
+  {id:'Goals',priority:70,topics:['goal probability','time horizon','contributions','portfolio fit'],querySuffix:'portfolio suitability long term investing goal planning evidence'},
+  {id:'Risk',priority:100,topics:['tail risk','drawdown','concentration','liquidity'],querySuffix:'market risk drawdown liquidity concentration stress testing'},
+  {id:'Investment',priority:95,topics:['valuation','fundamentals','quality','expected return'],querySuffix:'valuation fundamentals earnings quality intrinsic value primary sources'},
+  {id:'Markets',priority:95,topics:['regime','macro','volatility','market structure'],querySuffix:'market regime volatility macro market structure latest'},
+  {id:'Tax',priority:95,topics:['tax treatment','jurisdiction','holding period','compliance'],querySuffix:'tax regulation official government guidance investment taxation'},
+  {id:'Security',priority:100,topics:['fraud','privacy','prompt injection','provider risk'],querySuffix:'financial fraud cyber risk prompt injection data security'},
+  {id:'Business',priority:80,topics:['companies','deals','competitive position','management'],querySuffix:'company earnings acquisitions competitive position management primary sources'},
+  {id:'Assets',priority:75,topics:['real estate','commodities','alternative assets','liabilities'],querySuffix:'real estate commodities alternative assets valuation liquidity'},
+  {id:'Research',priority:90,topics:['primary sources','contradiction','freshness','source diversity'],querySuffix:'financial research primary sources filings academic evidence contradiction'},
+  {id:'RedTeam',priority:110,topics:['counterexamples','bias','failure modes','groupthink'],querySuffix:'financial AI failure modes adversarial testing bias manipulation'}
+];
+
+const intervalMs=Math.max(60000,Number(process.env.AUTO_RESEARCH_INTERVAL_MS||300000));
+const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS||8)));
+const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
+
+const state={
+  version:'2.0',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
+  running:false,cycle:0,cursor:0,activeAgent:null,lastCycleAt:null,lastSuccessAt:null,lastError:null,nextRunAt:null,
+  stats:{searched:0,evidenceCollected:0,evidenceAccepted:0,candidates:0,trainingCases:0,duplicates:0,failed:0},
+  agents:Object.fromEntries(AUTONOMOUS_AGENT_PROFILES.map(a=>[a.id,{status:'IDLE',jobs:0,lastResearchAt:null,lastTopic:null,lastQuality:null,lastCandidate:null}])),
+  queue:[],candidates:[],trainingCases:[],evidence:[]
+};
+
+let timer=null,dbPool=null,schemaReady=false;
+const now=()=>new Date().toISOString();
+const clean=(v,n=500)=>String(v??'').replace(/\s+/g,' ').trim().slice(0,n);
+const hostOf=url=>{try{return new URL(url).hostname.replace(/^www\./i,'')}catch{return ''}};
+function tier(row){
+  const h=(hostOf(row.url)+' '+clean(row.title,160)).toLowerCase();
+  if(/sec\.gov|sebi\.gov|rbi\.org|nseindia|bseindia|gov\.in|\.gov\.|investor relations|ir\./i.test(h))return 'PRIMARY';
+  if(/reuters|bloomberg|wsj|ft\.com|financialtimes|cnbc|economist|moneycontrol|livemint/i.test(h))return 'HIGH_QUALITY_SECONDARY';
+  return 'SECONDARY';
+}
+function freshness(row){
+  const t=row.publishedAt?Date.parse(row.publishedAt):NaN;
+  if(!Number.isFinite(t))return {score:55,label:'UNKNOWN_AGE',ageDays:null};
+  const d=Math.max(0,(Date.now()-t)/86400000);
+  if(d<=1)return {score:100,label:'FRESH',ageDays:+d.toFixed(2)};
+  if(d<=7)return {score:85,label:'RECENT',ageDays:+d.toFixed(2)};
+  if(d<=30)return {score:65,label:'AGING',ageDays:+d.toFixed(2)};
+  return {score:35,label:'STALE',ageDays:+d.toFixed(2)};
+}
+function quality(row){
+  const ts=tier(row)==='PRIMARY'?100:tier(row)==='HIGH_QUALITY_SECONDARY'?80:60;
+  const fs=freshness(row).score;
+  const txt=clean((row.title||'')+' '+(row.snippet||''),800);
+  const useful=txt.length>=80?100:txt.length>=40?75:45;
+  return Math.round(ts*.45+fs*.35+useful*.2);
+}
+const fp=row=>hostOf(row.url)+'|'+clean(row.title,180).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+
+function normalize(rows,profile,query){
+  const seen=new Set(),out=[];
+  for(const raw of Array.isArray(rows)?rows:[]){
+    if(!raw?.url||!/^https?:\/\//i.test(raw.url))continue;
+    const row={title:clean(raw.title,220),url:raw.url,snippet:clean(raw.snippet||raw.description||'',900),source:clean(raw.source||hostOf(raw.url),100),publishedAt:raw.publishedAt||raw.publishedDate||null};
+    const fingerprint=fp(row);if(!fingerprint||seen.has(fingerprint))continue;seen.add(fingerprint);
+    out.push({...row,fingerprint,domain:hostOf(row.url),sourceTier:tier(row),freshness:freshness(row),qualityScore:quality(row),agent:profile.id,topic:profile.topics[state.cycle%profile.topics.length],query,collectedAt:now()});
+  }
+  return out.sort((a,b)=>b.qualityScore-a.qualityScore);
+}
+function pickAgent(){
+  for(let i=0;i<AUTONOMOUS_AGENT_PROFILES.length;i++){
+    const p=AUTONOMOUS_AGENT_PROFILES[(state.cursor+i)%AUTONOMOUS_AGENT_PROFILES.length];
+    if(state.agents[p.id].status==='IDLE'){state.cursor=(state.cursor+i+1)%AUTONOMOUS_AGENT_PROFILES.length;return p}
+  }
+  return AUTONOMOUS_AGENT_PROFILES[state.cursor%AUTONOMOUS_AGENT_PROFILES.length];
+}
+function free(getSchedulerState){
+  if(!state.enabled||state.running)return false;
+  const s=getSchedulerState?.()||{running:0,maxConcurrency:5,queue:[]};
+  const spare=Math.max(0,Number(s.maxConcurrency||5)-Number(s.running||0));
+  const urgent=(s.queue||[]).filter(x=>Number(x.priority||0)>=140).length;
+  return spare>=1&&urgent===0;
+}
+async function db(){
+  if(!process.env.DATABASE_URL)return null;
+  if(dbPool)return dbPool;
+  dbPool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:2,idleTimeoutMillis:30000});
+  try{
+    await dbPool.query('CREATE TABLE IF NOT EXISTS finpilot_learning_evidence (id BIGSERIAL PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, agent TEXT NOT NULL, topic TEXT, query TEXT, title TEXT, url TEXT, source TEXT, source_tier TEXT, published_at TIMESTAMPTZ, quality_score DOUBLE PRECISION, payload JSONB, collected_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+    await dbPool.query('CREATE TABLE IF NOT EXISTS finpilot_learning_candidates (id BIGSERIAL PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, agent TEXT NOT NULL, topic TEXT, status TEXT NOT NULL, quality_score DOUBLE PRECISION, evidence_count INT, primary_count INT, diversity_count INT, payload JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+    schemaReady=true;
+  }catch(e){schemaReady=false;state.lastError='DB schema: '+e.message}
+  return schemaReady?dbPool:null;
+}
+async function persistEvidence(rows){
+  const pool=await db();if(!pool)return;
+  for(const r of rows)try{await pool.query(
+    'INSERT INTO finpilot_learning_evidence(fingerprint,agent,topic,query,title,url,source,source_tier,published_at,quality_score,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (fingerprint) DO NOTHING',
+    [r.fingerprint,r.agent,r.topic,r.query,r.title,r.url,r.source,r.sourceTier,r.publishedAt?new Date(r.publishedAt):null,r.qualityScore,r]
+  )}catch{}
+}
+async function persistCandidate(c){
+  const pool=await db();if(!pool)return;
+  try{await pool.query(
+    'INSERT INTO finpilot_learning_candidates(fingerprint,agent,topic,status,quality_score,evidence_count,primary_count,diversity_count,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (fingerprint) DO NOTHING',
+    [c.fingerprint,c.agent,c.topic,c.status,c.qualityScore,c.evidenceCount,c.primaryCount,c.sourceDiversity,c]
+  )}catch{}
+}
+
+export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={}){
+  if(!free(getSchedulerState))return {ok:true,status:'DEFERRED_BUSY'};
+  const profile=pickAgent();
+  state.running=true;state.cycle++;state.activeAgent=profile.id;state.lastError=null;
+  state.agents[profile.id].status='RESEARCHING';state.agents[profile.id].jobs++;
+  const topic=profile.topics[state.cycle%profile.topics.length];
+  const query=topic+' '+profile.querySuffix+' latest';
+  state.nextRunAt=new Date(Date.now()+state.intervalMs).toISOString();
+  try{
+    const result=await searchWeb(query,{count:maxResults});state.stats.searched++;
+    const rows=normalize(result?.results||[],profile,query);
+    const old=new Set(state.evidence.map(x=>x.fingerprint));
+    const fresh=rows.filter(x=>!old.has(x.fingerprint));
+    state.stats.duplicates+=Math.max(0,rows.length-fresh.length);
+    state.stats.evidenceCollected+=rows.length;state.stats.evidenceAccepted+=fresh.length;
+    state.evidence.unshift(...fresh);state.evidence=state.evidence.slice(0,1000);await persistEvidence(fresh);
+    const primary=fresh.filter(x=>x.sourceTier==='PRIMARY').length;
+    const diversity=new Set(fresh.map(x=>x.domain).filter(Boolean)).size;
+    const avg=rows.length?Math.round(rows.reduce((n,x)=>n+x.qualityScore,0)/rows.length):0;
+    const validated=rows.length>=2&&(primary>=1||diversity>=2)&&avg>=65;
+    const candidate={
+      id:'lc-'+Date.now().toString(36),
+      fingerprint:profile.id+'|'+topic+'|'+rows.map(x=>x.fingerprint).sort().join('|').slice(0,900),
+      agent:profile.id,topic,query,status:validated?'PENDING_TRAINING_VALIDATION':'NEEDS_MORE_EVIDENCE',
+      qualityScore:avg,evidenceCount:rows.length,primaryCount:primary,sourceDiversity:diversity,source:result?.provider||'unknown',
+      evidence:rows.slice(0,8).map(x=>({title:x.title,url:x.url,sourceTier:x.sourceTier,qualityScore:x.qualityScore,publishedAt:x.publishedAt})),
+      learningObjective:'Upgrade '+profile.id+' knowledge on '+topic+' using verified, fresh evidence.',
+      successCondition:'Pass source-quality, freshness, contradiction and benchmark gates before promotion.',
+      createdAt:now()
+    };
+    if(!state.candidates.some(x=>x.fingerprint===candidate.fingerprint)){
+      state.candidates.unshift(candidate);state.candidates=state.candidates.slice(0,250);state.stats.candidates++;await persistCandidate(candidate);
+    }else state.stats.duplicates++;
+    if(validated){
+      const tc={id:'tc-'+Date.now().toString(36),agent:profile.id,topic,
+        prompt:'Review the collected evidence for '+topic+'. Separate facts from inference, identify conflicts, state uncertainty, and propose what the agent should learn.',
+        sourceCandidate:candidate.id,status:'QUEUED',createdAt:now()};
+      state.trainingCases.unshift(tc);state.trainingCases=state.trainingCases.slice(0,250);state.queue.unshift({...tc,priority:profile.priority});state.queue=state.queue.slice(0,250);state.stats.trainingCases++;
+    }
+    state.lastCycleAt=now();state.lastSuccessAt=state.lastCycleAt;
+    const a=state.agents[profile.id];a.lastResearchAt=state.lastSuccessAt;a.lastTopic=topic;a.lastQuality=avg;a.lastCandidate=candidate.id;a.status='IDLE';
+    emitEvent?.('AUTONOMOUS_RESEARCH_UPDATE',{agent:profile.id,topic,provider:result?.provider||'unknown',evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status},75);
+    audit?.('AUTONOMOUS_RESEARCH_COMPLETE',{agent:profile.id,topic,provider:result?.provider||'unknown',evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status});
+    return {ok:true,status:'COMPLETED',agent:profile.id,topic,provider:result?.provider||'unknown',evidence:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status};
+  }catch(e){
+    state.stats.failed++;state.lastError=e.message||String(e);state.agents[profile.id].status='IDLE';
+    audit?.('AUTONOMOUS_RESEARCH_ERROR',{agent:profile.id,topic,error:state.lastError});
+    return {ok:false,status:'ERROR',agent:profile.id,topic,error:state.lastError};
+  }finally{
+    state.running=false;state.activeAgent=null;state.nextRunAt=new Date(Date.now()+state.intervalMs).toISOString();
+  }
+}
+export function status(){
+  return {version:state.version,enabled:state.enabled,mode:state.mode,running:state.running,cycle:state.cycle,intervalMs:state.intervalMs,
+    activeAgent:state.activeAgent,lastCycleAt:state.lastCycleAt,lastSuccessAt:state.lastSuccessAt,lastError:state.lastError,nextRunAt:state.nextRunAt,
+    stats:{...state.stats},agents:Object.fromEntries(Object.entries(state.agents).map(([k,v])=>[k,{...v}])),
+    queueCount:state.queue.length,candidateCount:state.candidates.length,evidenceCount:state.evidence.length,trainingCaseCount:state.trainingCases.length,
+    recentCandidates:state.candidates.slice(0,12),recentTrainingCases:state.trainingCases.slice(0,12),recentEvidence:state.evidence.slice(0,12)};
+}
+export function queue(limit=40){return state.queue.slice(0,Math.max(1,Math.min(100,Number(limit)||40)))}
+export function enable(value){
+  state.enabled=Boolean(value);
+  if(!state.enabled&&timer){clearInterval(timer);timer=null}
+  if(state.enabled&&!timer)startTimer();
+  state.nextRunAt=state.enabled?new Date(Date.now()+state.intervalMs).toISOString():null;
+  return status();
+}
+function startTimer(){
+  if(timer)clearInterval(timer);
+  timer=setInterval(()=>{if(state.enabled)runCycle(globalThis.__finpilotAutonomousDeps||{}).catch(()=>{})},state.intervalMs);
+}
+export function init(deps){
+  globalThis.__finpilotAutonomousDeps=deps||{};
+  state.nextRunAt=state.enabled?new Date(Date.now()+state.intervalMs).toISOString():null;
+  if(state.enabled)startTimer();
+  return status();
+}
+export function cycleNow(deps){
+  globalThis.__finpilotAutonomousDeps={...(globalThis.__finpilotAutonomousDeps||{}),...(deps||{})};
+  return runCycle(globalThis.__finpilotAutonomousDeps);
+}
