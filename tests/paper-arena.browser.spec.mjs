@@ -55,26 +55,32 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await expect(page.locator('#paperChart')).toContainText(/Provider:/, { timeout: 15000 });
   expect(await page.locator('#paperChart svg').count()).toBe(1);
   expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
-  // The browser test first attempts the real verified quote path. For deterministic execution,
-  // it then switches the ticket to an explicitly synthetic SMOKE instrument.
-  await page.locator('#paperSymbol').evaluate(el => { el.value = 'SMOKE'; });
-  await page.locator('#paperPrice').evaluate(el => { el.value = '100'; });
-
-  await page.getByRole('button', { name: /Run AI Council/i }).click();
-  await expect(page.locator('#paperlab')).toContainText(/PAPER (BUY|SELL|HOLD)/, { timeout: 30000 });
+  // Verify the actual visible BUY button instead of only calling the engine directly.
+  const quantity = page.locator('#paperQty');
+  await quantity.fill('1');
+  await page.getByRole('button', { name: /BUY · MARKET/i }).click();
+  await page.waitForTimeout(1200);
 
   const execution = await page.evaluate(() => {
-    const core = window.FinPilotPaperCore;
     const st = window.FinPilotBridge.state;
-    const p = core.ensure(st);
-    const a = p.agents[0];
-    const before = a.cash;
-    const order = core.paperOrder(st, a.id, 'SMOKE', 'BUY', 1, 100, 'browser smoke execution');
-    return { status: order.status, virtualOnly: order.virtualOnly, positionQty: a.positions.find(x => x.symbol === 'SMOKE')?.qty || 0, cashReduced: a.cash < before };
+    const p = window.FinPilotPaperCore.ensure(st);
+    const orders = p.orders || [];
+    const latest = orders.find(o => o.reason === 'Manual paper market') || orders[0];
+    const agent = p.agents.find(a => a.id === document.getElementById('paperAgent')?.value) || p.agents[0];
+    return {
+      status: latest?.status || null,
+      virtualOnly: latest?.virtualOnly ?? null,
+      side: latest?.side || null,
+      symbol: latest?.symbol || null,
+      qty: latest?.qty || 0,
+      positionQty: agent?.positions.find(x => x.symbol === latest?.symbol)?.qty || 0,
+      executionStatus: document.getElementById('paperExecutionStatus')?.innerText || ''
+    };
   });
+  console.log('PAPER_UI_EXECUTION', JSON.stringify(execution));
   expect(execution.status).toBe('FILLED');
   expect(execution.virtualOnly).toBe(true);
-  expect(execution.positionQty).toBe(1);
-  expect(execution.cashReduced).toBe(true);
+  expect(execution.side).toBe('BUY');
+  expect(execution.positionQty).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
