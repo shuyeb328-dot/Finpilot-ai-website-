@@ -245,7 +245,7 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
     }
     const completed=improvements.filter(x=>x.status!=='ERROR');
     const avgDelta=completed.length?Math.round(completed.reduce((n,x)=>n+x.delta,0)/completed.length):null;
-    improvement={tests:improvements.length,completed:completed.length,averageDelta:avgDelta,rounds:completedRounds,agents:improvements};
+    improvement={tests:improvements.length,completed:completed.length,averageDelta:avgDelta,rounds:completedRounds,successfulAgents:successful,agents:improvements};
     state.learningLoop={running:false,lastRunAt:now(),rounds:completedRounds,maxRounds,totalAgents:improvements.length,successfulAgents:successful,averageDelta:avgDelta,
       history:[{at:now(),rounds:completedRounds,tests:improvements.length,successfulAgents:successful,averageDelta:avgDelta,agents:improvements.slice(0,12)},...(state.learningLoop?.history||[])].slice(0,20)};
   }
