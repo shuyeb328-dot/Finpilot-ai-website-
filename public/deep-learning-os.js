@@ -28,8 +28,8 @@ function features(state,web){
   const reserve=Number(state?.emergency||0)/Math.max(1,Number(state?.spending||0));
   const free=Number(state?.income||0)-Number(state?.spending||0);
   const text=(Array.isArray(state?.evidence)?state.evidence.slice(0,12):[]).map(e=>String(e.claim||'')).join(' ').toLowerCase();
-  const positive=(text.match(/\\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract)\\b/g)||[]).length;
-  const negative=(text.match(/\\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|default|weak)\\b/g)||[]).length;
+  const positive=(text.match(/\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract)\b/g)||[]).length;
+  const negative=(text.match(/\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|default|weak)\b/g)||[]).length;
   return {
     evidence:clamp(45+ev*4),
     freshness:clamp(state?.lastEvidenceSync?75:35),
@@ -58,10 +58,10 @@ function resolveCandidate(query,search,web){
   ];
   const results=Array.isArray(search?.results)?search.results:[];
   const corpus=(q+' '+results.map(x=>(x.title||'')+' '+(x.snippet||'')).join(' ')).toUpperCase();
-  const broad=/\\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\\b/.test(q)&&!catalog.some(c=>q.includes(c[0])||q.includes(c[1].toUpperCase()));
+  const broad=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/.test(q)&&!catalog.some(c=>q.includes(c[0])||q.includes(c[1].toUpperCase()));
   let candidates=catalog.filter(c=>corpus.includes(c[0])||corpus.includes(c[1].toUpperCase()));
   if(!candidates.length && !broad){
-    const clean=q.replace(/\\b(BUY|SELL|STOCK|SHARE|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO)\\b/g,' ').trim().split(/\\s+/)[0];
+    const clean=q.replace(/\b(BUY|SELL|STOCK|SHARE|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO)\b/g,' ').trim().split(/\s+/)[0];
     if(clean)candidates=[[clean,clean+' (symbol detected from query)']];
   }
   if(!candidates.length)return null;
@@ -72,8 +72,8 @@ function resolveCandidate(query,search,web){
       const t=((r.title||'')+' '+(r.snippet||'')).toUpperCase();
       if(t.includes(c[0])||t.includes(c[1].toUpperCase())){
         mentions++;
-        const lo=t.toLowerCase();positive+=(lo.match(/\\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract|buy)\\b/g)||[]).length;
-        negative+=(lo.match(/\\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|weak|sell)\\b/g)||[]).length;
+        const lo=t.toLowerCase();positive+=(lo.match(/\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract|buy)\b/g)||[]).length;
+        negative+=(lo.match(/\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|weak|sell)\b/g)||[]).length;
       }
     });
     const evidenceScore=clamp(48+Math.min(24,mentions*8)+(positive-negative)*4+f.evidence*.08);
