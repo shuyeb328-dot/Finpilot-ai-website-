@@ -1,4 +1,4 @@
-/* FinPilot Autonomous Agent Learning OS 3.2
+/* FinPilot Autonomous Agent Learning OS 3.3
    Background research + data quality + governed training queue + bounded improvement loops.
 */
 import pg from 'pg';
@@ -24,7 +24,7 @@ const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS
 const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
 
 const state={
-  version:'3.2',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
+  version:'3.3',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
   running:false,cycle:0,cursor:0,activeAgent:null,lastCycleAt:null,lastSuccessAt:null,lastError:null,nextRunAt:null,
   stats:{cycles:0,queries:0,evidenceCollected:0,evidenceAccepted:0,candidates:0,trainingCases:0,duplicates:0,failed:0,primarySources:0,sourceDomains:0,contradictionFlags:0},
   agents:Object.fromEntries(AUTONOMOUS_AGENT_PROFILES.map(a=>[a.id,{status:'IDLE',jobs:0,lastResearchAt:null,lastTopic:null,lastQuality:null,lastCandidate:null}])),
@@ -351,7 +351,7 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     state.stats.contradictionFlags+=contradiction;
     const authorityAvg=rows.length?Math.round(rows.reduce((n,x)=>n+x.authorityScore,0)/rows.length):0;
     const depthAvg=rows.length?Math.round(rows.reduce((n,x)=>n+x.evidenceDepthScore,0)/rows.length):0;
-    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&authorityAvg>=65&&freshnessScore>=60&&depthAvg>=60&&contradiction===0;
+    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&authorityAvg>=60&&freshnessScore>=60&&depthAvg>=55&&contradiction===0;
     const candidate={
       id:'lc-'+Date.now().toString(36),
       fingerprint:profile.id+'|'+topic+'|'+rows.map(x=>x.fingerprint).sort().join('|').slice(0,900),
