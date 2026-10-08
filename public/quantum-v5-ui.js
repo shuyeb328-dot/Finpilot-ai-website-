@@ -5,31 +5,40 @@
   const STYLE_ID='finpilot-v5-style', ROOT_ID='finpilot-v5-root';
   const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const css=`
-    :root{--q5-bg:#f6f8fc;--q5-ink:#101828;--q5-muted:#667085;--q5-line:#e6eaf0;--q5-blue:#2563eb;--q5-card:rgba(255,255,255,.88);--q5-shadow:0 20px 60px rgba(16,24,40,.10)}
+    #q5Theme{color-scheme:inherit}
+    :root{--q5-bg:var(--bg,#07111f);--q5-ink:var(--text,#edf5ff);--q5-muted:var(--muted,#91a3bf);--q5-line:var(--line,#263754);--q5-blue:var(--accent,#42a5ff);--q5-card:var(--surface,#0d1728);--q5-card2:var(--surface-2,#101d31);--q5-chip:var(--surface-3,#16243a);--q5-shadow:0 20px 60px rgba(0,0,0,.34)}
     #${ROOT_ID}{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     #q5-launch{position:fixed;right:18px;bottom:18px;z-index:950;border:0;border-radius:999px;padding:12px 17px;background:#101828;color:#fff;font-weight:750;box-shadow:0 12px 30px rgba(16,24,40,.22);cursor:pointer;transition:.2s}
     #q5-launch:hover{transform:translateY(-2px);box-shadow:0 16px 36px rgba(16,24,40,.28)}
     .q5-back{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.46);backdrop-filter:blur(12px);display:flex;align-items:flex-start;justify-content:center;padding:7vh 18px 24px}
-    .q5-shell{width:min(1040px,100%);max-height:86vh;overflow:auto;background:var(--q5-card);border:1px solid rgba(255,255,255,.7);border-radius:26px;box-shadow:0 35px 100px rgba(15,23,42,.28);animation:q5in .24s ease}
+    .q5-shell{width:min(1040px,100%);max-height:86vh;overflow:auto;background:var(--q5-card);color:var(--q5-ink);border:1px solid var(--q5-line);border-radius:26px;box-shadow:0 35px 100px rgba(0,0,0,.38);animation:q5in .24s ease}
     @keyframes q5in{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
     .q5-top{padding:28px 30px 18px;display:flex;justify-content:space-between;gap:20px}
     .q5-brand{font-size:11px;font-weight:850;letter-spacing:.14em;color:var(--q5-blue)}
     .q5-title{font-size:32px;letter-spacing:-.04em;margin:5px 0;color:var(--q5-ink)}
     .q5-sub{color:var(--q5-muted);margin:0;max-width:690px}
-    .q5-close{border:1px solid var(--q5-line);background:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;height:max-content}
-    .q5-search{margin:0 30px 20px;display:flex;align-items:center;border:1px solid #d7deea;background:#fff;border-radius:16px;padding:5px 7px 5px 17px;box-shadow:0 8px 30px rgba(16,24,40,.07)}
+    .q5-close{border:1px solid var(--q5-line);background:var(--q5-card2);color:var(--q5-ink);border-radius:10px;padding:9px 12px;cursor:pointer;height:max-content}
+    .q5-search{margin:0 30px 20px;display:flex;align-items:center;border:1px solid var(--q5-line);background:var(--q5-card2);border-radius:16px;padding:5px 7px 5px 17px;box-shadow:0 8px 30px rgba(0,0,0,.18)}
     .q5-search input{flex:1;border:0;outline:0;font-size:17px;padding:12px;background:transparent;color:var(--q5-ink)}
-    .q5-key{font-size:11px;color:#7b8493;background:#f4f6f8;border:1px solid #e5e7eb;border-radius:7px;padding:5px 7px;margin-right:7px}
-    .q5-go{border:0;background:#101828;color:#fff;border-radius:11px;padding:11px 16px;font-weight:750;cursor:pointer}
+    .q5-key{font-size:11px;color:var(--q5-muted);background:var(--q5-chip);border:1px solid var(--q5-line);border-radius:7px;padding:5px 7px;margin-right:7px}
+    .q5-go{border:0;background:var(--q5-blue);color:#fff;border-radius:11px;padding:11px 16px;font-weight:750;cursor:pointer}
     .q5-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:14px;padding:0 30px 30px}
-    .q5-card{border:1px solid var(--q5-line);border-radius:18px;background:#fff;padding:18px}
+    .q5-card{border:1px solid var(--q5-line);border-radius:18px;background:var(--q5-card2);padding:18px}
     .q5-card h3{margin:0 0 5px;font-size:15px}.q5-muted{color:var(--q5-muted);font-size:13px}
-    .q5-visual{height:180px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#eef4ff,#f8fafc);margin:12px 0}
+    .q5-visual{height:180px;border-radius:14px;overflow:hidden;background:var(--q5-chip);margin:12px 0}
     .q5-visual svg{width:100%;height:100%}
     .q5-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
-    .q5-chip{border:1px solid #e1e6ef;background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:12px;cursor:pointer}
-    .q5-stat{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #eef1f5}.q5-stat:last-child{border-bottom:0}
+    .q5-chip{border:1px solid var(--q5-line);background:var(--q5-chip);color:var(--q5-ink);border-radius:999px;padding:7px 10px;font-size:12px;cursor:pointer}
+    .q5-stat{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--q5-line)}.q5-stat:last-child{border-bottom:0}
     .q5-stat b{font-size:14px}.q5-stat span{color:var(--q5-muted);font-size:12px}
+
+    .q5-benchmark{margin-top:14px;border:1px solid var(--q5-line);border-radius:16px;background:var(--q5-card2);padding:14px}
+    .q5-benchmark-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.q5-benchmark-title{font-weight:800}.q5-benchmark-sub{font-size:11px;color:var(--q5-muted);margin-top:3px}
+    .q5-benchmark-btn{border:1px solid var(--q5-line);background:var(--q5-chip);color:var(--q5-ink);border-radius:9px;padding:8px 10px;font-weight:750;cursor:pointer}.q5-benchmark-btn:disabled{opacity:.55}
+    .q5-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}.q5-metric{padding:9px;border:1px solid var(--q5-line);border-radius:10px;background:var(--q5-card)}.q5-metric b{display:block;font-size:16px;margin-top:2px}.q5-metric span{font-size:10px;color:var(--q5-muted)}
+    .q5-agent-row{display:grid;grid-template-columns:1.1fr .7fr .7fr .8fr;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--q5-line);font-size:11px}.q5-agent-row:last-child{border-bottom:0}.q5-agent-name{font-weight:750}.q5-good{color:var(--green,#34d399)}.q5-warn{color:var(--amber,#fbbf24)}
+    .q5-note{margin-top:10px;padding:9px;border-radius:10px;background:var(--q5-chip);color:var(--q5-muted);font-size:11px;line-height:1.45}
+    @media(max-width:720px){.q5-metrics{grid-template-columns:1fr 1fr}.q5-agent-row{grid-template-columns:1fr .7fr .7fr}.q5-agent-row .q5-agent-confidence{display:none}}
     @media(max-width:720px){.q5-grid{grid-template-columns:1fr;padding:0 16px 18px}.q5-top{padding:20px 18px 14px}.q5-title{font-size:25px}.q5-search{margin:0 16px 16px}.q5-shell{border-radius:20px;max-height:92vh}.q5-key{display:none}}
   `;
   function style(){if(document.getElementById(STYLE_ID))return;const s=document.createElement('style');s.id=STYLE_ID;s.textContent=css;document.head.appendChild(s)}
@@ -50,6 +59,27 @@
       else console.error('Quantum Search failed',e);
     }
   }
+  async function compareAgents(){
+    const out=document.getElementById('q5benchout'),btn=document.getElementById('q5bench'); if(!out||!btn)return;
+    const names=['CFO','Debt','Goals','Risk','Investment','Markets','Tax','Security','Business','Assets'];
+    btn.disabled=true;btn.textContent='Running 10 agents…';
+    out.innerHTML='<div class="q5-note">Executing all 10 built-in specialists in parallel. This benchmark measures execution only; it does not execute trades.</div>';
+    const s=(typeof state!=='undefined'?state:{});
+    const payload={income:s.income||0,spending:s.spending||0,emergency:s.emergency||0,liabilities:s.liabilities||0,findings:Array.isArray(s.findings)?s.findings:[]};
+    const t0=performance.now();
+    const results=await Promise.all(names.map(async name=>{
+      const t=performance.now();
+      try{
+        const r=await fetch('/api/agent-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,agent:name,benchmark:'quantum-v5-agent-fleet'})});
+        const d=await r.json(); return {agent:name,ok:Boolean(r.ok&&d?.ok),latencyMs:Math.round(performance.now()-t),confidence:Number(d?.pipeline?.confidence||0),risk:d?.pipeline?.risk||'UNKNOWN',engine:d?.pipeline?.engine||'unknown'};
+      }catch(e){return {agent:name,ok:false,latencyMs:Math.round(performance.now()-t),confidence:0,risk:'ERROR',error:String(e?.message||e)}}
+    }));
+    const wall=Math.round(performance.now()-t0),ok=results.filter(x=>x.ok).length,avg=Math.round(results.reduce((a,x)=>a+x.latencyMs,0)/Math.max(1,results.length)),slow=results.reduce((a,b)=>a.latencyMs>b.latencyMs?a:b);
+    out.innerHTML='<div class="q5-metrics"><div class="q5-metric"><span>Quantum stages</span><b>7</b></div><div class="q5-metric"><span>Agents executed</span><b>'+ok+'/'+names.length+'</b></div><div class="q5-metric"><span>Parallel wall time</span><b>'+wall+' ms</b></div><div class="q5-metric"><span>Avg agent time</span><b>'+avg+' ms</b></div></div>'+
+      '<div style="margin-top:10px">'+results.map(x=>'<div class="q5-agent-row"><span class="q5-agent-name">'+esc(x.agent)+'</span><span class="'+(x.ok?'q5-good':'q5-warn')+'">'+(x.ok?'EXECUTED':'FAILED')+'</span><span>'+x.latencyMs+' ms</span><span class="q5-agent-confidence">'+x.confidence+'% · '+esc(x.risk)+'</span></div>').join('')+'</div>'+
+      '<div class="q5-note"><b>Interpretation:</b> Quantum AI is not an additional specialist agent. It is the orchestration layer that routes evidence → specialists → Round Table → CEO/CFO/Judge. The benchmark therefore compares Quantum orchestration overhead and coverage against the individual specialists, rather than pretending they are identical workloads.</div>';
+    btn.disabled=false;btn.textContent='Run again';
+  }
   function close(){document.getElementById(ROOT_ID)?.remove()}
   function open(){
     style();close();
@@ -64,6 +94,7 @@
     document.getElementById('q5close').onclick=close;
     document.getElementById('q5back').onclick=e=>{if(e.target.id==='q5back')close()};
     document.getElementById('q5go').onclick=()=>run(inp.value);
+    document.getElementById('q5bench').onclick=compareAgents;
     inp.onkeydown=e=>{if(e.key==='Enter')run(inp.value);if(e.key==='Escape')close()};
     root.querySelectorAll('.q5-chip').forEach(b=>b.onclick=()=>run(b.dataset.q));
   }
