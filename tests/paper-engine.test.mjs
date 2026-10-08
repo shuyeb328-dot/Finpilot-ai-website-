@@ -259,9 +259,10 @@ function fresh(){
 {
   const {state,a}=fresh();
   core.paperOrder(state,'a1','IRFC','BUY',10,100,'tick position');
+  const baseLast=a.positions[0].last;
   const staleTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date(Date.now()-31000).toISOString(),seq:'stale-1',status:'STALE',verified:true,executionEligible:false});
   assert.equal(staleTick.fills.length,0);
-  assert.equal(a.positions[0].last,100);
+  assert.equal(a.positions[0].last,baseLast);
   const liveTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'live-1',status:'LIVE',verified:true,executionEligible:true});
   assert.equal(liveTick.ok,true);
   assert.equal(a.positions[0].last,120);
