@@ -1009,4 +1009,4 @@ async function runGlobalMarketSmoke(){
  const [indices,stockResults]=await Promise.all([test(idx),test(stocks)]);
  console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stockResults.length,pass:stockResults.filter(x=>x.ok).length,fail:stockResults.filter(x=>!x.ok).length,rows:stockResults},elapsedMs:Date.now()-started}));
 }
-if(process.env.RUN_GLOBAL_MARKET_SMOKE==='true')setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
+setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
