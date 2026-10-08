@@ -23,6 +23,8 @@ jobs:
         run: npm install
       - name: Run CEO/CFO/Judge tests
         run: node tests/ceo-cfo-judge.test.mjs
+      - name: Run autonomous learning authority/freshness tests
+        run: node tests/autonomous-learning.test.mjs
       - name: Run paper engine tests
         run: node tests/paper-engine.test.mjs
       - name: Run adaptive research tests
