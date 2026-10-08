@@ -448,7 +448,7 @@ async function fetchYahooWorldIndexPage(){
   const clean=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g,' ').trim();
   for(const row of html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi)||[]){
    const cells=[...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>clean(m[1]));
-   if(cells.length>=3&&/^\^?[A-Z0-9][A-Z0-9_.=-]*$/.test(cells[0])){const price=Number(cells[2].replace(/,/g,''));if(Number.isFinite(price))out.set(cells[0],{symbol:cells[0],name:cells[1],price,changePct:0,live:false,provider:'Yahoo Finance World Indices page · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'world-indices page / may be delayed'});}
+   if(cells.length>=3&&/^\^?[A-Z0-9][A-Z0-9_.=-]*$/.test(cells[0])){const priceCell=cells.slice(2).find(v=>/^-?\d[\d,]*(?:\.\d+)?/.test(v));const m=priceCell?.match(/^-?[\d,]+(?:\.\d+)?/);const price=m?Number(m[0].replace(/,/g,'')):NaN;if(Number.isFinite(price)&&price>0)out.set(cells[0],{symbol:cells[0],name:cells[1],price,changePct:0,live:false,provider:'Yahoo Finance World Indices page · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'world-indices page / may be delayed'});}
   }
   if(!out.size)throw new Error('Yahoo world indices table unavailable');
   EQUITY_MARKET_CACHE.set('WORLD_INDEX_PAGE',{at:Date.now(),result:out});return out;
