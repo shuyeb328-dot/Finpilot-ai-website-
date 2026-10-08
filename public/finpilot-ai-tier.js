@@ -8,9 +8,9 @@
     try{
       const r=await fetch('/api/ai-plan',{headers:{'x-finpilot-user':id}}),x=await r.json();
       let el=document.getElementById('finpilotAiTier');
-      if(!el){el=document.createElement('div');el.id='finpilotAiTier';el.style.cssText='position:fixed;right:14px;bottom:14px;z-index:80;max-width:330px;padding:13px 15px;border:1px solid #dbe3f0;border-radius:14px;background:rgba(255,255,255,.96);box-shadow:0 12px 32px rgba(20,31,55,.14);backdrop-filter:blur(8px);font-size:12px;line-height:1.45';document.body.appendChild(el)}
+      if(!el){el=document.createElement('div');el.id='finpilotAiTier';el.className='finpilotAiTierCard';document.body.appendChild(el)}
       const pct=x.limit?Math.round(x.used/x.limit*100):0;
-      el.innerHTML='<b style="font-size:13px">FinPilot AI · FREE</b><div style="margin-top:5px;color:#657186">'+esc(x.remaining)+' AI reasoning runs remaining today</div><div style="height:5px;background:#eef2f7;border-radius:99px;margin:8px 0"><div style="height:5px;width:'+Math.min(100,pct)+'%;background:#315efb;border-radius:99px"></div></div><div style="color:#657186">'+(x.aiConfigured?'AI gateway connected':'Core engine active; AI gateway not connected')+'</div><div style="margin-top:7px;color:#315efb;font-weight:700">Upgrade path: '+esc(x.upgrade?.name||'AI Pro')+'</div>';
+      el.innerHTML='<b class="aiTierTitle">FinPilot AI · FREE</b><div class="aiTierMuted">'+esc(x.remaining)+' AI reasoning runs remaining today</div><div class="aiTierBar"><div style="width:'+Math.min(100,pct)+'%"></div></div><div class="aiTierMuted">'+(x.aiConfigured?'AI gateway connected':'Core engine active; AI gateway not connected')+'</div><div class="aiTierUpgrade">Upgrade path: '+esc(x.upgrade?.name||'AI Pro')+'</div>';
     }catch(e){}
   }
   window.FinPilotAITier={refresh};
