@@ -6,7 +6,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
-import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable} from './autonomous-learning.mjs';
+import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
@@ -1300,6 +1300,8 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
+  if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/live-test')return send(res,200,{ok:true,...autonomousLearningStatus().liveTest});
+  if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/live-test'){const r=await runLiveAgentComparison({searchWeb,emitEvent,audit});return send(res,r.ok?200:503,r);}
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/enable'){await body(req);const x=req._parsedBody||{};return send(res,200,{ok:true,...autonomousLearningEnable(x.enabled!==false)});}
   if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
@@ -1389,7 +1391,7 @@ async function runFinPilotSmoke50(){
  }
  console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,fallbackChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
 }
-server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(AUTONOMOUS_LEARNING_INIT.enabled)setTimeout(async()=>{const r=await autonomousLearningCycle();console.log('[autonomous-learning-startup]',JSON.stringify({ok:r.ok,status:r.status,agent:r.agent,topic:r.topic,provider:r.provider,evidence:r.evidence,accepted:r.accepted,qualityScore:r.qualityScore,candidateStatus:r.candidateStatus}));},2000);});
+server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(AUTONOMOUS_LEARNING_INIT.enabled)setTimeout(async()=>{const r=await autonomousLearningCycle();console.log('[autonomous-learning-startup]',JSON.stringify({ok:r.ok,status:r.status,agent:r.agent,topic:r.topic,provider:r.provider,evidence:r.evidence,accepted:r.accepted,qualityScore:r.qualityScore,candidateStatus:r.candidateStatus}));if(String(process.env.RUN_AGENT_LIVE_TEST||'false').toLowerCase()==='true'){const t=await runLiveAgentComparison({searchWeb,emitEvent,audit});console.log('[agent-live-comparison]',JSON.stringify({ok:t.ok,status:t.status,runId:t.runId,tests:t.tests,averageScore:t.averageScore,rankings:t.rankings}));}},2000);});
 if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
 async function runGlobalMarketSmoke(){
  const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
