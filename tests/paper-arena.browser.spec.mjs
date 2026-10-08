@@ -34,7 +34,7 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
 
   const execution = await page.evaluate(() => {
     const core = window.FinPilotPaperCore;
-    const st = window.state;
+    const st = window.FinPilotBridge.state;
     const p = core.ensure(st);
     const a = p.agents[0];
     const before = a.cash;
