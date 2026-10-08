@@ -1235,7 +1235,8 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);\n  if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
