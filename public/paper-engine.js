@@ -448,5 +448,40 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
+
+  // Execution Quality Intelligence 1.0: telemetry and diagnostics for virtual fills only.
+  // Scores are descriptive; they never promote agents or enable live brokerage.
+  function executionQualityReport(state){
+    const p=ensure(state),filled=p.orders.filter(o=>['FILLED','PARTIAL'].includes(String(o.status||'').toUpperCase())&&num(o.filledQty,o.qty)>0);
+    const rows=filled.map(o=>{
+      const qty=Math.max(0,num(o.filledQty,o.qty)),price=Math.max(0,num(o.avgFillPrice,o.fillPrice,o.price));
+      const bid=Math.max(0,num(o.quoteBid)),ask=Math.max(0,num(o.quoteAsk));
+      const mid=bid>0&&ask>0?(bid+ask)/2:0;
+      const hasQuote=mid>0&&price>0,side=String(o.side||'BUY').toUpperCase();
+      const adverseBps=hasQuote?((side==='BUY'?(price-mid):(mid-price))/mid)*10000:null;
+      const spreadBps=bid>0&&ask>=bid?((ask-bid)/Math.max(mid,1e-9))*10000:null;
+      const latency=Number.isFinite(Number(o.executionLatencyMs))?Math.max(0,Number(o.executionLatencyMs)):null;
+      const impact=Number.isFinite(Number(o.marketImpactBps))?Math.max(0,Number(o.marketImpactBps)):null;
+      const requested=Math.max(qty,num(o.qty,qty)),partialRatio=requested>0?Math.max(0,Math.min(1,(requested-qty)/requested)):0;
+      const hasFreshness=o.executionEligible!==false&&o.quoteAgeSec!=null;
+      const freshness=hasFreshness?(Number(o.quoteAgeSec)<=30?100:0):null;
+      const components=[];
+      if(adverseBps!=null)components.push({name:'priceVsMid',score:clamp(100-Math.max(0,adverseBps)*4),weight:35});
+      if(spreadBps!=null)components.push({name:'spreadCost',score:clamp(100-spreadBps*2),weight:20});
+      if(impact!=null)components.push({name:'marketImpact',score:clamp(100-impact*3),weight:15});
+      if(latency!=null)components.push({name:'latency',score:clamp(100-latency/10),weight:10});
+      if(freshness!=null)components.push({name:'quoteFreshness',score:freshness,weight:10});
+      components.push({name:'fillCompleteness',score:100*(1-partialRatio),weight:10});
+      const weight=components.reduce((n,c)=>n+c.weight,0);
+      const score=weight?+(components.reduce((n,c)=>n+c.score*c.weight,0)/weight).toFixed(1):null;
+      return {orderId:o.id,symbol:o.symbol,side,orderType:o.orderType||'MARKET',status:o.status,qty:+qty.toFixed(8),fillPrice:price||null,mid:mid||null,adverseSlippageBps:adverseBps==null?null:+adverseBps.toFixed(2),spreadBps:spreadBps==null?null:+spreadBps.toFixed(2),marketImpactBps:impact,executionLatencyMs:latency,quoteFreshnessScore:freshness,partialFillRatio:+partialRatio.toFixed(4),score,measuredDimensions:components.map(c=>c.name),virtualOnly:true};
+    });
+    const scored=rows.filter(r=>r.score!=null),avg=arr=>arr.length?+(arr.reduce((n,x)=>n+x,0)/arr.length).toFixed(1):null;
+    const slippage=rows.filter(r=>r.adverseSlippageBps!=null).map(r=>r.adverseSlippageBps);
+    const latency=rows.filter(r=>r.executionLatencyMs!=null).map(r=>r.executionLatencyMs);
+    const impact=rows.filter(r=>r.marketImpactBps!=null).map(r=>r.marketImpactBps);
+    const stale=rows.filter(r=>r.quoteFreshnessScore===0).length;
+    return {version:'1.0',mode:'PAPER_ONLY',fills:rows.length,scoredFills:scored.length,averageScore:avg(scored.map(r=>r.score)),averageAdverseSlippageBps:avg(slippage),averageLatencyMs:avg(latency),averageMarketImpactBps:avg(impact),staleQuoteFills:stale,partialFillCount:rows.filter(r=>r.partialFillRatio>0).length,rows:rows.slice(0,100),governance:{autoPromotion:false,liveExecution:false,minimumSampleForComparison:30,ready:scored.length>=30&&stale===0},virtualOnly:true};
+  }
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport,executionQualityReport};
 })();
