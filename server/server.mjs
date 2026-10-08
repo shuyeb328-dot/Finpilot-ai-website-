@@ -29,13 +29,37 @@ const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>
  res.writeHead(status,h);res.end(typeof body==='string'?body:JSON.stringify(body));
 };
 async function body(req){if(req._parsedBody!==undefined)return req._parsedBody;let b=''; for await(const c of req)b+=c; try{req._parsedBody=JSON.parse(b||'{}')}catch{req._parsedBody={}} req._bodyCache=JSON.stringify(req._parsedBody);return req._parsedBody}
+const AI_FREE_LIMIT=Number(process.env.FINPILOT_AI_FREE_LIMIT||20);
+const AI_FREE_WINDOW_MS=24*60*60*1000;
+const AI_USAGE=new Map();
+function aiClientId(req){
+ const supplied=String(req.headers['x-finpilot-user']||'').trim();
+ if(supplied) return supplied.slice(0,96);
+ return `${clientKey(req)}|${String(req.headers['user-agent']||'').slice(0,80)}`;
+}
+function aiUsage(id){
+ const now=Date.now(); let x=AI_USAGE.get(id);
+ if(!x||now-x.started>=AI_FREE_WINDOW_MS){x={started:now,count:0};AI_USAGE.set(id,x);}
+ return x;
+}
+function aiPlan(req,res){
+ const x=aiUsage(aiClientId(req)); const used=x.count, remaining=Math.max(0,AI_FREE_LIMIT-used);
+ return send(res,200,{ok:true,tier:'FREE',limit:AI_FREE_LIMIT,used,remaining,windowHours:24,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),upgrade:{id:'PRO_AI',name:'FinPilot AI Pro',features:['higher AI allowance','deeper Round Table synthesis','priority AI reasoning','extended research context'],status:'AVAILABLE_LATER',price:'Not set yet'},note:'Free allowance applies to external AI reasoning calls. FinPilot deterministic market/risk engines remain available.'});
+}
 async function ai(req,res){
- const cfg={url:process.env.LLM_API_URL||'',key:process.env.LLM_API_KEY||'',model:process.env.LLM_MODEL||'gpt-5.6'};
- if(!cfg.url||!cfg.key) return send(res,503,{ok:false,error:'AI gateway not configured. Set LLM_API_URL, LLM_API_KEY and optionally LLM_MODEL on the server.'});
+ const cfg={url:process.env.LLM_API_URL||'',key:process.env.LLM_API_KEY||'',model:process.env.LLM_MODEL||'gpt-6-luna'};
+ const usage=aiUsage(aiClientId(req));
+ if(usage.count>=AI_FREE_LIMIT)return send(res,429,{ok:false,error:'FREE_AI_LIMIT_REACHED',tier:'FREE',limit:AI_FREE_LIMIT,used:usage.count,remaining:0,upgrade:{id:'PRO_AI',name:'FinPilot AI Pro',status:'AVAILABLE_LATER'},fallback:'Use FinPilot deterministic analysis, live market scan, Round Table rules and risk engine.'});
+ if(!cfg.url||!cfg.key)return send(res,503,{ok:false,error:'AI_GATEWAY_NOT_CONFIGURED',tier:'FREE',limit:AI_FREE_LIMIT,used:usage.count,remaining:AI_FREE_LIMIT-usage.count,message:'Free AI tier is enabled, but no AI provider key is configured. Core FinPilot analysis remains available.'});
  const input=await body(req);
- const payload={model:cfg.model,messages:[{role:'system',content:'You are FinPilot AI, a careful personal-finance decision assistant. Do not claim to execute financial transactions. Do not guarantee returns. Treat securities recommendations as regulated-advice-sensitive. Require risk profile and suitability evidence before personalized investment advice; otherwise provide general education/decision support only. State uncertainty and material risks. Return concise JSON with keys: summary, decision, confidence, risks, actions, evidence_needed.'},{role:'user',content:JSON.stringify(input)}]};
- const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},body:JSON.stringify(payload)});
- const t=await r.text(); res.writeHead(r.status,{'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Cache-Control':'no-store'});res.end(t);
+ const payload={model:cfg.model,messages:[{role:'system',content:'You are FinPilot AI, a careful finance decision-support assistant. Think like a disciplined research desk: separate facts from inference, challenge bullish and bearish assumptions, quantify uncertainty, protect capital, and never fabricate live data. Do not execute transactions or guarantee returns. For securities, provide general decision support unless suitability evidence exists. Return concise JSON with keys: summary, decision, confidence, risks, actions, evidence_needed.'},{role:'user',content:JSON.stringify(input)}]};
+ try{
+  const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},body:JSON.stringify(payload)});
+  const t=await r.text();
+  if(r.ok)usage.count++;
+  res.writeHead(r.status,{'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Cache-Control':'no-store','X-FinPilot-AI-Tier':'FREE'});
+  res.end(t);
+ }catch(e){return send(res,502,{ok:false,error:'AI_PROVIDER_UNAVAILABLE',tier:'FREE',used:usage.count,remaining:AI_FREE_LIMIT-usage.count,message:e.message});}
 }
 async function simulate(req,res){
  const x=await body(req);
@@ -540,6 +564,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/learning')return learn(req,res);
   if(req.method==='POST'&&u.pathname==='/api/agent-run')return agentRun(req,res);
   if(req.method==='POST'&&u.pathname==='/api/simulate')return simulate(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/ai-plan')return aiPlan(req,res);
   if(req.method==='POST'&&u.pathname==='/api/ai')return ai(req,res);
   return staticFile(req,res,u);
  }catch(e){send(res,500,{ok:false,error:e.message})}
