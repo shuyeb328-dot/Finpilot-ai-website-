@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('production Paper Arena boots and executes a virtual fill in-browser', async ({ page }) => {
   const errors = [];
   page.on('pageerror', err => errors.push(String(err?.message || err)));
-  await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=1', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=2', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   await page.waitForTimeout(3000);
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
