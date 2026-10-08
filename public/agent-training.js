@@ -60,5 +60,5 @@
       const r=await run();b.disabled=false;b.textContent='Run training round';s.textContent=r.ok?'Training round complete. Weak agents are recorded for improvement.':'Training could not complete: '+(r.reason||'unknown error');render();
     };
   }
-  window.FinPilotTraining={run,render,load};
+  window.FinPilotTraining={run,render,load};\n  const timer=setInterval(()=>{try{if(document.getElementById('agentTrainingLab'))render();}catch{}},700);\n  setTimeout(()=>{try{if(document.getElementById('agentTrainingLab'))render();}catch{}},0);
 })();
