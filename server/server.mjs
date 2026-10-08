@@ -954,7 +954,7 @@ function staticFile(req,res,u){
  p=path.normalize(p).replace(/^\.{2}(\/|\\)/,'');
  const file=path.join(ROOT,p);
  if(!file.startsWith(ROOT))return send(res,403,{error:'Forbidden'});
- fs.stat(file,(e,s)=>{if(e||!s.isFile())return send(res,404,'Not found','text/plain'); const ext=path.extname(file);res.writeHead(200,{'Content-Type':MIME[ext]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});if(file===path.join(ROOT,'index.html')){const raw=fs.readFileSync(file,'utf8');return res.end(cleanIndexHtml(raw))}fs.createReadStream(file).pipe(res);});
+ fs.stat(file,(e,s)=>{if(e||!s.isFile())return send(res,404,'Not found','text/plain'); const ext=path.extname(file);res.writeHead(200,{'Content-Type':MIME[ext]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});fs.createReadStream(file).pipe(res);});
 }
 
 // FinPilot 5.1 Security + Real-Time Automation layer
@@ -1128,125 +1128,7 @@ function optimizeOS(req,res){
  const after={maxConcurrency:SCHEDULER.maxConcurrency,marketRefreshMs:AUTO.marketRefreshMs,cacheTtlMs:AUTO.cacheTtlMs};audit('AUTO_OPTIMIZE',{before,after});return send(res,200,{ok:true,version:'6.9',mode:'BOUNDED_SELF_OPTIMIZATION',before,after,protected:POLICY});
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
-function cleanIndexHtml(html){
- let out=String(html||"");
- const end=out.indexOf("</html>");
- if(end>=0)out=out.slice(0,end+7);
- const marker="const mc=marketCurrency(m),symbol=mc==='USD'?'";
- const p=out.indexOf(marker);
- if(p>=0){
-  const h=out.indexOf("\n   const html=",p);
-  if(h>p)out=out.slice(0,p)+"const mc=marketCurrency(m),symbol=mc==='USD'?'$':'\\u20b9';"+out.slice(h);
- }
- return out;
-}
-function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
-
-const server=http.createServer(async(req,res)=>{
- const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
- try{ if(!rateCheck(req)){SECURITY.blocked++; return send(res,429,{ok:false,error:'RATE_LIMITED',requestId:rid});}
-
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'});return res.end();}
-  const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
-
-  if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/data-health')return dataHealth(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/policy-status')return policyStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/autonomy-status')return autonomyStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/audit-log')return auditLog(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/command-cycle'){await body(req);return commandCycle(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/optimize-os')return optimizeOS(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/health')return health70(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/core-status')return coreStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/agent-memory')return agentMemory(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/evidence-fusion'){await body(req);return evidenceFusion(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/agent-memory'){await body(req);return recordMemory(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/event-detect'){await body(req);return detectEvents(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/portfolio-risk'){await body(req);return portfolioRisk(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/research-queue'){await body(req);return researchQueue(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/decision-cache'){await body(req);return decisionCache(req,res);}
-  if(req.method==='POST'&&u.pathname==='/api/execution-guard'){await body(req);return executionGuard(req,res);}
-  if(req.method==='GET'&&u.pathname==='/api/security-status')return securityStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/realtime-status')return realtimeStatus(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/auto-optimize')return autoOptimize(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/market-history')return marketHistory(req,res,u);
-  if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
-  if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',time:new Date().toISOString(),security:'hardened',realtime:true,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
-  if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
-if(req.method==='GET'&&u.pathname==='/api/market-provider-health')return send(res,200,{ok:true,providers:providerHealthSnapshot(),timestamp:new Date().toISOString()});
-if(req.method==='GET'&&u.pathname==='/api/market-provenance')return marketProvenanceRoute(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/market-picks')return marketPicks(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/options-math')return optionsMath(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/chain-analytics')return chainAnalytics(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/round-table-decision')return roundTableDecision(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/risk-guard')return riskGuard(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/command-decision')return commandDecision(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/investment-plan')return investmentPlan(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/performance')return performance(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/decision-stream')return decisionStream(req,res,u);
-  if(req.method==='POST'&&u.pathname==='/api/agent-batch')return agentBatch(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/execution-plan')return executionPlan(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/learning')return learn(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/agent-run')return agentRun(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/simulate')return simulate(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/ai-plan')return aiPlan(req,res);
-  if(req.method==='POST'&&u.pathname==='/api/ai')return ai(req,res);
-  return staticFile(req,res,u);
- }catch(e){send(res,500,{ok:false,error:e.message})}
-});
-server.on('error',(e)=>{console.error(`FinPilot Web server error: ${e.message}`);process.exitCode=1;});
-async function runFinPilotSmoke50(){
- const queries=['best stock today','TCS analysis','RELIANCE analysis','INFY stock','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','TATASTEEL','SUNPHARMA','TRENT','TECHM','HCLTECH','INDIGO','JUBLFOOD','PAYTM','IRFC','BHARTIARTL','ADANIPORTS','BAJFINANCE','HINDALCO','WIPRO','MARUTI','AXISBANK','KOTAKBANK','GAIL','HINDZINC','Nifty 50','best intraday stock','stock for 1000 rupees','low risk stock','momentum stock','breakout stock','IT stocks','bank stocks','FMCG stocks','energy stocks','auto stocks','pharma stocks','defensive stock','swing trade stock','today trading','best stock India','top NSE stock','chart TCS','chart RELIANCE','chart SBIN','best stock for trading today'];
- let pass=0,fail=0,providerCounts={};
- const started=Date.now();
- for(let i=0;i<queries.length;i+=5){
-  const batch=queries.slice(i,i+5);
-  const rows=await Promise.all(batch.map(async q=>{try{const d=await searchWeb(q,{count:3});return {q,ok:true,provider:d?.provider||'unknown',count:Array.isArray(d?.results)?d.results.length:0}}catch(e){return {q,ok:false,error:e?.code||e?.message||'error'}}}));
-  for(const r of rows){if(r.ok){pass++;providerCounts[r.provider]=(providerCounts[r.provider]||0)+1}else fail++;}
- }
- const tickers=['TCS','RELIANCE','INFY','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','HINDALCO'];
- const charts=[];
- for(const t of tickers){try{const x=await liveEquity(t);charts.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price,provider:x.provider,live:x.live!==false})}catch(e){charts.push({ticker:t,ok:false,error:e?.message||'error'})}}
- const routeChecks=[];
- for(const t of tickers.slice(0,5)){
-  try{
-   let bodyText='',statusCode=0;
-   const mockRes={writeHead:(s)=>{statusCode=s},end:(b)=>{bodyText+=String(b||'')}};
-   const u=new URL('http://finpilot.local/api/stock-report?ticker='+encodeURIComponent(t)+'&interval=1h&multi=1&selftest='+Date.now());
-   await stockReport({},mockRes,u);
-   const d=JSON.parse(bodyText||'{}');
-   routeChecks.push({ticker:t,http:statusCode,ok:Boolean(statusCode===200&&d?.ok&&d?.report?.candles?.length>1),candles:d?.report?.candles?.length||0,price:d?.report?.price||0,error:d?.error||null});
-  }catch(e){routeChecks.push({ticker:t,http:0,ok:false,candles:0,price:0,error:e?.message||'route test failed'})}
- }
- const fallbackChecks=[];
- for(const t of tickers.slice(0,3)){
-  try{const x=await fetchTejEod(t);fallbackChecks.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price,provider:x.provider})}
-  catch(e){fallbackChecks.push({ticker:t,ok:false,error:e?.message||'TejHQ fallback failed'})}
- }
- console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,fallbackChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
-}
-server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
-if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
-async function runGlobalMarketSmoke(){
- const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
- try{await fetchYahooWorldIndexPage()}catch{}
- const test=async(list,concurrency=2)=>{const out=[];let cursor=0;const worker=async()=>{while(true){const i=cursor++;if(i>=list.length)return;try{const x=await liveEquity(list[i]);out[i]={input:list[i],ok:true,symbol:x.symbol,price:x.price,provider:x.provider,live:x.live===true,proxy:Boolean(x.proxy)};}catch(e){out[i]={input:list[i],ok:false,error:e?.message||'error'};}await new Promise(r=>setTimeout(r,250));}};await Promise.all(Array.from({length:concurrency},worker));return out};
- const indices=await test(idx,1); await new Promise(r=>setTimeout(r,1000)); const stockResults=await test(stocks,2);
- console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stockResults.length,pass:stockResults.filter(x=>x.ok).length,fail:stockResults.filter(x=>!x.ok).length,rows:stockResults},elapsedMs:Date.now()-started}));
-}
-:'\\\\u20b9';\\n   const html=\");return out}\nfunction frontendSyntax(){try{const html=cleanIndexHtml(fs.readFileSync(path.join(ROOT,'index.html'),'utf8'));const m=html.match(/<script>([\\s\\S]*?)<\\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
+function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
 function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
 
 const server=http.createServer(async(req,res)=>{
