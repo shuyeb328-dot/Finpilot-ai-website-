@@ -236,17 +236,56 @@ const INDIA_EQUITIES={
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
 };
 function yahooSymbol(t){const k=String(t||'').trim().toUpperCase();return INDIA_INDICES[k]||INDIA_EQUITIES[k]||(/^[A-Z0-9._-]+$/.test(k)?(k.endsWith('.NS')?k:`${k}.NS`):null);}
+const EQUITY_MARKET_CACHE=new Map();
+const YAHOO_COOLDOWN=new Map();
+const MARKET_CACHE_MS=60_000;
+const YAHOO_COOLDOWN_MS=30_000;
+
+async function fetchNseIndex(indexKey){
+ const names={NIFTY:'NIFTY 50',BANKNIFTY:'NIFTY BANK',FINNIFTY:'NIFTY FINANCIAL SERVICES',SENSEX:'SENSEX'};
+ const name=names[indexKey];
+ if(!name)throw new Error('Unsupported index.');
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+ try{
+  const url='https://www.nseindia.com/api/equity-stockIndices?index='+encodeURIComponent(name);
+  const r=await fetch(url,{headers:{
+   'Accept':'application/json,text/plain,*/*',
+   'Accept-Language':'en-IN,en;q=0.9',
+   'Referer':'https://www.nseindia.com/',
+   'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+  },signal:controller.signal});
+  if(!r.ok)throw new Error('NSE HTTP '+r.status);
+  const d=await r.json(),rows=Array.isArray(d?.data)?d.data:[];
+  const row=rows[0];
+  const price=Number(row?.lastPrice),prev=Number(row?.previousClose),high=Number(row?.dayHigh),low=Number(row?.dayLow);
+  if(!Number.isFinite(price))throw new Error('NSE index price unavailable');
+  const changePct=Number(row?.pChange??(prev?((price-prev)/prev)*100:0));
+  return {ticker:indexKey,symbol:INDIA_INDICES[indexKey],market:'INDIA_INDEX',exchange:'NSE',name, currency:'INR',
+   price,previous:prev,changePct,dayHigh:high,dayLow:low,live:true,provider:'NSE India market-data page',asOf:new Date().toISOString(),
+   dataFreshness:'LIVE/streaming exchange page',dataDisclaimer:'NSE market data may be subject to exchange/display delays; verify broker quote before acting.'};
+ }catch(e){throw new Error(e?.name==='AbortError'?'NSE index timeout':String(e?.message||e))}
+ finally{clearTimeout(timer)}
+}
+
 async function fetchYahooChart(symbol,range='5d',interval='1h'){
+ const cached=EQUITY_MARKET_CACHE.get(symbol);
+ if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
+ const blockedUntil=YAHOO_COOLDOWN.get(symbol)||0;
+ if(Date.now()<blockedUntil)throw new Error('YAHOO_RATE_LIMIT_COOLDOWN');
  const hosts=['query1.finance.yahoo.com','query2.finance.yahoo.com'];
  let last='provider unavailable';
  for(const host of hosts){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
   try{
    const url=`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
-   const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.1 market-data-adapter','Accept':'application/json'},signal:controller.signal});
-   if(!r.ok){last=`HTTP ${r.status}`;if(r.status===429)throw new Error('YAHOO_RATE_LIMIT');continue}
+   const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.2 market-data-adapter','Accept':'application/json'},signal:controller.signal});
+   if(!r.ok){
+    last=`HTTP ${r.status}`;
+    if(r.status===429){YAHOO_COOLDOWN.set(symbol,Date.now()+YAHOO_COOLDOWN_MS);break}
+    continue;
+   }
    const payload=await r.json(),result=payload?.chart?.result?.[0];
-   if(result?.timestamp?.length)return result;
+   if(result?.timestamp?.length){EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result}
    last='empty chart result';
   }catch(e){last=e?.name==='AbortError'?'timeout':String(e?.message||e)}
   finally{clearTimeout(timer)}
@@ -275,14 +314,33 @@ async function fetchTejEod(symbol){
  finally{clearTimeout(timer)}
 }
 async function liveEquity(ticker){
- const symbol=yahooSymbol(ticker); if(!symbol)throw new Error('Unsupported equity symbol.');
+ const clean=String(ticker||'').trim().toUpperCase().replace(/\\.NS$/,'');
+ const symbol=yahooSymbol(clean); if(!symbol)throw new Error('Unsupported equity/index symbol.');
  const started=Date.now();
+ if(INDIA_INDICES[clean]){
+  const cached=EQUITY_MARKET_CACHE.get('NSEINDEX:'+clean);
+  if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return {...cached.result,fromCache:true};
+  try{
+   const index=await fetchNseIndex(clean);
+   EQUITY_MARKET_CACHE.set('NSEINDEX:'+clean,{at:Date.now(),result:index});
+   return index;
+  }catch(indexErr){
+   try{
+    const result=await fetchYahooChart(symbol,'1d','5m');
+    const meta=result.meta||{},q=result.indicators?.quote?.[0]||{},closes=(q.close||[]).map(Number).filter(Number.isFinite);
+    const price=Number(meta.regularMarketPrice??closes.at(-1)); if(!Number.isFinite(price))throw new Error('Index price unavailable');
+    const prev=Number(meta.chartPreviousClose??meta.previousClose??closes.at(-2)??price);
+    const row={ticker:clean,symbol,market:'INDIA_INDEX',exchange:'NSE',name:clean==='NIFTY'?'Nifty 50':clean==='BANKNIFTY'?'Nifty Bank':clean==='FINNIFTY'?'Nifty Financial Services':'BSE Sensex',currency:'INR',price,previous:prev,changePct:prev?((price-prev)/prev)*100:0,live:true,provider:'Yahoo Finance chart adapter · index fallback',asOf:new Date().toISOString(),dataDisclaimer:'Recent/delayed index data; verify broker/exchange quote before acting.'};
+    EQUITY_MARKET_CACHE.set('NSEINDEX:'+clean,{at:Date.now(),result:row}); return row;
+   }catch(yErr){throw new Error(`Index data unavailable: NSE=${indexErr.message}; Yahoo=${yErr.message}`)}
+  }
+ }
  let result,sourceRange='5d/1h';
  try{result=await fetchYahooChart(symbol,'5d','1h')}
  catch(e){
   try{result=await fetchYahooChart(symbol,'1mo','1d');sourceRange='1mo/1d'}
   catch(e2){
-   try{return await fetchTejEod(ticker)}
+   try{return await fetchTejEod(clean)}
    catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; TejHQ=${e3.message}`)}
   }
  }
