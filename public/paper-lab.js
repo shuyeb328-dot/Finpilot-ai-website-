@@ -41,10 +41,50 @@ function connectPaperMarketStream(market){
 }
 
 async function loadPaperMarket(){const sym=(document.getElementById('paperSymbol')?.value||'BTC').trim().toUpperCase();const out=document.getElementById('paperMarketStatus');if(out)out.textContent='Verifying across market-data sources…';try{const interval=document.getElementById('paperInterval')?.value||'1h';const q='ticker='+encodeURIComponent(sym)+'&interval='+encodeURIComponent(interval)+'&multi=1&ts='+Date.now();const [osRes,reportRes]=await Promise.all([fetch('/api/market-data-os?'+q,{cache:'no-store'}),fetch('/api/stock-report?'+q,{cache:'no-store'})]);const os=await osRes.json();const rd=await reportRes.json();if(!os?.ok||!os?.available||!os?.verified)throw new Error(os?.marketDataOS?.reason||'Market data failed verification');const report=rd?.report||rd;const px=Number(os.price);if(!Number.isFinite(px)||px<=0)throw new Error('Verified price unavailable');const input=document.getElementById('paperPrice');if(input)input.value=px;const ch=Number(os.changePct||report?.changePct||0);const mom=Math.max(-100,Math.min(100,ch*12));const pm=document.getElementById('paperMomentum');if(pm)pm.value=mom.toFixed(1);const pe=document.getElementById('paperEvidence');if(pe)pe.value=75;const provider=os.provider||report?.provider||'verified market provider';if(out)out.textContent='VERIFIED '+provider+' · '+px+' · '+os.marketDataOS.providerCount+' source(s) checked';const trendMomentum=(String(report?.direction||'').toUpperCase()==='BULLISH'?35:String(report?.direction||'').toUpperCase()==='BEARISH'?-35:0)+(Number(report?.rsi||50)-50)*0.5;const market={symbol:sym,price:px,momentum:Math.max(-100,Math.min(100,trendMomentum)),quality:Number(report?.score||document.getElementById('paperQuality')?.value||60),valuation:Number(report?.score||document.getElementById('paperValuation')?.value||60),risk:Number(report?.riskScore||document.getElementById('paperRisk')?.value||50),evidence:Number(os.marketDataOS?.providerCount||0)>=2?90:75,provider,live:true,candles:Array.isArray(report?.candles)?report.candles:[],rsi:Number(report?.rsi||0),sma20:Number(report?.sma20||0),sma50:Number(report?.sma50||0),volume:Number(os.volume||report?.volume||0),volumeRatio:Number(report?.volumeRatio||0),dayHigh:Number(os.high||report?.dayHigh||0),dayLow:Number(os.low||report?.dayLow||0),changePct:ch,asOf:os.asOf||report?.asOf||new Date().toISOString(),receivedAt:new Date().toISOString(),verification:os.marketDataOS};renderPaperChart(market);connectPaperMarketStream(market);return market}catch(e){window.__paperMarketLoaderError=String(e?.stack||e?.message||e);if(out)out.textContent='Market data unavailable — no unverified price used.';console.error('Paper market loader failed:',e);window.FinPilotBridge.toast(e.message||'Market data unavailable');return null}}
+function paperOrderQuantity(agent,market,pct=.1){
+ const step=FinPilotPaperCore.qtyStep(market?.symbol);
+ const px=Math.max(0,Number(market?.price||0)),raw=px>0?Number(agent?.cash||0)*pct/px:0;
+ if(step>=1)return Math.floor(raw);
+ const q=Math.floor(raw/step+1e-9)*step;
+ return Number(q.toFixed(8));
+}
+function paperMarketMeta(m){
+ const v=m?.verification||{};
+ return {verified:m?.live!==false&&v.available!==false,available:m?.live!==false,providerCount:Number(v.providerCount||m?.providerCount||2),receivedAt:m?.receivedAt||m?.asOf||new Date().toISOString(),bid:Number(m?.orderBook?.bid||0)||undefined,ask:Number(m?.orderBook?.ask||0)||undefined};
+}
+function paperSubmitSide(side,overrides={}){
+ const p=syncPaperAgents(),m=p.lastMarket||paperMarket(),a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);
+ if(!a||!m.price){window.FinPilotBridge.toast('Select an agent and load verified market data first');return null}
+ const ot=String(overrides.orderType||document.getElementById('paperOrderType')?.value||'MARKET').toUpperCase();
+ const qtyInput=Number(document.getElementById('paperQty')?.value||0);
+ const qty=qtyInput>0?FinPilotPaperCore.normalizeQty(m.symbol,qtyInput):paperOrderQuantity(a,m,.1);
+ if(qty<=0){window.FinPilotBridge.toast('Enter a tradable quantity');return null}
+ const limitPrice=Number(document.getElementById('paperLimitPrice')?.value||m.price);
+ const stop=Number(document.getElementById('paperStop')?.value||0);
+ const target=Number(document.getElementById('paperTarget')?.value||0);
+ const executionPrice=ot==='STOP'||ot==='TRAILING_STOP'?Number(stop||m.price):Number(limitPrice||m.price);
+ if((ot==='LIMIT'||ot==='STOP_LIMIT')&&executionPrice<=0){window.FinPilotBridge.toast('Enter a valid limit price');return null}
+ if((ot==='STOP'||ot==='STOP_LIMIT')&&stop<=0){window.FinPilotBridge.toast('Enter a valid stop price');return null}
+ try{
+   const o=FinPilotPaperCore.placeOrder(state,a.id,m.symbol,side,qty,ot,executionPrice,stop,target,overrides.reason||('Manual paper '+side),'GTC',null,0,{
+     enforceRisk:true,marketMeta:paperMarketMeta(m),clientOrderId:'ticket-'+side+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
+     source:'PAPER_TICKET',reduceOnly:Boolean(overrides.reduceOnly)
+   });
+   window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper '+side+' '+o.status+' · '+ot+' · '+qty+' '+m.symbol);
+   return o;
+ }catch(e){window.FinPilotBridge.toast(e.message||'Paper order rejected');return null}
+}
 function paperThink(){const p=syncPaperAgents(),id=document.getElementById('paperAgent')?.value,a=p.agents.find(x=>x.id===id);if(!a)return;const m=paperMarket();if(!m.price){window.FinPilotBridge.toast('Load verified market data first');return}const t=FinPilotPaperCore.think(a,m);a.lastThought=t;p.journal.unshift({type:'DEEP_AGENT_THOUGHT',agent:a.name,action:t.action,confidence:t.confidence,edge:t.edge,thesis:t.thesis,time:t.timestamp,virtualOnly:true});p.journal=p.journal.slice(0,100);p.lastMarket=m;window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast(a.name+' completed paper reasoning')}
 function runPaperCouncil(){const p=syncPaperAgents(),m=paperMarket();if(!m.price){window.FinPilotBridge.toast('Load verified market data first');return}const r=FinPilotPaperCore.roundTable(state,m);p.lastMarket=m;p.lastRound=r;window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper Round Table completed · virtual only')}
-function paperExecute(){const p=syncPaperAgents(),r=p.lastRound,a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);if(!r||!a){window.FinPilotBridge.toast('Run Paper Round Table first');return}const m=p.lastMarket||paperMarket();const side=r.final.includes('BUY')?'BUY':r.final.includes('SELL')?'SELL':'HOLD';if(side==='HOLD'){window.FinPilotBridge.toast('Council chose HOLD · no virtual order');return}try{const qty=Math.max(1,Math.floor(a.cash*.1/Math.max(1,m.price)));FinPilotPaperCore.paperOrder(state,a.id,m.symbol,side,qty,m.price,'Paper Round Table: '+r.final,{orderType:'MARKET'});window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper '+side+' FILLED · simulated only')}catch(e){window.FinPilotBridge.toast(e.message||'Paper order rejected')}}
-function paperLimit(side){const p=syncPaperAgents(),m=paperMarket(),a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);if(!a||!m.price){window.FinPilotBridge.toast('Select an agent and load market data first');return}const qty=Math.max(1,Math.floor(a.cash*.05/m.price)),price=Number(document.getElementById('paperLimitPrice')?.value||m.price);try{FinPilotPaperCore.placeOrder(state,a.id,m.symbol,side,qty,'LIMIT',price,null,null,'Manual paper limit');window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper LIMIT order placed · waiting for price')}catch(e){window.FinPilotBridge.toast(e.message)}}
+function paperExecute(){
+ const p=syncPaperAgents(),r=p.lastRound,a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);
+ if(!r||!a){window.FinPilotBridge.toast('Run Paper Round Table first');return}
+ const side=r.final.includes('BUY')?'BUY':r.final.includes('SELL')?'SELL':'HOLD';
+ if(side==='HOLD'){window.FinPilotBridge.toast('Council chose HOLD · no virtual order');return}
+ if(Number(r.confidence||0)<55){window.FinPilotBridge.toast('AI execution blocked · council confidence is below 55%');return}
+ paperSubmitSide(side,{reason:'AI Round Table: '+r.final});
+}
+function paperLimit(side){paperSubmitSide(side,{orderType:'LIMIT',reason:'Manual paper limit'});}
 function paperSetRisk(){const p=syncPaperAgents(),m=paperMarket(),a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value),pos=a?.positions.find(x=>x.symbol===m.symbol);if(!pos){window.FinPilotBridge.toast('No paper position for this symbol');return}const stop=Number(document.getElementById('paperStop')?.value||0),target=Number(document.getElementById('paperTarget')?.value||0);FinPilotPaperCore.attachRisk(pos,stop,target);window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper stop/target saved')}
 async function refreshPaper(){const m=await loadPaperMarket();if(!m)return;const p=syncPaperAgents();p.marketSnapshot[m.symbol]=m.price;FinPilotPaperCore.markToMarket(state,p.marketSnapshot);window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper account marked to verified market price')}
 function resetPaperArena(){if(!confirm('Reset isolated paper trading? Real FinPilot data is not affected.'))return;state.paperTrading=FinPilotPaperCore.defaultPaper();window.FinPilotBridge.save();window.FinPilotBridge.render('paperlab');window.FinPilotBridge.toast('Paper arena reset')}
