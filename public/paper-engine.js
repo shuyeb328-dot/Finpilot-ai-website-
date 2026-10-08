@@ -237,6 +237,7 @@
     const p=ensure(state),fills=[];expirePaperOrders(state);reconcileOrders(state);const px=prices||p.marketSnapshot||{};
     const tickKey=marketMeta?.seq!=null?String(marketMeta.seq):(marketMeta?.receivedAt||marketMeta?.asOf||null);
     if(tickKey&&p.execution.lastTick===tickKey)return fills;
+    if(marketMeta?.executionEligible===false||marketMeta?.verified===false){if(tickKey)p.execution.lastTick=tickKey;return fills;}
     if(marketMeta&&(marketMeta.sourceAsOf||marketMeta.asOf||marketMeta.receivedAt)){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
     if(tickKey)p.execution.lastTick=tickKey;
     p.execution.tickCount=Math.max(0,num(p.execution.tickCount,0))+1;
