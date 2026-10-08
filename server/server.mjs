@@ -549,20 +549,39 @@ async function drainScheduler(){
  }
 }
 async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return;a.runs++;a.lastRun=new Date().toISOString();a.health='RUNNING';EVENT_BUS.wakeups++;
- const p=job.trigger.payload||{};let result='MONITOR';
- if(job.agentId==='risk'&&(p.changePct<-5||p.openInterestChange>12))result='ESCALATE_RISK';
- if(job.agentId==='cfo'&&(p.freeCash<0||p.cashRunway<3))result='PROTECT_LIQUIDITY';
- if(job.agentId==='compliance'&&p.marketSensitive)result='VERIFY_EVIDENCE';
- if(job.agentId==='security'&&job.trigger.type==='SECURITY_ALERT')result='CONTAIN';
- if(job.agentId==='ceo'&&job.trigger.type==='USER_DECISION')result='SYNTHESIZE';
- a.health='READY';a.score=Math.max(0,Math.min(100,Math.round(a.score+(result==='MONITOR'?1:-1))));
- audit('AGENT_WAKE',{agent:a.name,trigger:job.trigger.type,result});
+ const p=job.trigger.payload||{};let result='MONITOR',evidenceScore=0;
+ if(job.trigger.type==='RESEARCH_UPDATE'){const z=p.analysis||EXA_ANALYSIS;evidenceScore=Number(z.confidence||0);
+   if(job.agentId==='research')result=evidenceScore>=70?'EVIDENCE_VERIFIED':'EVIDENCE_REVIEW';
+   else if(job.agentId==='risk')result=evidenceScore<60||z.contradictions>Math.max(2,EXA_CACHE.length*.2)?'RISK_ESCALATE':'RISK_REVIEW';
+   else if(job.agentId==='quant')result=evidenceScore>=65?'QUANT_REVIEW':'DATA_REJECT';
+   else if(job.agentId==='compliance')result=z.primarySourceCount>0&&z.freshnessScore>=60?'SOURCE_CHECK_PASS':'SOURCE_CHECK_REQUIRED';
+   else if(job.agentId==='ceo')result=evidenceScore>=75&&z.contradictions<=3?'SYNTHESIS_READY':'SYNTHESIS_BLOCKED';
+ } else {
+   if(job.agentId==='risk'&&(p.changePct<-5||p.openInterestChange>12))result='ESCALATE_RISK';
+   if(job.agentId==='cfo'&&(p.freeCash<0||p.cashRunway<3))result='PROTECT_LIQUIDITY';
+   if(job.agentId==='compliance'&&p.marketSensitive)result='VERIFY_EVIDENCE';
+   if(job.agentId==='security'&&job.trigger.type==='SECURITY_ALERT')result='CONTAIN';
+   if(job.agentId==='ceo'&&job.trigger.type==='USER_DECISION')result='SYNTHESIZE';
+ }
+ const delta=(result.includes('BLOCKED')||result.includes('REJECT')||result.includes('ESCALATE')||result.includes('REQUIRED'))?-1:1;
+ a.health='READY';a.score=Math.max(0,Math.min(100,Math.round(a.score+delta)));
+ audit('AGENT_WAKE',{agent:a.name,trigger:job.trigger.type,result,evidenceScore});
 }
 function qualityUpdate(source,ok,latency,error){const x=DATA_HEALTH.sources[source]??={};if(ok){x.status='HEALTHY';x.latencyMs=latency;x.lastSuccess=new Date().toISOString();x.lastError=null}else{x.status='DEGRADED';x.lastError=error;x.latencyMs=latency;RESILIENCE.providerFailures++;RESILIENCE.lastIncident=new Date().toISOString();}const vals=Object.values(DATA_HEALTH.sources);DATA_HEALTH.qualityScore=Math.round(vals.reduce((n,v)=>n+(v.status==='HEALTHY'?100:v.status==='DEGRADED'?45:0),0)/Math.max(1,vals.length));DATA_HEALTH.freshness=DATA_HEALTH.qualityScore>=90?'FRESH':DATA_HEALTH.qualityScore>=50?'DEGRADED':'STALE';DATA_HEALTH.updatedAt=new Date().toISOString();if(!ok)emitEvent('DATA_QUALITY_ALERT',{source,error},95);}
 function resilientFetch(url,source='provider',timeoutMs=7000){if(RESILIENCE.circuitOpen)return Promise.reject(new Error('PROVIDER_CIRCUIT_OPEN'));const started=Date.now();return Promise.race([fetch(url),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]).then(async r=>{const t=Date.now()-started;if(!r.ok)throw new Error(`HTTP_${r.status}`);qualityUpdate(source,true,t);return r}).catch(async e=>{qualityUpdate(source,false,Date.now()-started,e.message);if(RESILIENCE.providerFailures>=5){RESILIENCE.circuitOpen=true;setTimeout(()=>{RESILIENCE.circuitOpen=false;RESILIENCE.providerFailures=0;},Math.min(30000,RESILIENCE.backoffMs*4));}throw e;});}
 
 // Exa Intelligence Layer: web research is evidence-only and never allowed to fabricate market numbers.
 let EXA_LAST_RUN=0, EXA_RUNNING=false, EXA_CACHE=[];
+let EXA_ANALYSIS={confidence:0,qualityScore:0,freshnessScore:0,sourceDiversity:0,contradictions:0,primarySourceCount:0,verifiedEvidence:[],warnings:[]};
+function analyzeExaEvidence(rows){
+ const now=Date.now(), seen=new Set(), domains=new Set(), verified=[], warnings=[]; let quality=0,fresh=0,primary=0,contradictions=0;
+ for(const r of rows){try{const u=new URL(r.url);const host=u.hostname.replace(/^www\\./,'');domains.add(host);const age=r.publishedDate?Math.max(0,now-Date.parse(r.publishedDate)):null;const isFresh=age===null||age<7*86400000;const isPrimary=/sec\\.gov|sebi\\.gov|rbi\\.org|nseindia|bseindia|company|filing|ir\\./i.test(host+r.title);if(isFresh)fresh++;if(isPrimary)primary++;if(!seen.has(host)){quality+=isPrimary?100:70;seen.add(host)}const text=String([r.title,...(r.highlights||[])].join(' ')).toLowerCase();if(/fraud|risk|warning|loss|bearish|decline|downgrade|lawsuit/.test(text))contradictions++;verified.push({title:r.title,url:r.url,host,publishedDate:r.publishedDate||null,sourceTier:isPrimary?'PRIMARY':'SECONDARY',fresh:isFresh});}catch{warnings.push('INVALID_SOURCE_URL');}}
+ const n=rows.length||1; const freshnessScore=Math.round(fresh/n*100), sourceDiversity=Math.round(Math.min(100,domains.size/Math.max(1,Math.min(8,n))*100));
+ const qualityScore=Math.round(quality/Math.max(1,seen.size)); const contradictionRate=Math.min(100,Math.round(contradictions/n*100));
+ const confidence=coreClamp(Math.round(0.4*qualityScore+0.3*freshnessScore+0.2*sourceDiversity+0.1*Math.max(0,100-contradictionRate)),0,100);
+ EXA_ANALYSIS={confidence,qualityScore,freshnessScore,sourceDiversity,contradictions,primarySourceCount:primary,verifiedEvidence:verified.slice(0,32),warnings:[...new Set(warnings)]};
+ return EXA_ANALYSIS;
+}
 const EXA_REFRESH_MS=Math.max(15*60*1000,Number(process.env.EXA_REFRESH_MS||60*60*1000));
 async function exaSearch(query){
  const key=process.env.EXA_API_KEY;
@@ -583,8 +602,9 @@ async function runExaIntelligence(topic='global finance AI risks market data'){
   ];
   const rows=await Promise.all(queries.map(q=>exaSearch(q).catch(e=>[{error:e.message,query:q}])));
   EXA_CACHE=rows.flat().filter(x=>!x.error).slice(0,32);EXA_LAST_RUN=Date.now();
-  audit('EXA_RESEARCH_REFRESH',{topic,count:EXA_CACHE.length,latencyMs:Date.now()-started});
-  emitEvent('RESEARCH_UPDATE',{source:'Exa',count:EXA_CACHE.length,topic},70);
+  const analysis=analyzeExaEvidence(EXA_CACHE);
+  audit('EXA_RESEARCH_REFRESH',{topic,count:EXA_CACHE.length,confidence:analysis.confidence,qualityScore:analysis.qualityScore,primarySourceCount:analysis.primarySourceCount,latencyMs:Date.now()-started});
+  emitEvent('RESEARCH_UPDATE',{source:'Exa',count:EXA_CACHE.length,topic,analysis},70);
   return {ok:true,status:'UPDATED',lastRun:EXA_LAST_RUN,count:EXA_CACHE.length,results:EXA_CACHE};
  }catch(e){audit('EXA_RESEARCH_ERROR',{error:e.message});return {ok:false,status:'ERROR',error:e.message,lastRun:EXA_LAST_RUN,results:EXA_CACHE};
  }finally{EXA_RUNNING=false}
