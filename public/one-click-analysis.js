@@ -246,7 +246,7 @@
     throw new Error('Search engine is still loading. Please try again in a moment.');
   }
 
-  async function runFullStockAnalysis(query){
+  async async function runFullStockAnalysis(query){
     query=String(query||'').trim();
     if(!query||running)return;
     running=true;
