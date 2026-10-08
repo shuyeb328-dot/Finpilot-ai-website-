@@ -77,11 +77,11 @@ async function googleNewsRss(q,count){
   const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
   if(!r.ok)throw providerError('Google News RSS returned HTTP '+r.status);
   const xml=await r.text(),items=[];
-  const blocks=xml.match(/<item>[\\s\\S]*?<\\/item>/gi)||[];
+  const blocks=xml.match(/<item>[\s\S]*?<\/item>/gi)||[];
   for(const block of blocks.slice(0,count)){
-   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim():''};
+   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim():''};
    const title=cleanText(val('title')),link=val('link'),snippet=cleanText(val('description')),publishedAt=val('pubDate'),source=cleanText(val('source'))||'Google News';
-   if(/^https?:\\/\\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
+   if(/^https?:\/\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
   }
   return normalize(items,'google-news-rss');
  }catch(e){if(e.name==='AbortError')throw providerError('Google News RSS timed out');throw e}
