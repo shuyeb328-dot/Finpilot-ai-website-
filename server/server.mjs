@@ -234,7 +234,7 @@ async function fetchYahooChart(symbol,range='5d',interval='1h'){
   try{
    const url=`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
    const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.1 market-data-adapter','Accept':'application/json'},signal:controller.signal});
-   if(!r.ok){last=`HTTP ${r.status}`;continue}
+   if(!r.ok){last=`HTTP ${r.status}`;if(r.status===429)throw new Error('YAHOO_RATE_LIMIT');continue}
    const payload=await r.json(),result=payload?.chart?.result?.[0];
    if(result?.timestamp?.length)return result;
    last='empty chart result';
@@ -243,6 +243,27 @@ async function fetchYahooChart(symbol,range='5d',interval='1h'){
  }
  throw new Error(last);
 }
+async function fetchTejEod(symbol){
+ const clean=String(symbol||'').toUpperCase().replace(/\\.NS$/,'').replace(/[^A-Z0-9&-]/g,'');
+ if(!clean)throw new Error('Invalid NSE symbol for TejHQ fallback.');
+ const now=new Date(),to=now.toISOString().slice(0,10),from=new Date(now.getTime()-120*86400000).toISOString().slice(0,10);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),9000);
+ try{
+  const url='https://api.tejhq.dev/v1/ohlcv/nse/'+encodeURIComponent(clean)+'?from='+from+'&to='+to;
+  const r=await fetch(url,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.1 TejHQ-EOD-fallback'},signal:controller.signal});
+  if(!r.ok)throw new Error('TejHQ HTTP '+r.status);
+  const payload=await r.json(),rows=Array.isArray(payload?.data)?payload.data:[];
+  const candles=rows.map(x=>({time:String(x.date).length===10?String(x.date)+'T15:30:00+05:30':String(x.date),open:Number(x.open),high:Number(x.high),low:Number(x.low),close:Number(x.close),volume:Number(x.volume)})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite)).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+  if(candles.length<2)throw new Error('TejHQ returned insufficient EOD candles.');
+  const last=rows[rows.length-1]||{},price=Number(last.last??last.close??candles.at(-1).close),prev=Number(last.prev_close??candles.at(-2).close),closes=candles.map(x=>x.close),highs=candles.map(x=>x.high),lows=candles.map(x=>x.low),vols=candles.map(x=>x.volume).filter(Number.isFinite);
+  const rr=rsi(closes),s20=sma(closes,20),s50=sma(closes,50),avgVol=vols.length?sma(vols,Math.min(20,vols.length)):null,volume=Number(last.volume??vols.at(-1)),volumeRatio=avgVol&&avgVol>0?volume/avgVol:null;
+  const changePct=prev?((price-prev)/prev)*100:0,recentHigh=Math.max(...highs.slice(-20)),recentLow=Math.min(...lows.slice(-20));
+  const momentum=Number.isFinite(s20)&&s20?((price/s20)-1)*100:0;
+  const score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
+  return {ticker:clean,symbol:clean+'.NS',market:'INDIA_EQUITY',exchange:'NSE',name:String(last.name||clean),currency:'INR',price,previous:prev,changePct,dayHigh:Number(last.high??candles.at(-1).high),dayLow:Number(last.low??candles.at(-1).low),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,candles,live:false,provider:'TejHQ NSE EOD · keyless public fallback',providerLatencyMs:0,asOf:String(last.date||to)+'T20:30:00+05:30',dataFreshness:'EOD',dataDisclaimer:'End-of-day NSE OHLCV fallback. TradingView chart is shown separately when intraday data is unavailable; verify the broker/exchange quote before acting.'};
+ }catch(e){if(e.name==='AbortError')throw new Error('TejHQ timeout');throw e}
+ finally{clearTimeout(timer)}
+}
 async function liveEquity(ticker){
  const symbol=yahooSymbol(ticker); if(!symbol)throw new Error('Unsupported equity symbol.');
  const started=Date.now();
@@ -250,7 +271,10 @@ async function liveEquity(ticker){
  try{result=await fetchYahooChart(symbol,'5d','1h')}
  catch(e){
   try{result=await fetchYahooChart(symbol,'1mo','1d');sourceRange='1mo/1d'}
-  catch(e2){throw new Error(`Equity chart unavailable: ${e2.message}`)}
+  catch(e2){
+   try{return await fetchTejEod(ticker)}
+   catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; TejHQ=${e3.message}`)}
+  }
  }
  const meta=result.meta||{},q=result.indicators?.quote?.[0]||{};
  const closes=(q.close||[]).map(Number).filter(Number.isFinite),highs=(q.high||[]).map(Number).filter(Number.isFinite),lows=(q.low||[]).map(Number).filter(Number.isFinite),vols=(q.volume||[]).map(Number).filter(Number.isFinite);
@@ -601,7 +625,7 @@ async function runFinPilotSmoke50(){
  }
  const tickers=['TCS','RELIANCE','INFY','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','HINDALCO'];
  const charts=[];
- for(const t of tickers){try{const x=await liveEquity(t);charts.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price})}catch(e){charts.push({ticker:t,ok:false,error:e?.message||'error'})}}
+ for(const t of tickers){try{const x=await liveEquity(t);charts.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price,provider:x.provider,live:x.live!==false})}catch(e){charts.push({ticker:t,ok:false,error:e?.message||'error'})}}
  const routeChecks=[];
  for(const t of tickers.slice(0,5)){
   try{
