@@ -14,6 +14,7 @@
   loadQuantumControlPlane();
   let rawDoSearch = null;
   let running = false;
+  const withTimeout=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+' timed out after '+Math.round(ms/1000)+'s')),ms))]);
 
   function escLocal(v){
     return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -298,7 +299,7 @@
       const searchPromise=(async()=>{
         try{
           const search=ensureRawSearch();
-          await search(query);
+          await withTimeout(search(query),15000,'Web search');
           return window.__lastSearch||{results:[],provider:null,live:false};
         }catch(e){
           searchWarning=String(e?.message||'Live web search unavailable');
@@ -310,7 +311,7 @@
         const raw=String(query).toUpperCase().trim().replace(/[^A-Z0-9._-]/g,'');
         if(!raw)return null;
         try{
-          const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+          const r=await withTimeout(fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}}),12000,'Market quote request');
           const d=await r.json();
           return d?.ok&&d?.report?d.report:null;
         }catch{return null}
@@ -323,7 +324,7 @@
       const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/i.test(query);
       if(!candidate&&broadRequest){
         try{
-          const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});
+          const rp=await withTimeout(fetch('/api/market-picks?limit=5',{cache:'no-store'}),10000,'Market scan');
           const picks=await rp.json();
           const top=picks?.candidates?.[0];
           if(top)candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
@@ -353,7 +354,7 @@
       try{
         const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
         if(symbol&&!marketReport){
-          const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+          const mr=await withTimeout(fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}}),12000,'Chart data request');
           const md=await mr.json();
           if(md?.ok&&md?.report)marketReport=md.report;
           else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
