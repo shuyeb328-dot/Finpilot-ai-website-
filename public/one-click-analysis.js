@@ -252,25 +252,51 @@
     running=true;
     try{if(typeof window.show==='function')window.show('search')}catch{}
     const box=document.getElementById('searchResults');
-    if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>Running full analysis…</b> Search → evidence → agents → CEO/CFO/Judge → paper council</div>');
+    if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>⚡ FinPilot Full Analysis</b><br><span id="fpStage">Connecting to live evidence and market data…</span></div>');
+    const stage=t=>{const el=document.getElementById('fpStage');if(el)el.textContent=t};
     try{
-      const search=ensureRawSearch();
       let searchWarning='';
-      try{ await search(query); }catch(e){ searchWarning=String(e?.message||'Live web search unavailable'); window.__lastSearch={results:[],provider:null,live:false}; }
+      stage('1/6 · Searching live web evidence…');
+      const searchPromise=(async()=>{
+        try{
+          const search=ensureRawSearch();
+          await search(query);
+          return window.__lastSearch||{results:[],provider:null,live:false};
+        }catch(e){
+          searchWarning=String(e?.message||'Live web search unavailable');
+          window.__lastSearch={results:[],provider:null,live:false};
+          return window.__lastSearch;
+        }
+      })();
+      const marketDirectPromise=(async()=>{
+        const raw=String(query).toUpperCase().trim().replace(/[^A-Z0-9._-]/g,'');
+        if(!raw)return null;
+        try{
+          const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+          const d=await r.json();
+          return d?.ok&&d?.report?d.report:null;
+        }catch{return null}
+      })();
+      const search=await searchPromise;
+      stage('2/6 · Ranking candidates and refreshing Financial Brain…');
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
-      let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
+      let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
       const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/i.test(query);
       if(!candidate&&broadRequest){
         try{
           const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});
           const picks=await rp.json();
           const top=picks?.candidates?.[0];
-          if(top) candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
-        }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable');}
+          if(top)candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
+        }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable')}
       }
+      const directMarket=await marketDirectPromise;
+      if(directMarket&&!candidate&&directMarket.ticker)candidate={ticker:directMarket.ticker,name:directMarket.name,confidence:82,score:82,evidenceMentions:0,positive:0,negative:0,method:'Verified market symbol',reason:'Direct verified market record matched the requested symbol.',disclaimer:'Market-data match; not a guaranteed trade.'};
+      stage('3/6 · Running specialist agents and Round Table…');
       const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
-      const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,money,sourceAge);
+      const preMoney=scenarioSafe({risk:50,confidence:50,webSignal:web,candidate});
+      const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,preMoney,sourceAge);
       const decision={
         decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,
         findings:cycle.findings.map(f=>f.domain),voices:core.voices,
@@ -284,23 +310,27 @@
       if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
       save();
-      let marketReport=null;
+      stage('4/6 · Loading verified technical chart and indicators…');
+      let marketReport=directMarket;
       try{
         const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
-        if(symbol){
+        if(symbol&&!marketReport){
           const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
           const md=await mr.json();
           if(md?.ok&&md?.report)marketReport=md.report;
           else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
         }
-      }catch(e){searchWarning=searchWarning||'Chart data unavailable';}
+      }catch(e){searchWarning=searchWarning||'Chart data unavailable'}
+      const finalMoney=scenarioSafe({...decision,marketReport});
       decision.marketReport=marketReport;
-      decision.chartAnalysis=buildChartAnalysis(marketReport,money,candidate);
+      decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
+      stage('5/6 · Calculating ₹1,000 risk plan and CEO/CFO/Judge…');
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
-      if(marketReport){publishEquitySnapshot(marketReport);setTimeout(mountTradingViewFallbacks,60);}
-      const progress=document.getElementById('oneClickProgress');if(progress)progress.remove();
-      toast((searchWarning?'Market scan used · ':'')+'1-click full analysis complete · all decision layers updated');
+      if(marketReport){publishEquitySnapshot(marketReport);setTimeout(mountTradingViewFallbacks,60)}
+      stage('6/6 · Complete — decision stack restored.');
+      setTimeout(()=>{const progress=document.getElementById('oneClickProgress');if(progress)progress.remove()},250);
+      toast((searchWarning?'Market fallback used · ':'')+'1-click full analysis complete · chart + risk plan + council updated');
     }catch(e){
       const progress=document.getElementById('oneClickProgress');
       if(progress)progress.innerHTML='<b>Analysis stopped.</b> '+escLocal(e?.message||'Unknown error');
@@ -386,70 +416,3 @@
   },500);
   injectMarketChartStyles();
 })();
-
-/* FINPILOT V9 MOBILE-SAFE CORE
-   Standalone one-click path. It does not depend on the large legacy agent bundle.
-   It always returns a visible result or a visible error.
-*/
-window.__finpilotV9=true;
-window.runFullStockAnalysis=async function finpilotV9(query){
-  const q=String(query||'').trim();
-  if(!q) throw new Error('Enter a stock, ETF, crypto, or company first.');
-  const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const box=document.getElementById('searchResults');
-  const set=(html)=>{if(box)box.innerHTML=html;};
-  set('<div class="notice"><b>FinPilot V9 analysis running</b><br>Fetching verified market data + web evidence + risk council…</div>');
-  const started=Date.now();
-  const searchUrl='/api/search?q='+encodeURIComponent(q)+'&count=10&ts='+Date.now();
-  const marketUrl='/api/stock-report?ticker='+encodeURIComponent(q.toUpperCase().replace(/[^A-Z0-9._-]/g,''))+'&interval=1h&multi=1&ts='+Date.now();
-  let web={results:[]}, market=null, marketError='';
-  const [ws,mr]=await Promise.all([
-    fetch(searchUrl,{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(new Error('Search HTTP '+r.status))).catch(e=>({results:[],error:e.message})),
-    fetch(marketUrl,{cache:'no-store'}).then(async r=>{const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||('Market HTTP '+r.status));return d}).catch(e=>({error:e.message}))
-  ]);
-  web=ws||{results:[]};
-  market=mr?.report||null;
-  marketError=mr?.error||'';
-  const rows=Array.isArray(web.results)?web.results:[];
-  const price=Number(market?.price), rsi=Number(market?.rsi), risk=Number(market?.riskScore??market?.risk??50);
-  const hasMarket=Number.isFinite(price)&&price>0;
-  const isCrypto=String(market?.market||'').toUpperCase()==='CRYPTO';
-  const direction=String(market?.direction||market?.posture||'MIXED').toUpperCase();
-  const buy=Math.max(5,Math.min(85,Math.round(50+(direction.includes('BULL')?18:direction.includes('BEAR')?-18:0)+(hasMarket&&Number.isFinite(rsi)?(rsi<35?8:rsi>70?-8:0):0)-(risk>70?12:0))));
-  const sell=Math.max(5,Math.min(85,Math.round(50-buy/2+(risk>70?20:0)+(direction.includes('BEAR')?15:0))));
-  const hold=Math.max(5,100-buy-sell);
-  const total=buy+sell+hold, bp=Math.round(buy/total*100), sp=Math.round(sell/total*100), hp=Math.max(0,100-bp-sp);
-  const rr=hasMarket&&Number.isFinite(Number(market?.atr))&&Number(market.atr)>0?1.5:1.25;
-  const action=hasMarket?(bp>=sp+8?'BUY BIAS':sp>=bp+8?'DEFENSIVE / AVOID':'HOLD / WAIT'):'RESEARCH ONLY';
-  const freshness=market?.asOf?new Date(market.asOf).toLocaleString():'Unavailable';
-  const provider=market?.provider||'No verified market provider';
-  const candleCount=Array.isArray(market?.candles)?market.candles.length:0;
-  const agentRows=[
-    ['Market Analyst',hasMarket?'VERIFIED DATA':'NO MARKET DATA',hasMarket?88:35],
-    ['Technical Analyst',hasMarket?(direction||'MIXED'):'WAIT',hasMarket?82:30],
-    ['Risk Officer',risk>=70?'HIGH RISK':risk>=45?'MEDIUM RISK':'CONTROLLED',Math.max(20,100-risk)],
-    ['CFO','CAPITAL PROTECTION',Math.max(35,100-risk)],
-    ['CEO',action,Math.max(35,Math.max(bp,sp,hp))]
-  ];
-  const agentHtml=agentRows.map(a=>'<div class="card" style="padding:12px"><b>'+esc(a[0])+'</b><div style="margin-top:6px;font-weight:800">'+esc(a[1])+'</div><div class="bar" style="margin-top:8px"><i style="width:'+a[2]+'%"></i></div><div class="muted" style="font-size:10px;margin-top:4px">'+a[2]+' confidence</div></div>').join('');
-  const sourceHtml=rows.slice(0,5).map((r,i)=>'<div class="row"><div><b>'+(i+1)+'. '+esc(r.title||r.name||'Web source')+'</b><div class="muted" style="font-size:11px">'+esc(r.snippet||'Evidence retrieved from the web.')+'</div></div></div>').join('');
-  const chartLink=hasMarket&&market?.ticker?'https://www.tradingview.com/symbols/'+encodeURIComponent((isCrypto?String(market.ticker)+'USDT':String(market.ticker)))+'/':'';
-  set('<div id="oneClickProgress" class="card" style="background:#071426;color:#edf5ff;border-color:#1d4674">'+
-    '<div class="eyebrow" style="color:#91a7c5">FINPILOT V9 · DECISION STACK</div>'+
-    '<h2 style="margin:5px 0 3px">'+esc(q)+' · '+esc(action)+'</h2>'+
-    '<div class="muted" style="color:#a9b8cc">Completed in '+(Date.now()-started)+'ms · '+rows.length+' web sources · '+(hasMarket?candleCount+' verified candles':'no verified market series')+'</div>'+
-    '<div class="grid three" style="margin-top:14px">'+
-      '<div><span style="color:#91a7c5">VERIFIED PRICE</span><div class="metric" style="color:#fff">'+(hasMarket?(isCrypto?':'₹')+price.toLocaleString('en-IN',{maximumFractionDigits:2}):'Unavailable')+'</div></div>'+
-      '<div><span style="color:#91a7c5">BUY / SELL / HOLD</span><div class="metric" style="color:#fff">'+bp+'% / '+sp+'% / '+hp+'%</div></div>'+
-      '<div><span style="color:#91a7c5">RISK</span><div class="metric" style="color:#fff">'+(Number.isFinite(risk)?risk+'/100':'—')+'</div></div>'+
-    '</div>'+
-    '<div style="margin-top:12px;padding:10px;border:1px solid #23476d;border-radius:9px"><b>CEO</b>: '+esc(action)+' · <b>CFO</b>: protect capital · <b>Judge</b>: '+(hasMarket?'Evidence sufficient for decision support':'Insufficient verified market data')+'</div>'+
-    '<div style="margin-top:10px;color:#a9b8cc;font-size:10px">Provider: '+esc(provider)+' · As of: '+esc(freshness)+' · R:R scenario '+rr.toFixed(2)+' · No trade executed.</div>'+
-    (marketError?'<div class="notice highNotice" style="margin-top:10px"><b>Market note:</b> '+esc(marketError)+'</div>':'')+
-    (chartLink?'<div style="margin-top:10px"><a class="btn primary" target="_blank" rel="noopener noreferrer" href="'+chartLink+'">Open verified chart ↗</a></div>':'')+
-  '</div><div class="eyebrow" style="margin:16px 0 8px">AGENT COUNCIL</div><div class="grid three">'+agentHtml+'</div>'+
-  '<div class="eyebrow" style="margin:16px 0 8px">WEB EVIDENCE</div><div class="card">'+(sourceHtml||'<div class="muted">No web evidence returned.</div>')+'</div>');
-  if(typeof toast==='function')toast('FinPilot V9 analysis complete');
-  return {ok:true,query:q,market,web,decision:{action,buyProbability:bp,sellProbability:sp,holdProbability:hp,risk}};
-};
-window.startOneClickAnalysis=window.runFullStockAnalysis;
