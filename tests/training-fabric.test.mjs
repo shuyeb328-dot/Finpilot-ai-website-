@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const src=fs.readFileSync('public/training-fabric.js','utf8');
+assert.ok(src.includes('Training Director'));
+assert.ok(src.includes("const AGENTS=['CFO','Debt','Goals','Risk','Investment','Markets','Tax','Security','Business','Assets','Research','RedTeam']"));
+assert.ok(src.includes('KNOWLEDGE','levels'));
+assert.ok(src.includes('calibration'));
+assert.ok(src.includes('REDTEAM'));
+assert.ok(src.includes('hybridOptimize'));
+assert.ok(src.includes('quantumOptimize'));
+assert.ok(src.includes('SHADOW'));
+assert.ok(src.includes('CANARY'));
+console.log('Training Fabric contract passed');
