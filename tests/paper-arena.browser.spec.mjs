@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test('production Paper Arena boots and executes a virtual fill in-browser', async ({ page }) => {
   const errors = [];
+  const errorDetails = [];
   const consoleErrors = [];
+  await page.addInitScript(() => { window.addEventListener('error', e => { (window.__finErrors ||= []).push({message:e.message, filename:e.filename, line:e.lineno, col:e.colno}); }); });
   page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
   page.on('pageerror', err => errors.push(String(err?.stack || err?.message || err)));
   await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=2', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -21,7 +23,8 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
     }
     return out;
   });
-  console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, consoleErrors, diagnostics, scriptDiagnostics}));
+  const browserErrors = await page.evaluate(() => window.__finErrors || []);
+  console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, consoleErrors, browserErrors, diagnostics, scriptDiagnostics}));
   expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
   expect(await page.evaluate(() => Boolean(window.FinPilotBridge)), 'FinPilot bridge missing; page errors: '+errors.join(' | ')).toBe(true);
   await page.evaluate(() => window.show('paperlab'));
