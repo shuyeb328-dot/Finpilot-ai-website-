@@ -8,7 +8,7 @@
   function defaultPaper(){return{
     version:3,baseCurrency:'INR',startingCash:1000000,cash:1000000,realizedPnl:0,unrealizedPnl:0,
     fees:0,slippage:0,agents:[],positions:[],orders:[],openOrders:[],journal:[],rounds:[],
-    leaderboard:[],marketSnapshot:{},account:{marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3},
+    leaderboard:[],marketSnapshot:{},execution:{lastTick:null,reconciledAt:null},account:{marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3},
     updatedAt:now()
   }}
   function ensure(state){
@@ -17,6 +17,7 @@
     p.agents=(Array.isArray(p.agents)?p.agents:[]).filter(a=>a&&typeof a==='object');p.positions=(Array.isArray(p.positions)?p.positions:[]).filter(x=>x&&typeof x==='object');p.orders=(Array.isArray(p.orders)?p.orders:[]).filter(x=>x&&typeof x==='object');
     p.openOrders=(Array.isArray(p.openOrders)?p.openOrders:[]).filter(x=>x&&typeof x==='object');p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
     p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
+    p.execution={lastTick:null,reconciledAt:null,...(p.execution||{})};
     // Repair older/partial local paper state before any numeric formatter is called.
     p.version=Math.max(3,num(p.version,3)); p.startingCash=num(p.startingCash,1000000);
     p.cash=num(p.cash,p.startingCash); p.realizedPnl=num(p.realizedPnl,0);
@@ -195,8 +196,36 @@
       const px=Math.max(num(o.limitPrice),num(o.stopPrice),num(o.requestedPrice));return n+Math.max(0,num(o.remainingQty??o.qty))*px*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
     },0);
   }
-  function processOpenOrders(state,prices){
-    const p=ensure(state),fills=[];expirePaperOrders(state);const px=prices||p.marketSnapshot||{};
+  const TERMINAL_ORDER_STATES=new Set(['FILLED','CANCELLED','REJECTED','EXPIRED']);
+  function orderEvent(p,o,type,extra={}){
+    const at=now();o.lastEvent=type;o.lastEventAt=at;o.eventSeq=Number(o.eventSeq||0)+1;
+    o.events=Array.isArray(o.events)?o.events:[];o.events.push({seq:o.eventSeq,type,at,...extra});if(o.events.length>32)o.events=o.events.slice(-32);
+    p.journal.unshift({...o,type:'PAPER_EXECUTION_EVENT',event:type,eventAt:at,...extra});
+  }
+  function reconcileOrders(state){
+    const p=ensure(state),map=new Map();
+    p.orders.forEach(o=>{if(!o||!o.id)return;const id=String(o.id);if(!map.has(id))map.set(id,o);else Object.assign(map.get(id),o)});
+    p.openOrders.forEach(o=>{if(!o||!o.id)return;const id=String(o.id);if(map.has(id))Object.assign(map.get(id),o);else map.set(id,o)});
+    p.orders=[...map.values()];
+    const active=[];
+    p.orders.forEach(o=>{
+      if(!o||!o.id)return;
+      o.qty=Math.max(0,num(o.qty));o.filledQty=Math.max(0,Math.min(o.qty,num(o.filledQty)));o.remainingQty=Math.max(0,o.qty-o.filledQty);
+      if(!o.status)o.status=o.filledQty>0&&o.remainingQty>0?'PARTIALLY_FILLED':'OPEN';
+      if(o.status==='OPEN'&&o.remainingQty===0)o.status='FILLED';
+      if(o.status==='PARTIALLY_FILLED'&&o.remainingQty<=0)o.status='FILLED';
+      if(!TERMINAL_ORDER_STATES.has(o.status))active.push(o);
+    });
+    p.openOrders=active;
+    p.execution.reconciledAt=now();p.updatedAt=now();
+    return {openOrders:active.length,filled:p.orders.filter(o=>o.status==='FILLED').length,partial:p.orders.filter(o=>o.status==='PARTIALLY_FILLED').length,terminal:p.orders.filter(o=>TERMINAL_ORDER_STATES.has(o.status)).length,timestamp:p.execution.reconciledAt};
+  }
+  function processOpenOrders(state,prices,marketMeta={}){
+    const p=ensure(state),fills=[];expirePaperOrders(state);reconcileOrders(state);const px=prices||p.marketSnapshot||{};
+    const tickKey=marketMeta?.seq!=null?String(marketMeta.seq):(marketMeta?.receivedAt||marketMeta?.asOf||null);
+    if(tickKey&&p.execution.lastTick===tickKey)return fills;
+    if(marketMeta&&marketMeta.receivedAt){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
+    if(tickKey)p.execution.lastTick=tickKey;
     p.openOrders=[...p.openOrders].filter(o=>{
       const price=num(px[o.symbol]);if(!price)return true;
       let trigger=false;
@@ -237,42 +266,54 @@
         const depthBps=Math.min(25,Math.max(0,(remaining-fillQty)/Math.max(1e-9,remaining)*12));
         const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,executionPrice,o.reason,{orderType:o.orderType,slippageBps:depthBps,parentOrderId:o.id,reduceOnly:o.reduceOnly,source:o.source});
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();o.lastFillPrice=f.fillPrice;o.avgFillPrice=o.avgFillPrice?((o.avgFillPrice*(o.filledQty-fillQty)+f.fillPrice*fillQty)/o.filledQty):f.fillPrice;o.fees=(num(o.fees)+num(f.fees));o.slippage=(num(o.slippage)+num(f.slippage));o.realizedPnl=(num(o.realizedPnl)+num(f.realizedPnl));fills.push({...f,parentOrderId:o.id});
-        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
-        if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false}
-        o.status='PARTIALLY_FILLED';return true;
-      }catch(e){o.status='REJECTED';o.error=e.message;p.journal.unshift({...o,type:'PAPER_ORDER_REJECTED'});return false}
+        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();orderEvent(p,o,'FILLED',{fillQty,fillPrice:f.fillPrice,remainingQty:0});if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
+        if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();orderEvent(p,o,'CANCELLED',{reason:'IOC remainder cancelled',remainingQty:o.remainingQty});return false}
+        o.status='PARTIALLY_FILLED';orderEvent(p,o,'PARTIALLY_FILLED',{fillQty,fillPrice:f.fillPrice,remainingQty:o.remainingQty});return true;
+      }catch(e){o.status='REJECTED';o.error=e.message;orderEvent(p,o,'REJECTED',{error:e.message});return false}
     });return fills;
   }
   function aOf(p,agentId){return p.agents.find(x=>x.id===agentId)||null}
   function amendOrder(state,orderId,changes={}){
-    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
-    if(!o)throw new Error('Open paper order not found');
-    if(o.status==='CANCELLED'||o.status==='FILLED')throw new Error('Order is not amendable');
+    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId)||p.orders.find(x=>x.id===orderId);
+    if(!o)throw new Error('Paper order not found');
+    if(TERMINAL_ORDER_STATES.has(o.status))throw new Error('Order is not amendable');
+    const old={qty:o.qty,limitPrice:o.limitPrice,stopPrice:o.stopPrice,timeInForce:o.timeInForce};
     const newQty=changes.qty!=null?normalizeQty(o.symbol,changes.qty):o.qty;
     if(newQty<=0||newQty<(o.filledQty||0))throw new Error('Invalid amended quantity');
     const newLimit=changes.limitPrice!=null?num(changes.limitPrice):o.limitPrice;
     const newStop=changes.stopPrice!=null?num(changes.stopPrice):o.stopPrice;
+    const newTif=changes.timeInForce!=null?String(changes.timeInForce).toUpperCase():o.timeInForce;
+    if(!['GTC','DAY','IOC','FOK'].includes(newTif))throw new Error('Unsupported paper time-in-force');
     if((o.orderType==='LIMIT'||o.orderType==='STOP_LIMIT')&&newLimit<=0)throw new Error('Limit price required');
     if((o.orderType==='STOP'||o.orderType==='STOP_LIMIT')&&newStop<=0)throw new Error('Stop price required');
+    const agent=aOf(p,o.agentId);if(!agent)throw new Error('Paper agent not found');
     if(o.side==='BUY'){
       const reservePrice=o.orderType==='STOP_LIMIT'?Math.max(newLimit,newStop):Math.max(newLimit,newStop,o.orderType==='STOP'||o.orderType==='TRAILING_STOP'?newStop:0);
       const required=Math.max(0,newQty-(o.filledQty||0))*reservePrice*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
-      if(aOf(p,o.agentId)?.cash-reservedBuyCash(state,o.agentId,o.id) < required-1e-9)throw new Error('Amendment exceeds available paper buying power.');
+      if(agent.cash-reservedBuyCash(state,o.agentId,o.id)<required-1e-9)throw new Error('Amendment exceeds available paper buying power.');
+    }else{
+      const pos=agent.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty+1e-12<newQty-(o.filledQty||0))throw new Error('Amendment exceeds current paper position.');
     }
-    o.qty=newQty;o.remainingQty=Math.max(0,newQty-(o.filledQty||0));o.limitPrice=newLimit;o.stopPrice=newStop;o.amendedAt=now();o.amendments=(o.amendments||0)+1;
-    p.journal.unshift({...o,type:'PAPER_ORDER_AMENDED'});p.updatedAt=now();return o;
+    if(changes.clientOrderId&&String(changes.clientOrderId)!==String(o.clientOrderId||'')){
+      const duplicate=p.orders.find(x=>String(x.clientOrderId||'')===String(changes.clientOrderId)&&x.id!==o.id);if(duplicate)throw new Error('Client order id already exists.');
+      o.clientOrderId=String(changes.clientOrderId);
+    }
+    o.qty=newQty;o.remainingQty=Math.max(0,newQty-(o.filledQty||0));o.limitPrice=newLimit;o.stopPrice=newStop;o.timeInForce=newTif;
+    if(newTif==='DAY'&&!o.expiresAt)o.expiresAt=Date.now()+24*60*60*1000;
+    o.amendedAt=now();o.amendments=(o.amendments||0)+1;
+    orderEvent(p,o,'AMENDED',{old,newValues:{qty:o.qty,limitPrice:o.limitPrice,stopPrice:o.stopPrice,timeInForce:o.timeInForce},amendments:o.amendments});
+    p.updatedAt=now();return o;
   }
+  function replaceOrder(state,orderId,changes={}){return amendOrder(state,orderId,changes)}
   function cancelOco(state,filledOrderId){
     const p=ensure(state),o=p.orders.find(x=>x.id===filledOrderId)||p.openOrders.find(x=>x.id===filledOrderId);
     if(!o||!o.bracketGroup)return [];
     const cancelled=[];
     p.openOrders=p.openOrders.filter(x=>{
-      if(x.bracketGroup===o.bracketGroup&&x.id!==o.id&&x.status==='OPEN'){
+      if(x.bracketGroup===o.bracketGroup&&x.id!==o.id&&!TERMINAL_ORDER_STATES.has(x.status)){
         x.status='CANCELLED';x.cancelledAt=now();cancelled.push(x.id);
-        const ledger=p.orders.find(y=>y.id===x.id);
-        if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:x.cancelledAt});
-        p.journal.unshift({...x,type:'PAPER_OCO_CANCELLED'});
-        return false
+        const ledger=p.orders.find(y=>y.id===x.id);if(ledger&&ledger!==x)Object.assign(ledger,{status:'CANCELLED',cancelledAt:x.cancelledAt});
+        orderEvent(p,x,'CANCELLED',{reason:'OCO peer filled'});return false
       }
       return true
     });
@@ -298,12 +339,13 @@
   }
   function placeTrailingStop(state,agentId,symbol,side,qty,trailingPercent,reason){return placeOrder(state,agentId,symbol,side,qty,'TRAILING_STOP',0,null,null,reason||'Trailing stop','GTC',null,trailingPercent,{reduceOnly:true,source:'PAPER_TRAILING_STOP'})}
   function placeOco(state,agentId,symbol,side,qty,limitPrice,stopPrice,reason){const group=uid('oco');const opts={reduceOnly:true,source:'PAPER_OCO',bracketGroup:group};const tp=placeOrder(state,agentId,symbol,side,qty,'LIMIT',limitPrice,null,null,reason||'OCO take profit','GTC',null,0,opts);tp.bracketRole='TARGET';tp.bracketGroup=group;const sl=placeOrder(state,agentId,symbol,side,qty,'STOP',0,stopPrice,null,reason||'OCO stop','GTC',null,0,opts);sl.bracketRole='STOP';sl.bracketGroup=group;return{group,orders:[tp,sl]}}
-  function cancelOrder(state,orderId){
-    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
-    if(!o)throw new Error('Open paper order not found');
+  function cancelOrder(state,orderId,reason='User cancelled paper order'){
+    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId)||p.orders.find(x=>x.id===orderId);
+    if(!o)throw new Error('Paper order not found');
+    if(TERMINAL_ORDER_STATES.has(o.status))return o;
     o.status='CANCELLED';o.cancelledAt=now();p.openOrders=p.openOrders.filter(x=>x.id!==orderId);
-    const ledger=p.orders.find(x=>x.id===orderId);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});
-    p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});p.updatedAt=now();return o;
+    const ledger=p.orders.find(x=>x.id===orderId);if(ledger&&ledger!==o)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});
+    orderEvent(p,o,'CANCELLED',{reason});p.updatedAt=now();return o;
   }
   function attachRisk(position,stop,target){position.stop=num(stop)||null;position.target=num(target)||null;return position}
   function processRiskExits(state,prices){
@@ -334,7 +376,9 @@
   function markToMarket(state,prices){
     const p=ensure(state),px=prices||p.marketSnapshot||{};let exposure=0,unreal=0;
     p.agents.forEach(a=>a.positions.forEach(pos=>{const last=Math.max(0,num(px[pos.symbol],pos.last||pos.avg));pos.last=last;exposure+=pos.qty*last;unreal+=(last-pos.avg)*pos.qty}));
-    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};processOpenOrders(state,px);processRiskExits(state,px);p.updatedAt=now();const cash=p.agents.reduce((n,a)=>n+a.cash,0);return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(cash+exposure).toFixed(2)};
+    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};
+    const meta=p.lastMarket?.verification?{...p.lastMarket.verification,receivedAt:p.lastMarket.receivedAt||p.lastMarket.asOf,seq:p.lastMarket.streamSeq,asOf:p.lastMarket.asOf}:null;
+    processOpenOrders(state,px,meta||{});processRiskExits(state,px);reconcileOrders(state);p.updatedAt=now();const cash=p.agents.reduce((n,a)=>n+a.cash,0);return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(cash+exposure).toFixed(2)};
   }
   function leaderboard(state){
     const p=ensure(state);return p.agents.map(a=>{const exposure=a.positions.reduce((n,x)=>n+x.qty*x.last,0),equity=a.cash+exposure,pnl=equity-a.capital;return{...a,equity:+equity.toFixed(2),pnl:+pnl.toFixed(2),returnPct:+(pnl/Math.max(1,a.capital)*100).toFixed(2),exposure:+exposure.toFixed(2)}}).sort((a,b)=>b.returnPct-a.returnPct);
@@ -350,5 +394,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
 })();
