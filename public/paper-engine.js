@@ -17,7 +17,9 @@
     p.agents=(Array.isArray(p.agents)?p.agents:[]).filter(a=>a&&typeof a==='object');p.positions=(Array.isArray(p.positions)?p.positions:[]).filter(x=>x&&typeof x==='object');p.orders=(Array.isArray(p.orders)?p.orders:[]).filter(x=>x&&typeof x==='object');
     p.openOrders=(Array.isArray(p.openOrders)?p.openOrders:[]).filter(x=>x&&typeof x==='object');p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
     p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
-    p.execution={lastTick:null,reconciledAt:null,...(p.execution||{})};
+    p.execution={lastTick:null,reconciledAt:null,tickCount:0,lastTickAt:null,model:'REALISTIC',latencyMs:75,impactBpsCap:30,...(p.execution||{})};
+    p.execution.latencyMs=Math.max(0,num(p.execution.latencyMs,75));
+    p.execution.impactBpsCap=Math.max(0,num(p.execution.impactBpsCap,30));
     // Repair older/partial local paper state before any numeric formatter is called.
     p.version=Math.max(3,num(p.version,3)); p.startingCash=num(p.startingCash,1000000);
     p.cash=num(p.cash,p.startingCash); p.realizedPnl=num(p.realizedPnl,0);
@@ -122,6 +124,7 @@
   function paperOrder(state,agentId,symbol,side,qty,price,reason,opts={}){
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
     const clientOrderId=opts.clientOrderId?String(opts.clientOrderId):'';
+    const marketMeta=opts.marketMeta||{};
     if(clientOrderId){
       const existing=p.orders.find(x=>x.clientOrderId===clientOrderId);
       if(existing)return existing;
@@ -131,15 +134,24 @@
     qty=normalizeQty(symbol,qty);price=Math.max(0,num(price));side=String(side).toUpperCase();
     if(!qty||!price||!['BUY','SELL'].includes(side))throw new Error('Valid side, quantity and price are required');
     if(opts.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty,entryPrice:price,stopPrice:opts.stopPrice,targetPrice:opts.targetPrice,marketMeta:opts.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
-    const fill=fillPrice(p,side,price,num(opts.slippageBps||0)),fillValue=qty*fill,c=costs(p,fillValue),slip=Math.abs(fill-price)*qty;
+    const bid=Math.max(0,num(marketMeta.bid,0)),ask=Math.max(0,num(marketMeta.ask,0));
+    const quoted=(side==='BUY'?ask:bid)>0?(side==='BUY'?ask:bid):price;
+    const spreadBps=bid>0&&ask>0&&((bid+ask)/2)>0?((ask-bid)/((bid+ask)/2))*10000:0;
+    const liquidityNotional=Math.max(2500,Math.min(250000,Math.abs(price)*50));
+    const liquidityQty=liquidityNotional/Math.max(0.000001,Math.abs(price));
+    const impactBps=opts.realistic?Math.min(num(p.execution.impactBpsCap,30),(qty/Math.max(1e-9,liquidityQty))*num(p.execution.impactBpsCap,30)):0;
+    const referencePrice=opts.realistic?quoted:price;
+    const fill=fillPrice(p,side,referencePrice,num(opts.slippageBps||0)+impactBps),fillValue=qty*fill,c=costs(p,fillValue),slip=Math.abs(fill-referencePrice)*qty;
+    const executionLatencyMs=Math.max(0,num(opts.latencyMs,p.execution.latencyMs));
     if(side==='BUY'&&a.cash<fillValue+c.fee)throw new Error('Paper cash limit exceeded');
     if(opts.reduceOnly){const pos=a.positions.find(x=>x.symbol===symbol);if(side==='BUY')throw new Error('Reduce-only BUY is not supported in the long-only paper account.');if(!pos||pos.qty+1e-12<qty)throw new Error('Reduce-only order exceeds paper position.');}
     let realized=updateAgentPosition(a,symbol,side,qty,fill);
     if(side==='BUY')a.cash-=fillValue+c.fee;else a.cash-=c.fee;
     p.realizedPnl+=realized-c.fee;p.fees+=c.fee;p.slippage+=slip;
-    const o={id:uid('order'),clientOrderId:clientOrderId||null,parentOrderId:opts.parentOrderId||null,agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',stopPrice:num(opts.stopPrice),targetPrice:num(opts.targetPrice),reduceOnly:Boolean(opts.reduceOnly),source:opts.source||'PAPER',status:'FILLED',time:now(),filledAt:now(),virtualOnly:true};
+    const filledAt=now();
+    const o={id:uid('order'),clientOrderId:clientOrderId||null,parentOrderId:opts.parentOrderId||null,agentId,symbol,side,qty,requestedPrice:price,quoteBid:bid||null,quoteAsk:ask||null,spreadBps:+spreadBps.toFixed(2),marketImpactBps:+impactBps.toFixed(2),executionLatencyMs,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',stopPrice:num(opts.stopPrice),targetPrice:num(opts.targetPrice),reduceOnly:Boolean(opts.reduceOnly),source:opts.source||'PAPER',status:'FILLED',time:now(),filledAt,virtualOnly:true};
     if(opts.parentOrderId){
-      p.journal.unshift({...o,type:'PAPER_FILL'});
+      p.journal.unshift({...o,type:'PAPER_FILL',executionModel:opts.realistic?'REALISTIC':'BASELINE'});
     }else{
       p.orders.unshift(o);
       p.journal.unshift({...o,type:'PAPER_ORDER'});
@@ -225,17 +237,25 @@
     const p=ensure(state),fills=[];expirePaperOrders(state);reconcileOrders(state);const px=prices||p.marketSnapshot||{};
     const tickKey=marketMeta?.seq!=null?String(marketMeta.seq):(marketMeta?.receivedAt||marketMeta?.asOf||null);
     if(tickKey&&p.execution.lastTick===tickKey)return fills;
-    if(marketMeta&&marketMeta.receivedAt){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
+    if(marketMeta&&(marketMeta.sourceAsOf||marketMeta.asOf||marketMeta.receivedAt)){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
     if(tickKey)p.execution.lastTick=tickKey;
+    p.execution.tickCount=Math.max(0,num(p.execution.tickCount,0))+1;
+    p.execution.lastTickAt=now();
     p.openOrders=[...p.openOrders].filter(o=>{
       const price=num(px[o.symbol]);if(!price)return true;
+      const bid=Math.max(0,num(marketMeta?.bid,price)),ask=Math.max(0,num(marketMeta?.ask,price));
+      const triggerPx=o.side==='BUY'?ask:bid;
       let trigger=false;
-      if(o.orderType==='LIMIT')trigger=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;
-      if(o.orderType==='STOP')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
-      if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;}
+      if(o.orderType==='LIMIT')trigger=o.side==='BUY'?ask<=o.limitPrice:bid>=o.limitPrice;
+      if(o.orderType==='STOP')trigger=o.side==='BUY'?ask>=o.stopPrice:bid<=o.stopPrice;
+      if(o.orderType==='STOP_LIMIT'){
+        const triggered=o.side==='BUY'?ask>=o.stopPrice:bid<=o.stopPrice;
+        const withinLimit=o.side==='BUY'?ask<=o.limitPrice:bid>=o.limitPrice;
+        trigger=triggered&&withinLimit;
+      }
       if(o.orderType==='TRAILING_STOP'){
-        if(o.side==='SELL'){o.trailHigh=Math.max(num(o.trailHigh,price),price);o.stopPrice=o.trailHigh*(1-num(o.trailingPercent)/100);trigger=price<=o.stopPrice;}
-        else{o.trailLow=o.trailLow==null?price:Math.min(num(o.trailLow,price),price);o.stopPrice=o.trailLow*(1+num(o.trailingPercent)/100);trigger=price>=o.stopPrice;}
+        if(o.side==='SELL'){o.trailHigh=Math.max(num(o.trailHigh,triggerPx),triggerPx);o.stopPrice=o.trailHigh*(1-num(o.trailingPercent)/100);trigger=bid<=o.stopPrice;}
+        else{o.trailLow=o.trailLow==null?triggerPx:Math.min(num(o.trailLow,triggerPx),triggerPx);o.stopPrice=o.trailLow*(1+num(o.trailingPercent)/100);trigger=ask>=o.stopPrice;}
       }
       if(!trigger)return true;
       try{
@@ -260,12 +280,12 @@
           const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty+1e-12<fillQty)throw new Error('Reduce-only order exceeds position');
         }
         if(fillQty<=0){o.status='CANCELLED';o.cancelledAt=now();const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false;}
-        let executionPrice=price;
+        let executionPrice=o.side==='BUY'?ask:bid;
         if(o.orderType==='LIMIT'||o.orderType==='STOP_LIMIT'){
-          executionPrice=o.side==='BUY'?Math.min(price,o.limitPrice):Math.max(price,o.limitPrice);
+          executionPrice=o.side==='BUY'?Math.min(ask,o.limitPrice):Math.max(bid,o.limitPrice);
         }
         const depthBps=Math.min(25,Math.max(0,(remaining-fillQty)/Math.max(1e-9,remaining)*12));
-        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,executionPrice,o.reason,{orderType:o.orderType,slippageBps:depthBps,parentOrderId:o.id,reduceOnly:o.reduceOnly,source:o.source});
+        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,executionPrice,o.reason,{orderType:o.orderType,slippageBps:depthBps,parentOrderId:o.id,reduceOnly:o.reduceOnly,source:o.source,realistic:true,marketMeta:{...marketMeta,bid,ask,price,seq:tickKey}});
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();o.lastFillPrice=f.fillPrice;o.avgFillPrice=o.avgFillPrice?((o.avgFillPrice*(o.filledQty-fillQty)+f.fillPrice*fillQty)/o.filledQty):f.fillPrice;o.fees=(num(o.fees)+num(f.fees));o.slippage=(num(o.slippage)+num(f.slippage));o.realizedPnl=(num(o.realizedPnl)+num(f.realizedPnl));fills.push({...f,parentOrderId:o.id});
         if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();orderEvent(p,o,'FILLED',{fillQty,fillPrice:f.fillPrice,remainingQty:0});if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
         if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();orderEvent(p,o,'CANCELLED',{reason:'IOC remainder cancelled',remainingQty:o.remainingQty});return false}
@@ -273,6 +293,27 @@
       }catch(e){o.status='REJECTED';o.error=e.message;orderEvent(p,o,'REJECTED',{error:e.message});return false}
     });return fills;
   }
+  function processMarketTick(state,tick={}){
+    const p=ensure(state),symbol=String(tick.symbol||tick.ticker||'').toUpperCase(),price=Math.max(0,num(tick.price));
+    if(!symbol||price<=0)return {ok:false,error:'Market tick requires symbol and positive price',fills:[],virtualOnly:true};
+    const receivedAt=tick.receivedAt||now(),sourceAsOf=tick.sourceAsOf||tick.asOf||receivedAt;
+    const bid=Math.max(0,num(tick.bid,price)),ask=Math.max(0,num(tick.ask,price)),seq=tick.seq!=null?String(tick.seq):receivedAt;
+    const meta={...tick,symbol,price,bid,ask,seq,receivedAt,sourceAsOf,asOf:sourceAsOf,verified:tick.verified!==false};
+    p.marketSnapshot[symbol]=price;
+    p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,asOf:sourceAsOf,streamSeq:seq,streamStatus:tick.status||'LIVE',executionEligible:tick.executionEligible!==false,verification:tick.verification||p.lastMarket?.verification||{available:true,providerCount:tick.providerCount||1}};
+    const fills=processOpenOrders(state,{[symbol]:price},meta);
+    let exposure=0,unreal=0;
+    p.agents.forEach(a=>a.positions.forEach(pos=>{if(pos.symbol===symbol)pos.last=price;const last=Math.max(0,num(pos.last,pos.avg));exposure+=pos.qty*last;unreal+=(last-pos.avg)*pos.qty;}));
+    p.unrealizedPnl=+unreal.toFixed(2);
+    const age=estimateQuoteAgeSec(meta);
+    const riskFills=age<=30?processRiskExits(state,{[symbol]:price}):[];
+    p.execution.lastTick=seq;p.execution.lastTickAt=receivedAt;
+    p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible!==false,virtualOnly:true});
+    if(p.journal.length>500)p.journal=p.journal.slice(0,500);
+    reconcileOrders(state);p.updatedAt=now();
+    return {ok:true,symbol,price,bid,ask,seq,fills:[...fills,...riskFills],execution:{tickCount:p.execution.tickCount,lastTick:seq},virtualOnly:true};
+  }
+
   function aOf(p,agentId){return p.agents.find(x=>x.id===agentId)||null}
   function amendOrder(state,orderId,changes={}){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId)||p.orders.find(x=>x.id===orderId);
@@ -396,5 +437,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
 })();
