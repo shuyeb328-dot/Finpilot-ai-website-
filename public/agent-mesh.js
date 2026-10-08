@@ -14,17 +14,17 @@ function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'
 function ensure(){state.agentMesh=state.agentMesh||{runs:0,lastRun:null,agents:{},queue:[],decisions:[],learning:[]};return state.agentMesh}
 function scoreAgent(name){
  const d=ensure(), ev=Array.isArray(state.evidence)?state.evidence.length:0, tx=Array.isArray(state.transactions)?state.transactions.length:0;
- let base=70+Math.min(15,ev*2)+Math.min(10,tx); if(name==='Risk')base+=5;if(name==='CEO')base+=3;
+ let base=70+Math.min(15,ev*2)+Math.min(10,tx); if(name==='Risk')base+=5;if(name==='CEO')base+=3;try{const dl=window.FinPilotDeepLearning?.snapshot?.();const row=dl?.agents?.find(x=>x.agent===name);if(row?.accuracy!=null)base+=(row.accuracy-60)*.12}catch{}
  return Math.min(99,base)
 }
 function runMesh(){
- const d=ensure();d.runs++;d.lastRun=new Date().toISOString();d.queue=[];d.agents={};
+ const d=ensure();d.runs++;d.lastRun=new Date().toISOString();d.queue=[];d.agents={};const learned=window.FinPilotDeepLearning?.runFleet?.(state,{web:typeof liveWebSignal==='function'?liveWebSignal():null})||null;
  AGENTS.forEach(a=>{const sc=scoreAgent(a[0]);d.agents[a[0]]={confidence:sc,status:sc>=75?'Ready':'Needs evidence',updated:d.lastRun}});
  const vals=AGENTS.map(a=>d.agents[a[0]].confidence),avg=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length),spread=Math.max(...vals)-Math.min(...vals);
  if(spread>15)d.queue.push('High agent disagreement detected');
  if((state.evidence||[]).length<3)d.queue.push('Evidence coverage is low');
  if(!Array.isArray(state.transactions)||!state.transactions.length)d.queue.push('Transaction history is limited');
- d.learning.push({time:d.lastRun,avg:avg,spread:spread});d.learning=d.learning.slice(-30);save();return {avg,spread}
+ d.learning.push({time:d.lastRun,avg:avg,spread:spread,learned:!!learned});d.learning=d.learning.slice(-30);save();return {avg,spread}
 }
 function run(){const x=runMesh();render('agentmesh');toast('Agent Mesh synchronized · '+x.avg+'% average confidence')}
 function handoff(a){runMesh();toast('Controlled context packet prepared for '+a)}
