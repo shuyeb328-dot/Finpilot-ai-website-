@@ -100,6 +100,19 @@ async function learn(req,res){
 }
 
 const RESEARCH_SCHEMA_READY={ready:false};
+const MARKET_PROVENANCE_READY={ready:false};
+async function ensureMarketProvenanceSchema(){
+ const pool=await marketStore(); if(!pool)return false; if(MARKET_PROVENANCE_READY.ready)return true;
+ await pool.query(`CREATE TABLE IF NOT EXISTS market_data_provenance (id BIGSERIAL PRIMARY KEY,symbol TEXT NOT NULL,provider TEXT NOT NULL,price DOUBLE PRECISION,live BOOLEAN NOT NULL DEFAULT FALSE,freshness TEXT,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),metadata JSONB NOT NULL DEFAULT '{}'::jsonb)`);
+ await pool.query('CREATE INDEX IF NOT EXISTS market_provenance_symbol_idx ON market_data_provenance(symbol,observed_at DESC)');
+ await pool.query('CREATE INDEX IF NOT EXISTS market_provenance_provider_idx ON market_data_provenance(provider,observed_at DESC)');
+ MARKET_PROVENANCE_READY.ready=true; return true;
+}
+async function archiveMarketProvenance(x){
+ try{if(!(await ensureMarketProvenanceSchema())||!MARKET_POOL)return false;
+ await MARKET_POOL.query('INSERT INTO market_data_provenance(symbol,provider,price,live,freshness,observed_at,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',
+ [x.symbol||x.ticker||'',x.provider||'unknown',Number.isFinite(Number(x.price))?Number(x.price):null,Boolean(x.live),x.dataFreshness||x.freshness||'unknown',x.asOf||new Date().toISOString(),JSON.stringify({market:x.market||null,exchange:x.exchange||null,proxy:Boolean(x.proxy)})]);return true}catch{return false}
+}
 async function ensureResearchSchema(){
  const pool=await marketStore();
  if(!pool)return false;
@@ -496,6 +509,12 @@ function recordProviderResult(id,ok,error=null){
 function providerHealthSnapshot(){
  const now=Date.now();
  return [...MARKET_PROVIDER_HEALTH.values()].map(p=>({...p,cooldownActive:p.cooldownUntil>now,cooldownMs:Math.max(0,p.cooldownUntil-now),successRate:p.requests?Math.round(p.success/p.requests*100):null}));
+}
+async function marketProvenanceRoute(req,res,u){
+ try{if(!(await ensureMarketProvenanceSchema()))return send(res,200,{ok:true,cloud:false,items:[]});
+ const symbol=String(u.searchParams.get('symbol')||'').trim(),limit=Math.min(100,Math.max(1,Number(u.searchParams.get('limit')||25)));
+ const r=symbol?await MARKET_POOL.query('SELECT symbol,provider,price,live,freshness,observed_at AS "observedAt",metadata FROM market_data_provenance WHERE symbol=$1 ORDER BY observed_at DESC LIMIT $2',[symbol,limit]):await MARKET_POOL.query('SELECT symbol,provider,price,live,freshness,observed_at AS "observedAt",metadata FROM market_data_provenance ORDER BY observed_at DESC LIMIT $1',[limit]);
+ return send(res,200,{ok:true,cloud:true,items:r.rows});}catch(e){return send(res,200,{ok:false,error:e.message,items:[]})}
 }
 function marketProvenance(symbol,provider,live,freshness='unknown'){
  return {symbol,provider,live:Boolean(live),freshness,observedAt:new Date().toISOString(),provenance:'FinPilot market-data mesh'};
@@ -1136,6 +1155,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
 if(req.method==='GET'&&u.pathname==='/api/market-provider-health')return send(res,200,{ok:true,providers:providerHealthSnapshot(),timestamp:new Date().toISOString()});
+if(req.method==='GET'&&u.pathname==='/api/market-provenance')return marketProvenanceRoute(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-picks')return marketPicks(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/options-math')return optionsMath(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/chain-analytics')return chainAnalytics(req,res,u);
