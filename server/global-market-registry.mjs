@@ -43,6 +43,14 @@ export const GLOBAL_INDEXES = [
  {region:'Africa',country:'Egypt',name:'EGX 30',symbol:'^CASE30',type:'index'}
 ];
 
+export const GLOBAL_INDEX_FALLBACKS = {
+ '^SP_IPSA':['^IPSA'],
+ '^PSI20':['PSI20.NX'],
+ '^TOPX':['1306.T'],
+ '^PSEI.PS':['PSEI.PS'],
+ '^JALSH':['^JALSH']
+};
+
 export const EXCHANGE_SUFFIXES = {
  NYSE:'',NASDAQ:'',AMEX:'',
  LSE:'.L',TSE:'.T',HKG:'.HK',KSC:'.KS',KOSDAQ:'.KQ',TWSE:'.TW',
