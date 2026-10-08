@@ -86,8 +86,8 @@
       try{
         if(o.timeInForce==='FOK'&&Number(o.fillRatio||1)<1){o.status='REJECTED';o.error='FOK not fully fillable';return false;} const ratio=Math.max(0.25,Math.min(1,Number(o.fillRatio||1)));
         const fillQty=Math.max(1,Math.min(o.qty,Math.floor(o.qty*ratio)));
-        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
         if(o.reduceOnly){const pos=(p.agents.find(a=>a.id===o.agentId)||{}).positions?.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<fillQty)throw new Error('Reduce-only order exceeds position');}
+        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
         if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketGroup)cancelOco(state,o.id);return false}
         o.status='PARTIALLY_FILLED';return true;
