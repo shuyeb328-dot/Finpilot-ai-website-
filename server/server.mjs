@@ -296,6 +296,15 @@ function rsi(a,n=14){if(a.length<n+1)return null;let g=0,l=0;for(let i=a.length-
 function atr(rows,n=14){if(rows.length<n+1)return null;const tr=[];for(let i=1;i<rows.length;i++){const [,,h,l,c]=rows[i];const pc=rows[i-1][4];tr.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)))}return sma(tr,n)}
 const CRYPTO_ASSETS={BTC:'BTCUSDT',BTCUSDT:'BTCUSDT',ETH:'ETHUSDT',ETHUSDT:'ETHUSDT',SOL:'SOLUSDT',SOLUSDT:'SOLUSDT',BNB:'BNBUSDT',BNBUSDT:'BNBUSDT',XRP:'XRPUSDT',XRPUSDT:'XRPUSDT',DOGE:'DOGEUSDT',DOGEUSDT:'DOGEUSDT',ADA:'ADAUSDT',ADAUSDT:'ADAUSDT',AVAX:'AVAXUSDT',AVAXUSDT:'AVAXUSDT',LINK:'LINKUSDT',LINKUSDT:'LINKUSDT'};
 const TIMEFRAMES={'15m':'15m','1h':'1h','4h':'4h','1d':'1d'};
+async function directProviderJson(url,source='provider',timeoutMs=8000){
+ const started=Date.now();
+ try{
+  const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
+  if(!r.ok)throw new Error(`HTTP_${r.status}`);
+  qualityUpdate(source,true,Date.now()-started);
+  return await r.json();
+ }catch(e){qualityUpdate(source,false,Date.now()-started,e.message);throw e;}
+}
 async function liveCrypto(t, interval='1h', multi=true){
  const key=t.toUpperCase(), symbol=CRYPTO_ASSETS[key];
  if(!symbol) throw new Error('Crypto symbol not connected. Supported: BTC, ETH, SOL, BNB, XRP.');
@@ -310,18 +319,32 @@ async function liveCrypto(t, interval='1h', multi=true){
   ]);
  }catch(binanceError){
   const krakenPair=key==='BTC'?'XBTUSD':key+'USD';
-  const map={ '15m':15,'1h':60,'4h':240,'1d':1440 };
-  const kTicker=await fetchJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair));
-  const rawTicker=Object.values(kTicker?.result||{})[0];
-  if(!rawTicker?.c?.[0])throw new Error('CRYPTO_MARKET_UNAVAILABLE: Binance and Kraken unavailable');
-  ticker={lastPrice:Number(rawTicker.c[0]),prevClosePrice:Number(rawTicker.o||rawTicker.c[0]),highPrice:Number(rawTicker.h?.[1]||rawTicker.c[0]),lowPrice:Number(rawTicker.l?.[1]||rawTicker.c[0]),volume:Number(rawTicker.v?.[1]||0)};
-  series=await Promise.all(unique.map(async x=>{
-   const d=await fetchJson('https://api.kraken.com/0/public/OHLC?pair='+encodeURIComponent(krakenPair)+'&interval='+map[x]);
-   const rows=Object.values(d?.result||{}).find(v=>Array.isArray(v))||[];
-   return rows.slice(-220).map(v=>[Number(v[0])*1000,Number(v[1]),Number(v[2]),Number(v[3]),Number(v[4]),Number(v[6]||0)]);
-  }));
-  provider='Kraken public market data fallback';
- }
+  const map={'15m':15,'1h':60,'4h':240,'1d':1440};
+  try{
+   const kTicker=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair),'kraken');
+   const rawTicker=Object.values(kTicker?.result||{})[0];
+   if(!rawTicker?.c?.[0])throw new Error('Kraken ticker unavailable');
+   ticker={lastPrice:Number(rawTicker.c[0]),prevClosePrice:Number(rawTicker.o||rawTicker.c[0]),highPrice:Number(rawTicker.h?.[1]||rawTicker.c[0]),lowPrice:Number(rawTicker.l?.[1]||rawTicker.c[0]),volume:Number(rawTicker.v?.[1]||0)};
+   series=await Promise.all(unique.map(async x=>{
+    const d=await directProviderJson('https://api.kraken.com/0/public/OHLC?pair='+encodeURIComponent(krakenPair)+'&interval='+map[x],'kraken');
+    const rows=Object.values(d?.result||{}).find(v=>Array.isArray(v))||[];
+    return rows.slice(-220).map(v=>[Number(v[0])*1000,Number(v[1]),Number(v[2]),Number(v[3]),Number(v[4]),Number(v[6]||0)]);
+   }));
+   provider='Kraken public market data fallback';
+  }catch(krakenError){
+   const coinPair=key==='BTC'?'BTC-USD':key+'-USD';
+   const cmap={'15m':900,'1h':3600,'4h':21600,'1d':86400};
+   try{
+    const ct=await directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/ticker','coinbase');
+    const cc=await Promise.all(unique.map(x=>directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/candles?granularity='+cmap[x],'coinbase')));
+    ticker={lastPrice:Number(ct?.price),prevClosePrice:Number(ct?.price),highPrice:Number(ct?.price),lowPrice:Number(ct?.price),volume:Number(ct?.volume||0)};
+    series=cc.map(rows=>rows.filter(Array.isArray).map(v=>[Number(v[0])*1000,Number(v[3]),Number(v[2]),Number(v[1]),Number(v[4]),Number(v[5])]).sort((a,b)=>a[0]-b[0]).slice(-220));
+    if(!Number.isFinite(ticker.lastPrice)||series.some(x=>x.length<2))throw new Error('Coinbase market data incomplete');
+    provider='Coinbase Exchange public market data fallback';
+   }catch(coinbaseError){
+    throw new Error('CRYPTO_MARKET_UNAVAILABLE: Binance='+binanceError.message+'; Kraken='+krakenError.message+'; Coinbase='+coinbaseError.message);
+   }
+  }
  const reports=unique.map((x,i)=>cryptoTimeframe(series[i],ticker,x));
  const main=reports.find(x=>x.interval===tf)||reports[0];
  const bullish=reports.filter(x=>x.direction==='BULLISH').length, bearish=reports.filter(x=>x.direction==='BEARISH').length;
