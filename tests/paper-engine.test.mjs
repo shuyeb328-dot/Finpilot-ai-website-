@@ -157,7 +157,8 @@ function fresh(){
   assert.equal(before.status,'FILLED');
 }
 {
-  const {state}=fresh();
+  const {state,a}=fresh();
+  a.cash=10000;
   const meta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
   const first=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'reserve 1','GTC',null,0,{enforceRisk:true,marketMeta:meta,clientOrderId:'reserve-1'});
   assert.equal(first.status,'OPEN');
