@@ -61,6 +61,11 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await page.getByRole('button', { name: /BUY · MARKET/i }).click();
   await page.waitForTimeout(1200);
 
+  const recommendation = await page.locator('#paperRecommendation').innerText();
+  expect(recommendation).toContain('FINPILOT EXECUTION SIGNAL');
+  expect(await page.locator('#paperExecHigh').innerText()).not.toBe('₹0');
+  expect(await page.locator('#paperExecLow').innerText()).not.toBe('₹0');
+
   const execution = await page.evaluate(() => {
     const st = window.FinPilotBridge.state;
     const p = window.FinPilotPaperCore.ensure(st);
