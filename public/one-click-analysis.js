@@ -125,8 +125,12 @@
     }
     const p=Number(market.price),ch=Number(market.changePct),hi=Number(market.dayHigh),lo=Number(market.dayLow),rsi=Number(market.rsi);
     const cls=ch>=0?'#2de0a5':'#ff7b8b';
-    box.innerHTML='<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#91a7c5;font-weight:800">LATEST VERIFIED EQUITY DATA</div><h3 style="margin:5px 0 3px">'+escLocal(market.name||market.ticker)+' · '+escLocal(market.ticker||'')+'</h3><div style="font-size:11px;color:#91a7c5">NSE · '+escLocal(market.provider||'market adapter')+'</div></div><span class="pill '+(market.live?'low':'med')+'">'+(market.live?'LIVE DATA':'EOD DATA')+'</span></div><div class="grid four" style="margin-top:12px;grid-template-columns:repeat(4,minmax(0,1fr))"><div><span style="color:#91a7c5;font-size:11px">PRICE</span><div style="font-size:24px;font-weight:800">₹'+p.toLocaleString('en-IN',{maximumFractionDigits:2})+'</div><div style="color:'+cls+';font-weight:800">'+(ch>=0?'+':'')+ch.toFixed(2)+'%</div></div><div><span style="color:#91a7c5;font-size:11px">DAY HIGH</span><div style="font-size:19px;font-weight:750;margin-top:5px">₹'+(Number.isFinite(hi)?hi.toLocaleString('en-IN',{maximumFractionDigits:2}):'—')+'</div></div><div><span style="color:#91a7c5;font-size:11px">DAY LOW</span><div style="font-size:19px;font-weight:750;margin-top:5px">₹'+(Number.isFinite(lo)?lo.toLocaleString('en-IN',{maximumFractionDigits:2}):'—')+'</div></div><div><span style="color:#91a7c5;font-size:11px">RSI</span><div style="font-size:19px;font-weight:750;margin-top:5px">'+(Number.isFinite(rsi)?rsi.toFixed(1):'—')+'</div></div></div><div style="margin-top:10px;color:#a9b8cc;font-size:10px">Updated '+escLocal(market.asOf||'now')+' · recent/delayed market data · verify broker/exchange quote before acting.</div>';
-    state.lastMarketReport={ticker:market.ticker,name:market.name,price:p,changePct:ch,dayHigh:hi,dayLow:lo,rsi,provider:market.provider,asOf:market.asOf};
+    const cur=currencyInfo(market.currency||'USD');
+    const freshness=String(market.dataFreshness||'UNKNOWN').toUpperCase();
+    const status=market.live===true&&freshness==='FRESH_SOURCE'?'LIVE VERIFIED':Number.isFinite(p)&&p>0?'DELAYED / ANALYSIS ONLY':'UNAVAILABLE';
+    const pill=status==='LIVE VERIFIED'?'low':status==='DELAYED / ANALYSIS ONLY'?'med':'high';
+    box.innerHTML='<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#91a7c5;font-weight:800">LATEST MARKET DATA</div><h3 style="margin:5px 0 3px">'+escLocal(market.name||market.ticker)+' · '+escLocal(market.ticker||'')+'</h3><div style="font-size:11px;color:#91a7c5">'+escLocal(market.exchange||market.market||'GLOBAL')+' · '+escLocal(market.provider||'market adapter')+'</div></div><span class="pill '+pill+'">'+status+'</span></div><div class="grid four" style="margin-top:12px;grid-template-columns:repeat(4,minmax(0,1fr))"><div><span style="color:#91a7c5;font-size:11px">PRICE</span><div style="font-size:24px;font-weight:800">'+fmtMarketMoney(p,market.currency)+'</div><div style="color:'+cls+';font-weight:800">'+(ch>=0?'+':'')+ch.toFixed(2)+'%</div></div><div><span style="color:#91a7c5;font-size:11px">DAY HIGH</span><div style="font-size:19px;font-weight:750;margin-top:5px">'+fmtMarketMoney(hi,market.currency)+'</div></div><div><span style="color:#91a7c5;font-size:11px">DAY LOW</span><div style="font-size:19px;font-weight:750;margin-top:5px">'+fmtMarketMoney(lo,market.currency)+'</div></div><div><span style="color:#91a7c5;font-size:11px">RSI</span><div style="font-size:19px;font-weight:750;margin-top:5px">'+(Number.isFinite(rsi)?rsi.toFixed(1):'—')+'</div></div></div><div style="margin-top:10px;color:#a9b8cc;font-size:10px">Updated '+escLocal(market.asOf||'now')+' · '+escLocal(freshness)+' · verify broker/exchange quote before acting.</div>';
+    state.lastMarketReport={ticker:market.ticker,name:market.name,price:p,changePct:ch,dayHigh:hi,dayLow:lo,rsi,provider:market.provider,asOf:market.asOf,currency:market.currency||'USD',exchange:market.exchange||market.market||'GLOBAL',dataFreshness:market.dataFreshness||'UNKNOWN',executionEligible:market.executionEligible===true};
     save();
   }
   function injectMarketChartStyles(){
@@ -157,7 +161,8 @@
     const paper=report.paper;
     const money=scenarioSafe(report);
     const candidate=report.candidate||null;
-    const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
+    const scenarioBlocked=!Number.isFinite(Number(report.marketReport?.price))||Number(report.marketReport?.price)<=0;
+    const v8=!scenarioBlocked?(window.FinPilotV8?.analyze(report,money,{amount:1000})||null):null;
     const risk=Number(report.risk||0);
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
@@ -199,10 +204,9 @@
           <div class="sectionTitle"><div><span class="eyebrow">₹1,000 EXAMPLE</span><h3 style="font-size:18px;margin-top:5px">What ₹1,000 could look like</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
           <div class="grid cards" style="margin-bottom:10px">
             <div class="card"><span class="muted">Suggested view</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
-            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability||0}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability||0}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability||0}%</div><span class="muted">Model estimate</span></div>
-          </div>
+            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability==null?"—":money.buyProbability+"%"}</div><span class="muted">${money?.buyProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
+          <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability==null?"—":money.sellProbability+"%"}</div><span class="muted">${money?.sellProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
+          <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability==null?"—":money.holdProbability+"%"}</div><span class="muted">${money?.holdProbability==null?"Blocked — no verified market price":"Model estimate"}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">+₹${money?.estimatedProfit?.toLocaleString('en-IN')||0}</div><span class="muted">+${money?.upsidePct||0}% scenario</span></div>
             <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">−₹${money?.estimatedLoss?.toLocaleString('en-IN')||0}</div><span class="muted">−${money?.downsidePct||0}% scenario</span></div>
