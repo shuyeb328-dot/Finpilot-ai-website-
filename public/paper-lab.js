@@ -19,7 +19,7 @@ function connectPaperMarketStream(market){
    try{
     const d=JSON.parse(ev.data); const out=document.getElementById('paperMarketStatus');
     const px=Number(d.price); if(!d.verified||!Number.isFinite(px)||px<=0){if(out)out.textContent='STREAM '+(d.status||'UNAVAILABLE')+' · no unverified price used';return}
-    market.price=px; market.changePct=Number(d.changePct||market.changePct||0); market.volume=Number(d.volume||market.volume||0); market.dayHigh=Number(d.high||market.dayHigh||0); market.dayLow=Number(d.low||market.dayLow||0); market.provider=d.provider||market.provider; market.asOf=d.asOf||market.asOf; market.streamSeq=d.seq; market.streamStatus=d.status; market.streamAgeMs=Number(d.ageMs||0);
+    market.price=px; market.changePct=Number(d.changePct||market.changePct||0); market.volume=Number(d.volume||market.volume||0); market.dayHigh=Number(d.high||market.dayHigh||0); market.dayLow=Number(d.low||market.dayLow||0); market.provider=d.provider||market.provider; market.asOf=d.asOf||market.asOf; market.streamSeq=d.seq; market.streamStatus=d.status; market.streamAgeMs=Number(d.ageMs||0); market.orderBook=d.orderBook||market.orderBook; market.tick=d.tick||market.tick;
     const input=document.getElementById('paperPrice');if(input)input.value=px;
     const p=syncPaperAgents();p.lastMarket=market;p.marketSnapshot[sym]=px;FinPilotPaperCore.markToMarket(state,p.marketSnapshot);window.FinPilotBridge.save();
     if(out)out.textContent=(d.status==='STALE'?'STALE ':'LIVE ')+(d.provider||'verified provider')+' · '+px+' · '+Number(d.providerCount||0)+' source(s) · '+Math.round(Number(d.ageMs||0)/1000)+'s old';
@@ -68,7 +68,7 @@ function renderPaperChart(m){
  const last=rows.at(-1),lastY=y(Number(last.close)),change=Number(m.changePct||0);
  const labels=[0,Math.floor(rows.length*.25),Math.floor(rows.length*.5),Math.floor(rows.length*.75),rows.length-1].map(i=>'<text x="'+x(i)+'" y="'+(H-18)+'" class="cx">'+new Date(rows[i].time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</text>').join('');
  const rsi=Number(m.rsi||0);
- const bid=Number(last.close)*0.9998,ask=Number(last.close)*1.0002;
+ const obq=m.orderBook||{};const bid=Number(obq.bid)||Number(last.close)*0.9998,ask=Number(obq.ask)||Number(last.close)*1.0002;
  const book='<div class="bookSide"><b>BIDS</b>'+[3,2,1,0].map((n,i)=>'<div><span>'+money(bid-n*Number(last.close)*.00015)+'</span><em>'+(Math.max(1,Math.round((Number(last.volume)||1000)/(i+2))))+'</em></div>').join('')+'</div><div class="bookMid"><strong>'+money(Number(last.close))+'</strong><small>spread '+money(ask-bid)+'</small></div><div class="bookSide"><b>ASKS</b>'+[0,1,2,3].map((n,i)=>'<div><span>'+money(ask+n*Number(last.close)*.00015)+'</span><em>'+(Math.max(1,Math.round((Number(last.volume)||1000)/(i+2))))+'</em></div>').join('')+'</div>';
  const ob=document.getElementById('paperOrderBook');if(ob)ob.innerHTML=book;
  const ms=document.getElementById('paperMarketStats');if(ms)ms.innerHTML='<span>Open <b>'+money(Number(last.open))+'</b></span><span>High <b>'+money(hi)+'</b></span><span>Low <b>'+money(lo)+'</b></span><span>Close <b>'+money(Number(last.close))+'</b></span><span>Volume <b>'+Number(volMax).toLocaleString()+'</b></span><span>SMA20 <b>'+money(sma(20,rows.length-1)||0)+'</b></span><span>SMA50 <b>'+money(sma(50,rows.length-1)||0)+'</b></span><span>RSI <b>'+(rsi?rsi.toFixed(1):'—')+'</b></span>';
