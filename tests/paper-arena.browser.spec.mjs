@@ -34,6 +34,13 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
   expect(await page.evaluate(() => Boolean(window.FinPilotBridge)), 'FinPilot bridge missing; page errors: '+errors.join(' | ')).toBe(true);
   await page.evaluate(() => window.show('paperlab'));
+  await page.evaluate(() => {
+    window.FinPilotBridge.state.paperTrading = window.FinPilotPaperCore.defaultPaper();
+    window.FinPilotBridge.save();
+    window.FinPilotBridge.render('paperlab');
+  });
+  await page.waitForTimeout(500);
+
   await page.waitForTimeout(1000);
   console.log('PAPER_AFTER_SHOW', JSON.stringify(await page.evaluate(() => ({core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded), engineError: window.__finPaperEngineError || null, paperText: document.getElementById('paperlab')?.innerText || ''}))));
 
@@ -55,9 +62,12 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await expect(page.locator('#paperChart')).toContainText(/Provider:/, { timeout: 15000 });
   expect(await page.locator('#paperChart svg').count()).toBe(1);
   expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
-  // Verify the actual visible BUY button instead of only calling the engine directly.
+  // Verify the actual visible BUY button using the AI risk-sized fractional quantity.
   const quantity = page.locator('#paperQty');
-  await quantity.fill('1');
+  const suggestedQty = Number(await quantity.inputValue());
+  expect(suggestedQty).toBeGreaterThan(0);
+  expect(suggestedQty).toBeLessThan(1);
+  await quantity.fill(String(suggestedQty));
   await page.getByRole('button', { name: /BUY · MARKET/i }).click();
   await page.waitForTimeout(1200);
 
@@ -84,6 +94,7 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
       side: latest?.side || null,
       symbol: latest?.symbol || null,
       qty: latest?.qty || 0,
+      requestedQty: Number(document.getElementById('paperQty')?.value || 0),
       positionQty: agent?.positions.find(x => x.symbol === latest?.symbol)?.qty || 0,
       executionStatus: document.getElementById('paperExecutionStatus')?.innerText || ''
     };
@@ -93,5 +104,6 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   expect(execution.virtualOnly).toBe(true);
   expect(execution.side).toBe('BUY');
   expect(execution.positionQty).toBeGreaterThan(0);
+  expect(execution.qty).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
