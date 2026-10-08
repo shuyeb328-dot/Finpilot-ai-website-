@@ -35,7 +35,7 @@
       thesis:action==='BUY'?'Evidence and quality outweigh downside risk; accumulate only inside the paper risk budget.':action==='SELL'?'Downside factors dominate the evidence; reduce exposure in simulation rather than chase the move.':'Evidence is not strong enough for a high-conviction position; preserve optionality and wait for confirmation.',
       invalidation:action==='BUY'?'Quality/evidence <40 or risk >80.':action==='SELL'?'Quality >65 with improving evidence.':'Edge exits the 33–67 neutral band.',timestamp:now()};
   }
-  function costs(p,value){const fee=value*num(p.account.commissionBps)/10000;const slip=value*num(p.account.slippageBps)/10000;return{fee,slip,total:fee+slip}}
+  function costs(p,value){const fee=value*num(p.account.commissionBps)/10000;return{fee,slip:0,total:fee}}
   function fillPrice(p,side,price){const s=num(p.account.slippageBps)/10000;return side==='BUY'?price*(1+s):price*(1-s)}
   function updateAgentPosition(a,symbol,side,qty,price){
     let pos=a.positions.find(x=>x.symbol===symbol);
@@ -47,12 +47,12 @@
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
     qty=Math.max(0,Math.floor(num(qty)));price=Math.max(0,num(price));side=String(side).toUpperCase();
     if(!qty||!price||!['BUY','SELL'].includes(side))throw new Error('Valid side, quantity and price are required');
-    const gross=qty*price,c=costs(p,gross),fill=fillPrice(p,side,price);
-    if(side==='BUY'&&a.cash<gross+c.total)throw new Error('Paper cash limit exceeded');
+    const fill=fillPrice(p,side,price),fillValue=qty*fill,c=costs(p,fillValue),slip=Math.abs(fill-price)*qty;
+    if(side==='BUY'&&a.cash<fillValue+c.fee)throw new Error('Paper cash limit exceeded');
     let realized=updateAgentPosition(a,symbol,side,qty,fill);
-    if(side==='BUY')a.cash-=gross+c.total;else{a.cash-=c.fee+c.slip}
-    p.realizedPnl+=realized-c.total;p.fees+=c.fee;p.slippage+=c.slip;
-    const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+gross.toFixed(2),fees:+c.fee.toFixed(2),slippage:+c.slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
+    if(side==='BUY')a.cash-=fillValue+c.fee;else a.cash-=c.fee;
+    p.realizedPnl+=realized-c.fee;p.fees+=c.fee;p.slippage+=slip;
+    const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
     p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER'});a.decisions++;p.updatedAt=now();return o;
   }
   function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null){
@@ -73,6 +73,12 @@
       p.journal.unshift({...o,type:'PAPER_ORDER_EXPIRED'});return false;
     });p.updatedAt=now();return p.openOrders;
   }
+  function reservedBuyCash(state,agentId){
+    const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)return 0;
+    return p.openOrders.filter(o=>o.agentId===agentId&&o.side==='BUY'&&o.status==='OPEN').reduce((n,o)=>{
+      const px=num(o.limitPrice||o.stopPrice||o.requestedPrice);return n+(o.remainingQty||o.qty)*px*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
+    },0);
+  }
   function processOpenOrders(state,prices){
     const p=ensure(state),fills=[];expirePaperOrders(state);const px=prices||p.marketSnapshot||{};
     p.openOrders=[...p.openOrders].filter(o=>{
@@ -82,16 +88,32 @@
       if(o.orderType==='STOP')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
       if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;}
       if(!trigger)return true;
-      if(o.timeInForce==='IOC'||o.timeInForce==='FOK'){o.fillRatio=o.timeInForce==='FOK'?1:Math.max(0.25,Math.min(1,Number(o.fillRatio||1)));}
       try{
-        if(o.timeInForce==='FOK'&&Number(o.fillRatio||1)<1){o.status='REJECTED';o.error='FOK not fully fillable';return false;} const ratio=Math.max(0.25,Math.min(1,Number(o.fillRatio||1)));
-        const fillQty=Math.max(1,Math.min(o.qty,Math.floor(o.qty*ratio)));
-        if(o.reduceOnly){const pos=(p.agents.find(a=>a.id===o.agentId)||{}).positions?.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<fillQty)throw new Error('Reduce-only order exceeds position');}
+        const remaining=Math.max(0,Number(o.remainingQty??o.qty));
+        if(!remaining) {o.status='FILLED';return false;}
+        const a=p.agents.find(x=>x.id===o.agentId);if(!a)throw new Error('Paper agent not found');
+        let fillQty=remaining;
+        if(o.timeInForce==='FOK'){
+          if(o.side==='BUY'){
+            const available=Math.max(0,a.cash-reservedBuyCash(state,o.agentId)+remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
+            if(available < remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000))throw new Error('FOK not fully fillable');
+          }else if(o.reduceOnly){
+            const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<remaining)throw new Error('FOK not fully fillable');
+          }
+        }else if(o.timeInForce==='IOC'&&o.side==='BUY'){
+          const availableCash=Math.max(0,a.cash-reservedBuyCash(state,o.agentId)+remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
+          fillQty=Math.min(remaining,Math.floor(availableCash/Math.max(0.000001,price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000))));
+        }else if(o.timeInForce==='IOC'&&o.reduceOnly){
+          const pos=a.positions.find(x=>x.symbol===o.symbol);fillQty=Math.min(remaining,pos?pos.qty:0);
+        }
+        if(o.reduceOnly){const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<fillQty)throw new Error('Reduce-only order exceeds position');}
+        if(fillQty<1){o.status='CANCELLED';o.cancelledAt=now();return false;}
         const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
         if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketGroup)cancelOco(state,o.id);return false}
+        if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false}
         o.status='PARTIALLY_FILLED';return true;
-      }catch(e){o.status='REJECTED';o.error=e.message;return false}
+      }catch(e){o.status='REJECTED';o.error=e.message;const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'REJECTED',error:o.error});return false}
     });return fills;
   }
   function amendOrder(state,orderId,changes={}){
