@@ -17,7 +17,15 @@
     p.agents=Array.isArray(p.agents)?p.agents:[];p.positions=Array.isArray(p.positions)?p.positions:[];p.orders=Array.isArray(p.orders)?p.orders:[];
     p.openOrders=Array.isArray(p.openOrders)?p.openOrders:[];p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
     p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
+    // Repair older/partial local paper state before any numeric formatter is called.
+    p.version=num(p.version,2); p.startingCash=num(p.startingCash,1000000);
+    p.cash=num(p.cash,p.startingCash); p.realizedPnl=num(p.realizedPnl,0);
+    p.unrealizedPnl=num(p.unrealizedPnl,0); p.fees=num(p.fees,0); p.slippage=num(p.slippage,0);
     p.account={marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3,...(p.account||{})};
+    p.account.leverage=Math.max(1,num(p.account.leverage,1));
+    p.account.commissionBps=Math.max(0,num(p.account.commissionBps,8));
+    p.account.slippageBps=Math.max(0,num(p.account.slippageBps,3));
+    p.agents.forEach(a=>{a.capital=num(a.capital,p.startingCash/Math.max(1,p.agents.length));a.cash=num(a.cash,a.capital);a.pnl=num(a.pnl,0);a.decisions=Math.max(0,Math.floor(num(a.decisions,0)));a.confidence=num(a.confidence,70);a.positions=Array.isArray(a.positions)?a.positions:[];a.positions.forEach(pos=>{pos.qty=Math.max(0,num(pos.qty,0));pos.avg=num(pos.avg,0);pos.last=num(pos.last,pos.avg);});});
     return p;
   }
   function ensureAgent(p,agent){
