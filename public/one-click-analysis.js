@@ -90,7 +90,7 @@
   }
   function chartSvg(a){
     if(!a?.available||!a?.realtimeAvailable){
-      const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\\.NS$/,'');
+      const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\.NS$/,'');
       if(!ticker)return '<div class="notice">No verified ticker was resolved, so FinPilot will not invent a chart.</div>';
       return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>Independent chart fallback:</b> FinPilot did not receive a verified intraday candle stream for this request. The chart below is the official TradingView widget so the page still shows market data without fabricating candles. TradingView stock data may be delayed.</div><div class="tv-chart" data-tv-symbol="NSE:'+escLocal(ticker)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">TradingView chart · verify quote freshness before acting.</div></div>';
     }
