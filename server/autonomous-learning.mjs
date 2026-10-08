@@ -156,6 +156,18 @@ async function persistCandidate(c){
 }
 
 
+function classifyBenchmarkStatus(s){
+  const authority=Number(s?.authorityScore||0);
+  const primary=Number(s?.primaryRate||0);
+  const freshness=Number(s?.freshnessScore||0);
+  const depth=Number(s?.evidenceDepthScore||0);
+  const score=Number(s?.score||0);
+  const contradiction=Number(s?.contradiction||0);
+  if(score>=85&&authority>=75&&primary>=40&&freshness>=60&&depth>=70&&contradiction===0)return 'ELITE';
+  if(score>=75&&authority>=65&&primary>=20&&freshness>=55&&depth>=60&&contradiction===0)return 'READY';
+  if(score>=65&&contradiction===0)return 'REVIEW';
+  return 'WEAK';
+}
 function liveAgentScore(rows){
   if(!rows.length)return {score:0,qualityScore:0,primaryRate:0,authorityScore:0,diversity:0,freshnessScore:0,evidenceDepthScore:0,evidence:0,contradiction:0};
   const qualityScore=Math.round(rows.reduce((n,x)=>n+x.qualityScore,0)/rows.length);
@@ -213,7 +225,7 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
         const merged=[];for(let i=0;i<responses.length;i++)for(const item of (responses[i]?.results||[]))merged.push({...item,queryLabel:queries[i]});
         const rows=normalize(merged,profile,queries[0]);
         const s=liveAgentScore(rows);
-        results.push({runId,agent:profile.id,topic,score:s.score,status:s.score>=85?'ELITE':s.score>=75?'READY':s.score>=65?'REVIEW':'WEAK',provider:[...new Set(responses.map(x=>x?.provider).filter(Boolean))].join(','),...s});
+        results.push({runId,agent:profile.id,topic,score:s.score,status:classifyBenchmarkStatus(s),provider:[...new Set(responses.map(x=>x?.provider).filter(Boolean))].join(','),...s});
       }catch(e){results.push({runId,agent:profile.id,topic,score:0,status:'ERROR',provider:'unknown',error:e.message,evidence:0,qualityScore:0,primaryRate:0,diversity:0,freshnessScore:0,contradiction:0})}
     }
   }
@@ -386,6 +398,7 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     state.running=false;state.activeAgent=null;state.nextRunAt=new Date(Date.now()+state.intervalMs).toISOString();
   }
 }
+export {classifyBenchmarkStatus};
 export function status(){
   return {version:state.version,enabled:state.enabled,mode:state.mode,running:state.running,cycle:state.cycle,intervalMs:state.intervalMs,
     activeAgent:state.activeAgent,lastCycleAt:state.lastCycleAt,lastSuccessAt:state.lastSuccessAt,lastError:state.lastError,nextRunAt:state.nextRunAt,
