@@ -532,15 +532,6 @@ async function marketProvenanceRoute(req,res,u){
  const r=symbol?await MARKET_POOL.query('SELECT symbol,provider,price,live,freshness,observed_at AS "observedAt",metadata FROM market_data_provenance WHERE symbol=$1 ORDER BY observed_at DESC LIMIT $2',[symbol,limit]):await MARKET_POOL.query('SELECT symbol,provider,price,live,freshness,observed_at AS "observedAt",metadata FROM market_data_provenance ORDER BY observed_at DESC LIMIT $1',[limit]);
  return send(res,200,{ok:true,cloud:true,items:r.rows});}catch(e){return send(res,200,{ok:false,error:e.message,items:[]})}
 }
-async function runLiveProductionSmoke(){
- const base='http://127.0.0.1:'+String(process.env.PORT||10000);
- const paths=['/api/health','/api/core-status','/api/data-health','/api/exa-status','/api/market-provider-status','/api/market-provider-health','/api/cloud-knowledge?limit=2','/api/market-provenance?limit=2','/api/autonomy-status','/api/policy-status','/api/security-status','/api/agent-fleet-status','/api/investment-plan?ticker=BTC&capital=1000&riskPct=1'];
- const out=[];
- for(const path of paths){const started=Date.now();try{const r=await fetch(base+path,{cache:'no-store',signal:AbortSignal.timeout(12000)});const text=await r.text();let j={};try{j=JSON.parse(text)}catch{};out.push({path,status:r.status,ok:r.ok,bodyOk:j?.ok,error:j?.error||null,ms:Date.now()-started})}catch(e){out.push({path,status:0,ok:false,error:e.message,ms:Date.now()-started})}}
- try{const r=await fetch(base+'/',{cache:'no-store',signal:AbortSignal.timeout(8000)});const html=await r.text();out.push({path:'/',status:r.status,ok:r.ok,htmlBytes:html.length,hasSearch:html.includes('searchResults'),hasPortfolio:html.includes('Portfolio Command Center'),hasRecovery:html.includes('Search module recovered from a UI error')})}catch(e){out.push({path:'/',status:0,ok:false,error:e.message})}
- let executionGuardSmoke=null;try{const r=await fetch(base+'/api/execution-guard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userApproved:false,riskScore:80,confidence:90}),signal:AbortSignal.timeout(8000)});executionGuardSmoke={status:r.status,ok:r.ok,body:await r.json()}}catch(e){executionGuardSmoke={ok:false,error:e.message}}
- console.log('[live-production-smoke] '+JSON.stringify({passed:out.filter(x=>x.ok&&x.bodyOk!==false).length,total:out.length,failed:out.filter(x=>!x.ok||x.bodyOk===false),executionGuard:executionGuardSmoke,results:out}));
-}
 function marketProvenance(symbol,provider,live,freshness='unknown'){
  return {symbol,provider,live:Boolean(live),freshness,observedAt:new Date().toISOString(),provenance:'FinPilot market-data mesh'};
 }
@@ -1112,7 +1103,6 @@ async function exaIntelligence(req,res,u){
  return send(res,200,{ok:true,status:'FRESH_CACHE',lastRun:EXA_LAST_RUN,ageMs:Date.now()-EXA_LAST_RUN,nextRefreshMs:Math.max(0,EXA_REFRESH_MS-(Date.now()-EXA_LAST_RUN)),count:EXA_CACHE.length,configured:Boolean(process.env.EXA_API_KEY),results:EXA_CACHE});
 }
 function exaStatus(req,res){return send(res,200,{ok:true,configured:Boolean(process.env.EXA_API_KEY),running:EXA_RUNNING,lastRun:EXA_LAST_RUN,refreshMs:EXA_REFRESH_MS,count:EXA_CACHE.length});}
-if(process.env.RUN_LIVE_SMOKE==='true')setTimeout(()=>runLiveProductionSmoke().catch(e=>console.error('[live-production-smoke-fatal]',e?.message||e)),2500);
 setInterval(()=>{if(process.env.EXA_API_KEY&&Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)runExaIntelligence('global finance market data AI risk regulation').catch(()=>{});},60000);
 
 function eventStatus(req,res){return send(res,200,{ok:true,version:'5.2',events:EVENT_BUS.events.slice(0,30),routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups,dropped:EVENT_BUS.dropped,queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed});}
