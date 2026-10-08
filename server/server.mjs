@@ -435,9 +435,12 @@ function yahooSymbol(t){
  return INDIA_INDICES[k]||INDIA_EQUITIES[k]||normalizeGlobalSymbol(k)||(/^[A-Z0-9._-]{1,30}$/.test(k)?k:null);
 }
 const EQUITY_MARKET_CACHE=new Map();
+const YAHOO_LAST_GOOD=new Map();
 const YAHOO_COOLDOWN=new Map();
-const MARKET_CACHE_MS=60_000;
-const YAHOO_COOLDOWN_MS=30_000;
+const YAHOO_INFLIGHT=new Map();
+const MARKET_CACHE_MS=Math.max(1000,Number(process.env.FINPILOT_MARKET_CACHE_MS||5000));
+const YAHOO_COOLDOWN_MS=Math.max(5000,Number(process.env.FINPILOT_YAHOO_COOLDOWN_MS||30000));
+const EXECUTION_FRESHNESS_MS=Math.max(15000,Number(process.env.FINPILOT_EXECUTION_FRESHNESS_MS||90000));
 
 async function fetchNseIndex(indexKey){
  const names={NIFTY:'NIFTY 50',BANKNIFTY:'NIFTY BANK',FINNIFTY:'NIFTY FINANCIAL SERVICES',SENSEX:'SENSEX'};
@@ -580,29 +583,42 @@ function globalProviderStatus(){
 }
 
 async function fetchYahooChart(symbol,range='5d',interval='1h'){
- const cached=EQUITY_MARKET_CACHE.get(symbol);
+ const key=`${symbol}|${range}|${interval}`;
+ const cached=EQUITY_MARKET_CACHE.get(key);
  if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
- const blockedUntil=YAHOO_COOLDOWN.get(symbol)||0;
+ const blockedUntil=Math.max(YAHOO_COOLDOWN.get(symbol)||0,0);
  if(Date.now()<blockedUntil)throw new Error('YAHOO_RATE_LIMIT_COOLDOWN');
- const hosts=['query1.finance.yahoo.com','query2.finance.yahoo.com'];
- let last='provider unavailable';
- for(const host of hosts){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
-  try{
-   const url=`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
-   const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.2 market-data-adapter','Accept':'application/json'},signal:controller.signal});
-   if(!r.ok){
-    last=`HTTP ${r.status}`;
-    if(r.status===429){YAHOO_COOLDOWN.set(symbol,Date.now()+YAHOO_COOLDOWN_MS);break}
-    continue;
-   }
-   const payload=await r.json(),result=payload?.chart?.result?.[0];
-   if(result?.timestamp?.length){EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result}
-   last='empty chart result';
-  }catch(e){last=e?.name==='AbortError'?'timeout':String(e?.message||e)}
-  finally{clearTimeout(timer)}
- }
- throw new Error(last);
+ const inflight=YAHOO_INFLIGHT.get(key);
+ if(inflight)return inflight;
+ const job=(async()=>{
+  const hosts=['query1.finance.yahoo.com','query2.finance.yahoo.com'];
+  let last='provider unavailable';
+  for(const host of hosts){
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
+   try{
+    const url=`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
+    const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data-adapter','Accept':'application/json'},signal:controller.signal});
+    if(!r.ok){
+     last=`HTTP ${r.status}`;
+     if(r.status===429){
+      YAHOO_COOLDOWN.set(symbol,Date.now()+YAHOO_COOLDOWN_MS);
+      break;
+     }
+     continue;
+    }
+    const payload=await r.json(),result=payload?.chart?.result?.[0];
+    if(result?.timestamp?.length){
+      EQUITY_MARKET_CACHE.set(key,{at:Date.now(),result});
+      return result;
+    }
+    last='empty chart result';
+   }catch(e){last=e?.name==='AbortError'?'timeout':String(e?.message||e)}
+   finally{clearTimeout(timer)}
+  }
+  throw new Error(last);
+ })();
+ YAHOO_INFLIGHT.set(key,job);
+ try{return await job}finally{YAHOO_INFLIGHT.delete(key)}
 }
 async function fetchYahooWorldIndexPage(){
  const cached=EQUITY_MARKET_CACHE.get('WORLD_INDEX_PAGE');
@@ -624,6 +640,7 @@ async function fetchYahooWorldIndexPage(){
 async function fetchYahooPageQuote(symbol){
  const cached=EQUITY_MARKET_CACHE.get('PAGE:'+symbol);
  if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
+ if(Date.now()<(YAHOO_COOLDOWN.get(symbol)||0))throw new Error('YAHOO_RATE_LIMIT_COOLDOWN');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),7000);
  try{
   const url='https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'/?p='+encodeURIComponent(symbol);
@@ -663,6 +680,15 @@ async function fetchTejEod(symbol){
   return {ticker:clean,symbol:clean+'.NS',market:'INDIA_EQUITY',exchange:'NSE',name:String(last.name||clean),currency:'INR',price,previous:prev,changePct,dayHigh:Number(last.high??candles.at(-1).high),dayLow:Number(last.low??candles.at(-1).low),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,candles,live:false,provider:'TejHQ NSE EOD · keyless public fallback',providerLatencyMs:0,asOf:String(last.date||to)+'T20:30:00+05:30',dataFreshness:'EOD',dataDisclaimer:'End-of-day NSE OHLCV fallback. TradingView chart is shown separately when intraday data is unavailable; verify the broker/exchange quote before acting.'};
  }catch(e){if(e.name==='AbortError')throw new Error('TejHQ timeout');throw e}
  finally{clearTimeout(timer)}
+}
+function rememberYahooLastGood(symbol,result){
+ if(!result||!Number.isFinite(Number(result.price)))return;
+ YAHOO_LAST_GOOD.set(symbol,{at:Date.now(),result:Object.freeze({...result})});
+}
+function staleYahooLastGood(symbol){
+ const x=YAHOO_LAST_GOOD.get(symbol);
+ if(!x||Date.now()-x.at>120000)return null;
+ return {...x.result,live:false,executionEligible:false,stale:true,fromStaleCache:true,cacheAgeMs:Date.now()-x.at,dataFreshness:'STALE_CACHE',dataDisclaimer:'Stale cache used only for continuity; paper execution is blocked until a fresh provider quote returns.'};
 }
 async function liveEquity(ticker){
  const clean=String(ticker||'').trim().toUpperCase().replace(/\\.NS$/,'');
@@ -725,6 +751,8 @@ async function liveEquity(ticker){
      const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED',riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
      return {ticker:String(ticker).toUpperCase(),symbol,market:'GLOBAL_EQUITY',exchange:'GLOBAL',name:symbol,currency:'',price,previous:prev,changePct,dayHigh:highs.at(-1),dayLow:lows.at(-1),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atr(rows.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*.01,Math.abs(recentHigh-recentLow)/4),support:recentLow,resistance:recentHigh,direction,riskScore,candles:rows,live:false,provider:gp.provider,asOf:new Date().toISOString(),dataFreshness:'daily / may be delayed',dataDisclaimer:'Global provider fallback; verify the exchange or licensed broker quote before acting.'};
     }catch(globalErr){
+     const stale=staleYahooLastGood(symbol);
+     if(stale)return stale;
      try{return await fetchTejEod(clean)}
      catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; YahooPage=${pageErr.message}; GlobalProviders=${globalErr.message}; TejHQ=${e3.message}`)}
     }
@@ -746,7 +774,13 @@ async function liveEquity(ticker){
  const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED';
  const riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
  const support=recentLow,resistance=recentHigh;
- const isIndiaSymbol=/\\.(NS|BO)$/i.test(String(symbol||'')); const market=isIndiaSymbol?'INDIA_EQUITY':'GLOBAL_EQUITY'; const exchange=isIndiaSymbol?'NSE/BSE':'GLOBAL'; const currency=isIndiaSymbol?'INR':String(meta.currency||'USD').toUpperCase(); return {ticker:String(ticker).toUpperCase().replace(/\\.(NS|BO)$/i,''),symbol,market,exchange,name:String(meta.longName||meta.shortName||ticker),currency,price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atrV,support,resistance,direction,riskScore,candles,live:true,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,asOf:new Date().toISOString(),dataDisclaimer:'Recent market data for analysis only; verify the broker/exchange quote before acting.'};
+ const isIndiaSymbol=/\\.(NS|BO)$/i.test(String(symbol||'')); const market=isIndiaSymbol?'INDIA_EQUITY':'GLOBAL_EQUITY'; const exchange=isIndiaSymbol?'NSE/BSE':'GLOBAL'; const currency=isIndiaSymbol?'INR':String(meta.currency||'USD').toUpperCase();
+ const sourceEpoch=Number(meta.regularMarketTime)>0?Number(meta.regularMarketTime)*1000:(candles.at(-1)?.time?Date.parse(candles.at(-1).time):Date.now());
+ const sourceAgeMs=Math.max(0,Date.now()-sourceEpoch);
+ const liveFresh=sourceAgeMs<=EXECUTION_FRESHNESS_MS && sourceRange==='5d/1h';
+ const report={ticker:String(ticker).toUpperCase().replace(/\\.(NS|BO)$/i,''),symbol,market,exchange,name:String(meta.longName||meta.shortName||ticker),currency,price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atrV,support,resistance,direction,riskScore,candles,live:liveFresh,executionEligible:liveFresh,sourceAgeMs,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,asOf:new Date(sourceEpoch).toISOString(),dataFreshness:liveFresh?'FRESH_SOURCE':'STALE_SOURCE',dataDisclaimer:'Recent/unofficial market data for analysis only; verify the broker/exchange quote before acting.'};
+ rememberYahooLastGood(symbol,report);
+ return report;
 }
 async function marketPicks(req,res,u){
  const limit=Math.min(10,Math.max(3,Number(u.searchParams.get('limit')||5)));
@@ -769,7 +803,7 @@ async function marketDataOS(req,res,u){
    const x=await fn();
    const price=Number(x?.price);
    const ok=Number.isFinite(price)&&price>0;
-   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE'});
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:x?.asOf||null});
    if(ok)quotes.push({...x,provider:name,latencyMs:Date.now()-t});
    return ok;
   }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
@@ -788,10 +822,13 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const verified=prices.length===1?true:spreadPct<=0.75;
+ const sourceReady=quotes.every(x=>x.live!==false && (!x.asOf || Math.max(0,Date.now()-Date.parse(x.asOf))<=EXECUTION_FRESHNESS_MS));
+ const verified=prices.length===1?sourceReady:(spreadPct<=0.75&&sourceReady);
  const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
  const status=verified?'VERIFIED':'CONFLICTING';
- const result={ok:true,available:true,verified,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:winner.asOf||new Date().toISOString(),dataFreshness:'REQUEST_TIME',marketDataOS:{status,decision:verified?'ALLOW_ANALYSIS':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs})),attempts,elapsedMs:Date.now()-started,rule:'Never substitute an unverified price; multi-source disagreement blocks trading analysis.'}};
+ const sourceAgeMs=winner.asOf?Math.max(0,Date.now()-Date.parse(winner.asOf)):0;
+ const executionReady=Boolean(verified&&winner.live!==false&&!winner.stale&&sourceAgeMs<=EXECUTION_FRESHNESS_MS);
+ const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:winner.asOf||new Date().toISOString(),dataFreshness:sourceAgeMs?(${sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH':'STALE'}_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||null})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
  try{await archiveMarketProvenance({symbol:raw,provider:winner.provider,price:median,live:verified,dataFreshness:'REQUEST_TIME',asOf:result.asOf});}catch{}
  return send(res,200,result);
 }
@@ -815,7 +852,7 @@ async function marketDataStream(req,res,u){
    const verified=Boolean(d?.ok&&d?.available&&d?.verified&&Number.isFinite(Number(d?.price))&&Number(d.price)>0);
    const ageMs=d?.asOf?Math.max(0,now-Date.parse(d.asOf)):0;
    const stale=ageMs>30000;
-   const payload={seq:++seq,ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs};
+   const payload={seq:++seq,ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,executionEligible:Boolean(d?.marketDataOS?.decision==='ALLOW_ANALYSIS_AND_PAPER'),stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs,sourceAgeMs:Number(d?.marketDataOS?.sourceAgeMs||ageMs),executionFreshnessMs:EXECUTION_FRESHNESS_MS};
    if(verified){const mid=Number(d.price),spread=Math.max(mid*0.0004,0.00000001);payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};payload.tick={price:mid,receivedAt:payload.receivedAt};}
    const sig=JSON.stringify([payload.status,payload.price,payload.asOf,payload.providerCount]);
    if(sig!==lastSignature){lastSignature=sig;writeEvent('market',payload);}
@@ -1279,7 +1316,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',time:new Date().toISOString(),security:'hardened',realtime:true,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
+  if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',time:new Date().toISOString(),security:'hardened',realtime:true,executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
