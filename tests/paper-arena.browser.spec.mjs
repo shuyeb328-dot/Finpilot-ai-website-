@@ -7,7 +7,9 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
 
   await page.waitForTimeout(3000);
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
+  console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, diagnostics}));
   expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
+  expect(await page.evaluate(() => Boolean(window.FinPilotBridge)), 'FinPilot bridge missing; page errors: '+errors.join(' | ')).toBe(true);
   await page.evaluate(() => window.show('paperlab'));
 
   await expect(page.locator('#paperlab')).toContainText('PAPER ONLY', { timeout: 30000 });
