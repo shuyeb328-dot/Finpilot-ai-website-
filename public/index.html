@@ -630,7 +630,7 @@ async function finpilotDirectOneClick(q){
  const stage=t=>{const el=document.getElementById("fpPowerStage");if(el)el.innerHTML=t};
  try{
    const query=String(q||'').trim();
-   const search=window.__lastSearch||{}, searchRows=Array.isArray(search.results)?search.results:[];
+   const lastSearch=window.__lastSearch||{}, searchRows=Array.isArray(lastSearch.results)?lastSearch.results:[];
    const tickerHints=[...new Set(searchRows.flatMap(x=>{const t=String((x?.title||'')+' '+(x?.snippet||''));return [...t.matchAll(/\\bNSE\\s*[:\\-]\\s*([A-Z]{2,10})\\b/gi)].map(m=>m[1].toUpperCase())}))];
    const exactTicker=/^(BTC|ETH|SOL|XRP|DOGE|[A-Z]{1,6}(?:\\.(?:NS|BO))?)$/i.test(query);
    const resolvedTicker=exactTicker?query.toUpperCase():(tickerHints.length===1&&/\\b(stock|share|shares|price|ticker|nse|bse)\\b/i.test(query)?tickerHints[0]:null);
@@ -649,7 +649,7 @@ async function finpilotDirectOneClick(q){
      const ad=await ar.json(); if(ad?.ok&&Array.isArray(ad.results))agents=ad.results;
    }catch{}
    stage("⏳ 3/5 · Combining market, technical and web evidence…");
-   const search=window.__lastSearch||{}, rows=Array.isArray(search.results)?search.results.slice(0,6):[];
+   const searchData=window.__lastSearch||{}, rows=Array.isArray(searchData.results)?searchData.results.slice(0,6):[];
    const textBlob=rows.map(x=>String((x?.title||"")+" "+(x?.snippet||""))).join(" ").toLowerCase();
    const pos=(textBlob.match(/surge|rise|gain|bullish|growth|upgrade|profit|strong|positive/g)||[]).length;
    const neg=(textBlob.match(/fall|drop|loss|bearish|downgrade|debt|risk|warning|weak|negative/g)||[]).length;
