@@ -1302,6 +1302,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/live-test')return send(res,200,{ok:true,...autonomousLearningStatus().liveTest});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/live-test'){const r=await runLiveAgentComparison({searchWeb,emitEvent,audit});return send(res,r.ok?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/improve'){const r=await runLiveAgentComparison({searchWeb,emitEvent,audit,improveWeak:true,improvementRounds:3,improvementAgentCount:4});return send(res,r.ok?200:503,{ok:r.ok,status:r.status,averageScore:r.averageScore,improvement:r.improvement,rankings:r.rankings,error:r.error||null});}
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/enable'){await body(req);const x=req._parsedBody||{};return send(res,200,{ok:true,...autonomousLearningEnable(x.enabled!==false)});}
   if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
