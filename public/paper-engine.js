@@ -74,6 +74,21 @@
     });return fills;
   }
   function attachRisk(position,stop,target){position.stop=num(stop)||null;position.target=num(target)||null;return position}
+  function processRiskExits(state,prices){
+    const p=ensure(state),px=prices||p.marketSnapshot||{},fills=[];
+    p.agents.forEach(a=>a.positions.slice().forEach(pos=>{
+      const price=num(px[pos.symbol],pos.last||pos.avg); if(!price||!pos.qty)return;
+      const stop=pos.stop,target=pos.target;
+      const hitStop=stop&&price<=stop,hitTarget=target&&price>=target;
+      if(!hitStop&&!hitTarget)return;
+      try{
+        const reason=hitStop?'PAPER STOP LOSS':'PAPER TAKE PROFIT';
+        const f=paperOrder(state,a.id,pos.symbol,'SELL',pos.qty,price,reason,{orderType:'RISK_EXIT'});
+        fills.push(f);
+      }catch(e){}
+    }));
+    return fills;
+  }
   function roundTable(state,market){
     const p=ensure(state),active=p.agents.filter(a=>a.enabled),debates=active.map(a=>({agent:a,thought:think(a,market)}));
     const buy=debates.filter(x=>x.thought.action==='BUY').length,sell=debates.filter(x=>x.thought.action==='SELL').length,hold=debates.length-buy-sell;
@@ -87,7 +102,7 @@
   function markToMarket(state,prices){
     const p=ensure(state),px=prices||p.marketSnapshot||{};let exposure=0,unreal=0;
     p.agents.forEach(a=>a.positions.forEach(pos=>{const last=Math.max(0,num(px[pos.symbol],pos.last||pos.avg));pos.last=last;exposure+=pos.qty*last;unreal+=(last-pos.avg)*pos.qty}));
-    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};p.updatedAt=now();processOpenOrders(state,px);return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(p.cash+exposure).toFixed(2)};
+    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};processOpenOrders(state,px);processRiskExits(state,px);p.updatedAt=now();return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(p.cash+exposure).toFixed(2)};
   }
   function leaderboard(state){
     const p=ensure(state);return p.agents.map(a=>{const exposure=a.positions.reduce((n,x)=>n+x.qty*x.last,0),equity=a.cash+exposure,pnl=equity-a.capital;return{...a,equity:+equity.toFixed(2),pnl:+pnl.toFixed(2),returnPct:+(pnl/Math.max(1,a.capital)*100).toFixed(2),exposure:+exposure.toFixed(2)}}).sort((a,b)=>b.returnPct-a.returnPct);
@@ -102,5 +117,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
