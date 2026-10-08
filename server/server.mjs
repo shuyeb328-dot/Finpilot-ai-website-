@@ -757,6 +757,45 @@ async function marketPicks(req,res,u){
  return send(res,200,{ok:true,live:ranked.length>0,market:'INDIA_EQUITY',count:ranked.length,asOf:new Date().toISOString(),candidates:ranked,method:'Live recent/delayed NSE equity scan ranked by price change, momentum, RSI and relative volume.',provider:'Yahoo Finance chart adapter (unofficial)',disclaimer:'Not a guaranteed best stock or personalized recommendation. Verify current exchange/broker data before any decision.'});
 }
 
+async function marketDataOS(req,res,u){
+ const raw=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
+ const interval=u.searchParams.get('interval')||'1h';
+ const started=Date.now();
+ const attempts=[];
+ const quotes=[];
+ const addAttempt=async(name,fn)=>{
+  const t=Date.now();
+  try{
+   const x=await fn();
+   const price=Number(x?.price);
+   const ok=Number.isFinite(price)&&price>0;
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE'});
+   if(ok)quotes.push({...x,provider:name,latencyMs:Date.now()-t});
+   return ok;
+  }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
+ };
+ if(CRYPTO_ASSETS[raw]){
+  const symbol=CRYPTO_ASSETS[raw];
+  await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf:new Date().toISOString(),live:true};});
+  await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:new Date().toISOString(),live:true};});
+  await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:new Date().toISOString(),live:true};});
+ }else{
+  await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,live:Boolean(r.live),exchange:r.exchange};});
+ }
+ if(!quotes.length){
+  return send(res,200,{ok:true,available:false,verified:false,ticker:raw,marketDataOS:{status:'UNAVAILABLE',decision:'DO_NOT_TRADE',reason:'No provider returned a verified price.',attempts},elapsedMs:Date.now()-started});
+ }
+ const prices=quotes.map(x=>x.price);
+ const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
+ const spreadPct=median?((max-min)/median)*100:100;
+ const verified=prices.length===1?true:spreadPct<=0.75;
+ const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
+ const status=verified?'VERIFIED':'CONFLICTING';
+ const result={ok:true,available:true,verified,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:winner.asOf||new Date().toISOString(),dataFreshness:'REQUEST_TIME',marketDataOS:{status,decision:verified?'ALLOW_ANALYSIS':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs})),attempts,elapsedMs:Date.now()-started,rule:'Never substitute an unverified price; multi-source disagreement blocks trading analysis.'}};
+ try{await archiveMarketProvenance({symbol:raw,provider:winner.provider,price:median,live:verified,dataFreshness:'REQUEST_TIME',asOf:result.asOf});}catch{}
+ return send(res,200,result);
+}
+
 async function stockReport(req,res,u){
  const t=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
@@ -1196,7 +1235,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
-  if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);\n  if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
