@@ -20,10 +20,10 @@ function connectPaperMarketStream(market){
    try{
     const d=JSON.parse(ev.data); const out=document.getElementById('paperMarketStatus');
     const px=Number(d.price); if(!d.verified||!Number.isFinite(px)||px<=0){if(out)out.textContent='STREAM '+(d.status||'UNAVAILABLE')+' · no unverified price used';return}
-    market.price=px; market.changePct=Number(d.changePct||market.changePct||0); market.volume=Number(d.volume||market.volume||0); market.dayHigh=Number(d.high||market.dayHigh||0); market.dayLow=Number(d.low||market.dayLow||0); market.provider=d.provider||market.provider; market.asOf=d.asOf||market.asOf; market.receivedAt=d.receivedAt||d.tick?.receivedAt||new Date().toISOString(); market.streamSeq=d.seq; market.streamStatus=d.status; market.streamAgeMs=Number(d.ageMs||0); market.orderBook=d.orderBook||market.orderBook; market.tick=d.tick||market.tick;
+    market.price=px; market.changePct=Number(d.changePct||market.changePct||0); market.volume=Number(d.volume||market.volume||0); market.dayHigh=Number(d.high||market.dayHigh||0); market.dayLow=Number(d.low||market.dayLow||0); market.provider=d.provider||market.provider; market.asOf=d.asOf||market.asOf; market.receivedAt=d.receivedAt||d.tick?.receivedAt||new Date().toISOString(); market.streamSeq=d.seq; market.streamStatus=d.status; market.streamAgeMs=Number(d.ageMs||0); market.sourceAgeMs=Number(d.sourceAgeMs||d.ageMs||0); market.executionEligible=Boolean(d.executionEligible&&d.status==='LIVE'); market.orderBook=d.orderBook||market.orderBook; market.tick=d.tick||market.tick;
     const input=document.getElementById('paperPrice');if(input)input.value=px;
     const p=syncPaperAgents();p.lastMarket=market;p.marketSnapshot[sym]=px;FinPilotPaperCore.markToMarket(state,p.marketSnapshot);window.FinPilotBridge.save();
-    if(out)out.textContent=(d.status==='STALE'?'STALE ':'LIVE ')+(d.provider||'verified provider')+' · '+px+' · '+Number(d.providerCount||0)+' source(s) · '+Math.round(Number(d.ageMs||0)/1000)+'s old';
+    if(out)out.textContent=(d.status==='STALE'?'STALE ':d.executionEligible?'LIVE ':'VERIFY ')+(d.provider||'verified provider')+' · '+px+' · '+Number(d.providerCount||0)+' source(s) · source '+Math.round(Number(d.sourceAgeMs||d.ageMs||0)/1000)+'s old';
     renderPaperChart(market);
    }catch(e){console.error('Paper stream event failed',e)}
   });
@@ -50,7 +50,7 @@ function paperOrderQuantity(agent,market,pct=.1){
 }
 function paperMarketMeta(m){
  const v=m?.verification||{};
- return {verified:m?.live!==false&&v.available!==false,available:m?.live!==false,providerCount:Number(v.providerCount||m?.providerCount||2),receivedAt:m?.receivedAt||m?.asOf||new Date().toISOString(),asOf:m?.asOf||undefined,seq:m?.streamSeq??undefined,status:m?.streamStatus||undefined,bid:Number(m?.orderBook?.bid||0)||undefined,ask:Number(m?.orderBook?.ask||0)||undefined};
+ return {verified:m?.executionEligible!==false&&m?.live!==false&&v.available!==false,available:m?.live!==false,executionEligible:m?.executionEligible!==false,providerCount:Number(v.providerCount||m?.providerCount||2),sourceAsOf:m?.asOf||m?.sourceAsOf||undefined,receivedAt:m?.receivedAt||new Date().toISOString(),asOf:m?.asOf||undefined,seq:m?.streamSeq??undefined,status:m?.streamStatus||undefined,bid:Number(m?.orderBook?.bid||0)||undefined,ask:Number(m?.orderBook?.ask||0)||undefined};
 }
 function paperSubmitSide(side,overrides={}){
  const p=syncPaperAgents(),m=p.lastMarket||paperMarket(),a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);
