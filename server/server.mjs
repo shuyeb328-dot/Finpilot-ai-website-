@@ -161,7 +161,7 @@ function sma(a,n){return a.length<n?null:a.slice(-n).reduce((x,y)=>x+y,0)/n}
 function ema(a,n){if(a.length<n)return null;let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n,k=2/(n+1);for(let i=n;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function rsi(a,n=14){if(a.length<n+1)return null;let g=0,l=0;for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}if(l===0)return 100;let rs=(g/n)/(l/n);return 100-(100/(1+rs))}
 function atr(rows,n=14){if(rows.length<n+1)return null;const tr=[];for(let i=1;i<rows.length;i++){const [,,h,l,c]=rows[i];const pc=rows[i-1][4];tr.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)))}return sma(tr,n)}
-const CRYPTO_ASSETS={BTC:'BTCUSDT',BTCUSDT:'BTCUSDT',ETH:'ETHUSDT',ETHUSDT:'ETHUSDT',SOL:'SOLUSDT',SOLUSDT:'SOLUSDT',BNB:'BNBUSDT',BNBUSDT:'BNBUSDT',XRP:'XRPUSDT',XRPUSDT:'XRPUSDT'};
+const CRYPTO_ASSETS={BTC:'BTCUSDT',BTCUSDT:'BTCUSDT',ETH:'ETHUSDT',ETHUSDT:'ETHUSDT',SOL:'SOLUSDT',SOLUSDT:'SOLUSDT',BNB:'BNBUSDT',BNBUSDT:'BNBUSDT',XRP:'XRPUSDT',XRPUSDT:'XRPUSDT',DOGE:'DOGEUSDT',DOGEUSDT:'DOGEUSDT',ADA:'ADAUSDT',ADAUSDT:'ADAUSDT',AVAX:'AVAXUSDT',AVAXUSDT:'AVAXUSDT',LINK:'LINKUSDT',LINKUSDT:'LINKUSDT'};
 const TIMEFRAMES={'15m':'15m','1h':'1h','4h':'4h','1d':'1d'};
 async function liveCrypto(t, interval='1h', multi=true){
  const key=t.toUpperCase(), symbol=CRYPTO_ASSETS[key];
