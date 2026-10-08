@@ -414,19 +414,35 @@ async function optionsMath(req,res,u){const S=Number(u.searchParams.get('spot')|
 async function chainAnalytics(req,res,u){const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();try{const spot=Number((await fetchJson(`https://api.binance.com/api/v3/ticker/price?symbol=${CRYPTO_ASSETS[ticker]||'BTCUSDT'}`)).price);const days=Number(u.searchParams.get('days')||7);const iv=Number(u.searchParams.get('iv')||0.65);const strikes=[-0.08,-0.05,-0.03,0,0.03,0.05,0.08].map(x=>Math.round(spot*(1+x)/100)*100);const rows=strikes.flatMap(K=>['CALL','PUT'].map(type=>{const m=greeks(spot,K,days/365,.06,iv,type);const theo=bsPrice(spot,K,days/365,.06,iv,type);const moneyness=((spot-K)/spot)*100;return {ticker,spot,strike:K,type,days,iv,theoreticalPrice:theo,moneyness,delta:m.delta,gamma:m.gamma,theta:m.theta,vega:m.vega,score:Math.round(Math.max(0,100-Math.abs(moneyness)*3-Math.max(0,Math.abs(m.delta)-.8)*60))}}));return send(res,200,{ok:true,live:true,provider:'Binance spot + FinPilot theoretical options model',ticker,spot,rows,generatedAt:new Date().toISOString(),warning:'Synthetic strikes and theoretical prices are not a live executable option chain. Use a licensed/authorized options-chain feed for contract selection.'})}catch(e){return send(res,200,{ok:true,live:false,provider:'Options math fallback',ticker,error:e.message,rows:[],generatedAt:new Date().toISOString()})}}
 function roundTableDecision(req,res,u){const bull=Number(u.searchParams.get('bull')||0),bear=Number(u.searchParams.get('bear')||0),risk=Number(u.searchParams.get('risk')||50),confidence=Number(u.searchParams.get('confidence')||0);const votes={bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:risk>=65?'REJECT':'ALLOW',cfo:risk>=55?'CAPITAL PROTECT':'CAPITAL AVAILABLE'};let ceo='WAIT';if(confidence>=70&&bull>=65&&risk<45)ceo='LONG BIAS';else if(confidence>=70&&bear>=65&&risk<45)ceo='SHORT BIAS';return send(res,200,{ok:true,engine:'round-table-v3800',votes,ceoDecision:ceo,reason:ceo==='WAIT'?'Evidence is not strong enough to overcome uncertainty or risk.':'Consensus threshold met with risk controls.',humanApprovalRequired:true})}
 function riskGuard(req,res,u){const leverage=Number(u.searchParams.get('leverage')||1),riskPct=Number(u.searchParams.get('riskPct')||1),liquidity=Number(u.searchParams.get('liquidity')||100),confidence=Number(u.searchParams.get('confidence')||0);const flags=[];if(leverage>3)flags.push('HIGH_LEVERAGE');if(riskPct>2)flags.push('RISK_BUDGET_EXCEEDED');if(liquidity<60)flags.push('LOW_LIQUIDITY');if(confidence<65)flags.push('LOW_CONFIDENCE');const blocked=flags.length>0;return send(res,200,{ok:true,engine:'derivatives-risk-v3900',blocked,flags,limits:{maxSuggestedLeverage:3,maxRiskPct:2,minLiquidityScore:60,minConfidence:65},approval:blocked?'CFO REJECT':'CFO REVIEW',note:'Risk guard is a control layer; it does not predict returns.'})}
-function investmentPlan(req,res,u){
- const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase(); const capital=Math.max(0,Number(u.searchParams.get('capital')||1000));
- const entry=Number(u.searchParams.get('entry')||0), stop=Number(u.searchParams.get('stop')||0), target=Number(u.searchParams.get('target')||0), riskPct=Math.min(2,Math.max(0.1,Number(u.searchParams.get('riskPct')||1)));
- if(!ticker||capital<=0||entry<=0||stop<=0||target<=0)return send(res,400,{ok:false,error:'ticker, capital, entry, stop and target are required'});
- const long=target>entry; const stopDistance=Math.abs(entry-stop), targetDistance=Math.abs(target-entry);
- const riskPerUnit=stopDistance, rewardPerUnit=targetDistance, rr=rewardPerUnit/Math.max(1e-9,riskPerUnit);
- const maxRisk=capital*riskPct/100; const qtyByRisk=Math.floor(maxRisk/riskPerUnit); const qtyByCapital=Math.floor(capital/entry); const qty=Math.max(0,Math.min(qtyByRisk,qtyByCapital));
- const invested=qty*entry, maxLoss=qty*riskPerUnit, grossProfit=qty*rewardPerUnit, profitPct=entry?grossProfit/Math.max(1,invested)*100:0;
- const riskScore=coreClamp(Math.round(70-(rr*12)+(riskPct>1?10:0)+(qty===0?20:0)),0,100); const confidence=coreClamp(Math.round(55+Math.min(25,rr*12)-Math.max(0,riskScore-55)*.35),0,95);
- const bull=coreClamp(Math.round(50+Math.min(30,rr*10)+Math.max(0,65-riskScore)*.25),0,95); const bear=100-bull;
- const cfo=riskScore>=65||qty<1?'REJECT / PROTECT':riskScore>=45?'REDUCE SIZE / REVIEW':'CAPITAL AVAILABLE';
- const ceo=confidence>=70&&rr>=2&&riskScore<45?(long?'LONG BIAS':'SHORT BIAS'):'WAIT / VERIFY';
- return send(res,200,{ok:true,engine:'governed-investment-plan-v8000',ticker,capital,assumptions:{entry,stop,target,direction:long?'LONG':'SHORT',maxRiskPct:riskPct},position:{quantity:qty,invested,unusedCapital:capital-invested},risk:{maxLoss,capitalRiskPct:capital?maxLoss/capital*100:0,riskScore,cfo},reward:{grossProfit,profitPct,riskReward:Math.round(rr*100)/100},probability:{bullish:bull,bearish:bear,confidence},roundTable:{bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:riskScore>=65?'REJECT':'REVIEW',cfo,ceo},controls:{stopLoss:stop,target,approvalRequired:true,canAutoExecute:false},warning:qty<1?'Position size is zero under the supplied capital/risk limit.':'Scenario math only; fees, slippage, taxes and gaps can change realized results.'});
+async function investmentPlan(req,res,u){
+ const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase(), capital=Math.max(0,Number(u.searchParams.get('capital')||1000)), riskPct=Math.min(2,Math.max(.1,Number(u.searchParams.get('riskPct')||1)));
+ if(!ticker||capital<=0)return send(res,400,{ok:false,error:'ticker and positive capital are required'});
+ try{
+  const report=CRYPTO_ASSETS[ticker]?await liveCrypto(ticker,'1h',true):await liveEquity(ticker);
+  const entry=Number(u.searchParams.get('entry')||report.price), atrV=Number(report.atr||Math.abs(entry-(report.recentLow||entry))*.5||entry*.02);
+  const support=Number(report.support||report.recentLow||entry-atrV), resistance=Number(report.resistance||report.recentHigh||entry+atrV*2);
+  const dir=String(report.direction||'MIXED').toUpperCase(), direction=dir==='BEARISH'?'SHORT':dir==='BULLISH'?'LONG':'WAIT';
+  const stop=Number(u.searchParams.get('stop')||(direction==='SHORT'?Math.min(entry+atrV,entry*1.03):Math.max(support,entry-atrV)));
+  const target=Number(u.searchParams.get('target')||(direction==='SHORT'?Math.max(entry-atrV*2,entry*.94):Math.max(resistance,entry+atrV*2)));
+  const long=target>entry;
+  if((long&&stop>=entry)||(long&&target<=entry)||(!long&&stop<=entry)||(!long&&target>=entry))return send(res,422,{ok:false,error:'Invalid live trade geometry',report});
+  const stopDistance=Math.abs(entry-stop),targetDistance=Math.abs(target-entry),rr=targetDistance/Math.max(1e-9,stopDistance),maxRisk=capital*riskPct/100;
+  const qty=Math.max(0,Math.min(Math.floor(maxRisk/stopDistance),Math.floor(capital/entry))),invested=qty*entry,maxLoss=qty*stopDistance,grossProfit=qty*targetDistance;
+  const technicalRisk=Number(report.riskScore||70),baseBull=dir==='BULLISH'?65:dir==='BEARISH'?35:50;
+  const bull=coreClamp(Math.round(baseBull+Math.min(15,Math.max(-10,(rr-1)*7))-(technicalRisk>70?8:technicalRisk>55?3:0)),5,95),bear=100-bull;
+  const confidence=coreClamp(Math.round(50+Math.abs(bull-50)*.8+(report.live?10:0)-(technicalRisk>75?10:0)),0,95);
+  const riskScore=coreClamp(Math.round(technicalRisk+(riskPct>1?5:0)+(rr<1.5?10:0)+(qty===0?10:0)),0,100);
+  const cfo=riskScore>=65||qty<1?'REJECT / PROTECT':riskScore>=45?'REDUCE SIZE / REVIEW':'CAPITAL AVAILABLE';
+  const ceo=confidence>=70&&rr>=2&&riskScore<45?(long?'LONG BIAS':'SHORT BIAS'):'WAIT / VERIFY';
+  return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8100',ticker,market:report.market,name:report.name||ticker,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
+   marketSnapshot:{price:report.price,changePct:report.changePct,rsi:report.rsi,volumeRatio:report.volumeRatio,direction:report.direction,riskScore:technicalRisk},
+   setup:{direction:long?'LONG':'SHORT',entry,stop,target,support,resistance,atr:report.atr||atrV},
+   capitalPlan:{capital,riskBudgetPct:riskPct,maxRisk,maxLoss,quantity:qty,invested,unusedCapital:capital-invested,expectedProfit:grossProfit,profitPct:invested?grossProfit/invested*100:0,riskReward:Math.round(rr*100)/100},
+   probability:{bullish:bull,bearish:bear,confidence,modelType:'scenario score; not probability of profit'},
+   roundTable:{marketAgent:report.direction||'MIXED',bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:riskScore>=65?'REJECT':'REVIEW',cfo,ceo},
+   controls:{stopLossEnforcedByPlan:true,approvalRequired:true,canAutoExecute:false},
+   warning:'Live/recent market data can be delayed; fees, slippage, taxes, gaps and liquidity can change realized results. Decision support only.'});
+ }catch(err){return send(res,502,{ok:false,error:'LIVE_MARKET_ANALYSIS_UNAVAILABLE',message:String(err?.message||err)})}
 }
 function commandDecision(req,res,u){const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();return send(res,200,{ok:true,engine:'executive-market-command-v4000',ticker,workflow:['Market Data','Technical Engine','Options Math','Bull Agent','Bear Agent','Risk Agent','CFO','CEO'],principles:['Fresh evidence required','Conflicts surfaced','No fabricated live contracts','CFO can veto','CEO cannot bypass compliance','Human approval required before execution'],status:'ANALYSIS_ONLY'})}
 
