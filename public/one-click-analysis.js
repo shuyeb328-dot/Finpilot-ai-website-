@@ -76,6 +76,7 @@
     const paper=report.paper;
     const money=window.FinpilotMoneyEngine?.analyze(report,1000,30)||null;
     const candidate=report.candidate||null;
+    const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
@@ -90,7 +91,7 @@
           <div class="sectionTitle"><div><span class="eyebrow">AI MARKET CANDIDATE</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Candidate score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">Evidence mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Signal balance</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why selected:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
-        <div class="grid cards" style="margin-bottom:12px">
+        <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff"><div class="sectionTitle"><div><span class="eyebrow">AI MARKET CANDIDATE</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):"No stock identified yet"}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+" · "+escLocal(candidate.method):"Search results did not contain a resolvable stock symbol."}</span></div><span class="pill ${candidate&&candidate.confidence>=70?"low":"med"}">${candidate?candidate.confidence+"% CONFIDENCE":"CHECK"}</span></div><div class="grid three"><div class="card"><span class="muted">Candidate score</span><div class="metric">${candidate?.score||0}/100</div></div><div class="card"><span class="muted">Evidence mentions</span><div class="metric">${candidate?.evidenceMentions||0}</div></div><div class="card"><span class="muted">Signal balance</span><div class="metric">+${candidate?.positive||0} / −${candidate?.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why selected:</b> ${escLocal(candidate?.reason||"Highest evidence-weighted candidate found in the current search results.")}<br><span class="muted">${escLocal(candidate?.disclaimer||"Evidence-ranked candidate; not a guaranteed trade.")}</span></div></div>\n        <div class="grid cards" style="margin-bottom:12px">
           <div class="card"><span class="muted">Web evidence</span><div class="metric">${web.count||0}</div><span class="muted">${escLocal(web.provider||'web')} · ${escLocal(web.stance||'Mixed')}</span></div>
           <div class="card"><span class="muted">Decision risk</span><div class="metric ${riskClass==='high'?'red':riskClass==='med'?'yellow':'green'}">${risk}</div><span class="muted">${escLocal(report.evidenceFreshness||'CHECK')}</span></div>
           <div class="card"><span class="muted">Agent fleet</span><div class="metric">${report.agentCount}</div><span class="muted">specialists completed</span></div>
@@ -164,6 +165,8 @@
       const web=liveWebSignal();
       const candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
       const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
+      const candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
+      const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
       const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,money,sourceAge);
       const decision={
         decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,
@@ -175,6 +178,7 @@
       state.decisionHistory.unshift(decision);
       state.decisionHistory=state.decisionHistory.slice(0,50);
       const paper=buildPaperCouncil(query,web);
+      if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
       save();
