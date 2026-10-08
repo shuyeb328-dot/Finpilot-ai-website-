@@ -4,12 +4,17 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   const errors = [];
   const errorDetails = [];
   const consoleErrors = [];
+  const requestFailures = [];
+  const scriptResponses = [];
   await page.addInitScript(() => { window.addEventListener('error', e => { (window.__finErrors ||= []).push({message:e.message, filename:e.filename, line:e.lineno, col:e.colno}); }); });
   page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
   page.on('pageerror', err => errors.push(String(err?.stack || err?.message || err)));
+  page.on('requestfailed', req => { if (/paper-(engine|lab)\.js/.test(req.url())) requestFailures.push({url:req.url(),failure:req.failure()?.errorText||'unknown'}); });
+  page.on('response', res => { if (/paper-(engine|lab)\.js/.test(res.url())) scriptResponses.push({url:res.url(),status:res.status(),type:res.request().resourceType()}); });
   await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=3', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   await page.waitForTimeout(3000);
+  const prePaper = await page.evaluate(() => ({ core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded) }));
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
   const scriptDiagnostics = await page.evaluate(async () => {
     const out = [];
@@ -24,10 +29,13 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
     return out;
   });
   const browserErrors = await page.evaluate(() => window.__finErrors || []);
+  console.log('PAPER_PRE_DIAGNOSTICS', JSON.stringify({prePaper, requestFailures, scriptResponses}));
   console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, consoleErrors, browserErrors, diagnostics, scriptDiagnostics}));
   expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
   expect(await page.evaluate(() => Boolean(window.FinPilotBridge)), 'FinPilot bridge missing; page errors: '+errors.join(' | ')).toBe(true);
   await page.evaluate(() => window.show('paperlab'));
+  await page.waitForTimeout(1000);
+  console.log('PAPER_AFTER_SHOW', JSON.stringify(await page.evaluate(() => ({core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded), engineError: window.__finPaperEngineError || null, paperText: document.getElementById('paperlab')?.innerText || ''}))));
 
   await expect(page.locator('#paperlab')).toContainText('PAPER ONLY', { timeout: 30000 });
   const boot = await page.evaluate(() => ({
