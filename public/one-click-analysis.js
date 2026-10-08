@@ -354,7 +354,7 @@
       const b=document.createElement('button');
       b.id='oneClickTop';b.className='btn primary';b.type='button';b.textContent='⚡ Run All';
       b.title='Run the complete FinPilot decision stack for the current search';
-      b.onclick=()=>runFullStockAnalysis(document.getElementById('globalSearch')?.value||document.getElementById('searchQuery')?.value||'');
+      b.onclick=()=>window.finpilotLaunch?.(document.getElementById('globalSearch')?.value||document.getElementById('searchQuery')?.value||'');
       searchForm.appendChild(b);
     }
   }
@@ -366,7 +366,7 @@
     d.id='oneClickLauncher';d.className='decision';
     d.style.marginBottom='14px';
     d.innerHTML='<div class="sectionTitle"><div><span class="eyebrow">Decision automation</span><h3>Run the entire analysis in one click</h3></div><span class="pill low">SEARCH READY</span></div><p class="muted">Uses the live search evidence you just fetched, refreshes the Financial Brain, runs the full agent fleet, reconciles CEO + CFO + Judge, updates Action Center, and runs the isolated paper council.</p><div class="action"><button class="btn primary" type="button">⚡ 1-Click Full Analysis</button><button class="btn" type="button">Open Evidence Ledger</button></div>';
-    d.querySelector('.btn.primary').onclick=()=>runFullStockAnalysis(q);
+    d.querySelector('.btn.primary').onclick=()=>window.finpilotLaunch?.(q)||runFullStockAnalysis(q);
     d.querySelectorAll('.btn')[1].onclick=()=>show('evidence');
     box.prepend(d);
   }
