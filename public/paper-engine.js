@@ -58,11 +58,21 @@
   function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason){
     if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET'});
     const p=ensure(state);const a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
-    const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:Math.floor(num(qty)),orderType:String(orderType).toUpperCase(),limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),reason:reason||'Paper order',status:'OPEN',time:now(),virtualOnly:true};
+    const tif=String(arguments.length>10?'DAY':'DAY').toUpperCase();
+    const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:Math.floor(num(qty)),orderType:String(orderType).toUpperCase(),limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:null,virtualOnly:true};
     p.openOrders.unshift(o);p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER_PLACED'});p.updatedAt=now();return o;
   }
+  function expirePaperOrders(state,at=Date.now()){
+    const p=ensure(state),ts=Number(at)||Date.now();
+    p.openOrders=p.openOrders.filter(o=>{
+      if(o.timeInForce==='GTC'||!o.expiresAt||ts<Number(o.expiresAt))return true;
+      o.status='EXPIRED';o.expiredAt=now();
+      const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'EXPIRED',expiredAt:o.expiredAt});
+      p.journal.unshift({...o,type:'PAPER_ORDER_EXPIRED'});return false;
+    });p.updatedAt=now();return p.openOrders;
+  }
   function processOpenOrders(state,prices){
-    const p=ensure(state),fills=[];const px=prices||p.marketSnapshot||{};
+    const p=ensure(state),fills=[];expirePaperOrders(state);const px=prices||p.marketSnapshot||{};
     p.openOrders=[...p.openOrders].filter(o=>{
       const price=num(px[o.symbol]);if(!price)return true;
       let trigger=false;
@@ -141,5 +151,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,cancelOrder,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
