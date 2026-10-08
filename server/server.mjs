@@ -6,6 +6,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol} from './global-market-registry.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -354,7 +355,32 @@ const INDIA_EQUITIES={
  BHARTIARTL:'BHARTIARTL.NS',LT:'LT.NS',ADANIPORTS:'ADANIPORTS.NS',BAJFINANCE:'BAJFINANCE.NS',
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
 };
-function yahooSymbol(t){const k=String(t||'').trim().toUpperCase();return INDIA_INDICES[k]||INDIA_EQUITIES[k]||(/^[A-Z0-9._-]+$/.test(k)?(k.endsWith('.NS')?k:`${k}.NS`):null);}
+const YAHOO_RESOLVE_CACHE=new Map();
+async function resolveYahooSymbol(input){
+ const raw=String(input||'').trim().toUpperCase();
+ const direct=INDIA_INDICES[raw]||INDIA_EQUITIES[raw]||normalizeGlobalSymbol(raw);
+ if(direct)return direct;
+ if(!/^[A-Z0-9 .&'_-]{1,80}$/.test(raw))return null;
+ const cached=YAHOO_RESOLVE_CACHE.get(raw);
+ if(cached&&Date.now()-cached.at<6*60*60*1000)return cached.symbol||null;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+ try{
+  const u='https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(raw)+'&quotesCount=10&newsCount=0';
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.3 symbol-resolver'},signal:controller.signal});
+  if(!r.ok)throw new Error('Yahoo search HTTP '+r.status);
+  const d=await r.json();
+  const quotes=Array.isArray(d?.quotes)?d.quotes:[];
+  const q=quotes.find(x=>['EQUITY','ETF','INDEX'].includes(String(x.quoteType||'').toUpperCase())&&x.symbol)||quotes.find(x=>x.symbol);
+  const symbol=q?.symbol?String(q.symbol).toUpperCase():null;
+  YAHOO_RESOLVE_CACHE.set(raw,{at:Date.now(),symbol});
+  return symbol;
+ }catch{YAHOO_RESOLVE_CACHE.set(raw,{at:Date.now(),symbol:null});return null}
+ finally{clearTimeout(timer)}
+}
+function yahooSymbol(t){
+ const k=String(t||'').trim().toUpperCase();
+ return INDIA_INDICES[k]||INDIA_EQUITIES[k]||normalizeGlobalSymbol(k)||(/^[A-Z0-9._-]{1,30}$/.test(k)?k:null);
+}
 const EQUITY_MARKET_CACHE=new Map();
 const YAHOO_COOLDOWN=new Map();
 const MARKET_CACHE_MS=60_000;
@@ -434,7 +460,7 @@ async function fetchTejEod(symbol){
 }
 async function liveEquity(ticker){
  const clean=String(ticker||'').trim().toUpperCase().replace(/\\.NS$/,'');
- const symbol=yahooSymbol(clean); if(!symbol)throw new Error('Unsupported equity/index symbol.');
+ const symbol=await resolveYahooSymbol(clean); if(!symbol)throw new Error('Unsupported or unresolved global equity/index symbol.');
  const started=Date.now();
  if(INDIA_INDICES[clean]){
   const cached=EQUITY_MARKET_CACHE.get('NSEINDEX:'+clean);
@@ -501,20 +527,17 @@ async function stockReport(req,res,u){
      cached(cacheKey,payload);
      return send(res,200,payload);
    }
-   if(yahooSymbol(t)){
-     try{
-       const payload={ok:true,report:await liveEquity(t)};
-       cached(cacheKey,payload);
+   try{
+     const payload={ok:true,report:await liveEquity(t)};
+     cached(cacheKey,payload);
+     return send(res,200,payload);
+   }catch(liveErr){
+     if(t==='SBC'){
+       const payload={ok:true,report:{...SBC_SERVER,live:false,provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'}};
        return send(res,200,payload);
-     }catch(liveErr){
-       if(t==='SBC'){
-         const payload={ok:true,report:{...SBC_SERVER,live:false,provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'}};
-         return send(res,200,payload);
-       }
-       throw liveErr;
      }
+     throw liveErr;
    }
-   return send(res,404,{ok:false,error:'Ticker not connected. Use an NSE symbol such as TCS, INFY or RELIANCE.'});
  }catch(e){ if(t==='BTC'||t==='BTCUSDT') return send(res,200,{ok:true,report:btcFallback(),warning:e.message}); return send(res,502,{ok:false,error:`Live market provider unavailable for ${t}: ${e.message}`}); }
 }
 const SBC_SERVER={ticker:'SBC',name:'SBC Exports Ltd.',exchange:'NSE',asOf:'2026-10-05',price:62.04,previous:58.54,week52High:63.10,week52Low:21.50,support:45.38,rsi:89.96,adx:43.84,vwap20:52.69,vwap50:46.95,volumeMultiple:2.33,pe:77.2,roce:18.4,roe:37.2,riskScore:86,trend:'Strong uptrend',posture:'WATCH / MOMENTUM',conclusion:'Trend and participation are strong, but the evidence set also shows extreme momentum extension and valuation risk. The engine therefore prioritizes confirmation and risk control over chasing strength.',targets:[{label:'Immediate breakout zone',price:63.10,logic:'52-week high; sustained acceptance above it would indicate price discovery.'},{label:'Extension checkpoint',price:66.00,logic:'Illustrative scenario level above the prior high; requires fresh evidence and volume confirmation.'},{label:'Deeper value / reset zone',price:52.69,logic:'20-day VWAP; loss of this zone would weaken the short-term momentum thesis.'}],risks:[{label:'Momentum exhaustion',level:'HIGH'},{label:'Valuation / expectation risk',level:'HIGH'},{label:'Pullback to VWAP',level:'MEDIUM'},{label:'Trend breakdown',level:'MEDIUM'}],sources:[{name:'NSE',url:'https://www.nseindia.com/get-quotes/equity?symbol=SBC',use:'Price, range, volume and market statistics',freshness:'5 Oct 2026 snapshot'},{name:'Screener',url:'https://www.screener.in/company/SBC/',use:'Valuation and return metrics',freshness:'5 Oct 2026 snapshot'},{name:'Flash Finance',url:'https://flashfinance.in/technical-analysis/SBC/',use:'RSI, ADX, VWAP and momentum context',freshness:'5 Oct 2026 snapshot'}]};
@@ -691,7 +714,18 @@ function decisionCache(req,res){const x=JSON.parse(req._bodyCache||'{}');const k
 function executionGuard(req,res){const x=JSON.parse(req._bodyCache||'{}');const risk=Number(x.riskScore||100),conf=Number(x.confidence||0),approved=x.userApproved===true;const blocked=!approved||risk>=65||conf<65;return send(res,200,{ok:true,engine:'execution-guard-v4800',status:blocked?'BLOCKED':'READY_FOR_APPROVAL',reasons:[...(!approved?['USER_APPROVAL_REQUIRED']:[]),...(risk>=65?['CFO_RISK_VETO']:[]),...(conf<65?['LOW_CONFIDENCE']:[])],canAutoExecute:false});}
 function coreStatus(req,res){return send(res,200,{ok:true,engine:'autonomous-intelligence-core-v5000',version:'7.0',uptimeMs:Date.now()-CORE.started,memoryAgents:AGENT_MEMORY.size,evidenceLedger:EVIDENCE_LEDGER.length,marketEvents:MARKET_EVENTS.length,researchQueue:RESEARCH_QUEUE.length,decisionCache:DECISION_CACHE.size,cacheHits:CORE.cacheHits,decisions:CORE.decisions,features:['persistent-agent-memory','evidence-fusion','contradiction-detection','real-time-event-detection','portfolio-risk','research-queue','decision-cache','execution-guard','CEO-CFO governance','human approval']});}
 
-function marketUniverse(req,res){return send(res,200,{ok:true,crypto:Object.keys(CRYPTO_ASSETS).filter(x=>!x.endsWith('USDT')),equities:Object.keys(INDIA_EQUITIES),timeframes:Object.keys(TIMEFRAMES),providers:[{name:'Binance public market data',status:'public-adapter',coverage:'Supported crypto pairs'},{name:'Yahoo Finance chart adapter',status:'unofficial-recent',coverage:'NSE equity symbols'}],note:'Equity quotes are recent/delayed and must be verified before acting.'})}
+async function globalMarketTest(req,res,u){
+ const type=String(u.searchParams.get('type')||'index').toLowerCase();
+ const requested=(u.searchParams.get('symbols')||'').split(',').map(x=>x.trim()).filter(Boolean);
+ const universe=type==='stock'?(requested.length?requested:GLOBAL_STOCK_TEST_SET.map(x=>x[1])):(requested.length?requested:GLOBAL_INDEXES.map(x=>x.symbol));
+ const concurrency=Math.min(6,Math.max(1,Number(u.searchParams.get('concurrency')||4)));
+ const rows=[];let cursor=0;
+ async function worker(){while(true){const i=cursor++;if(i>=universe.length)return;const input=universe[i];try{const report=await liveEquity(input);rows[i]={input,ok:true,symbol:report.symbol,name:report.name,price:report.price,changePct:report.changePct,live:report.live===true,provider:report.provider,asOf:report.asOf||null,candles:report.candles?.length||0};}catch(e){rows[i]={input,ok:false,error:e?.message||'provider error'};}}}
+ await Promise.all(Array.from({length:Math.min(concurrency,universe.length)},worker));
+ const passed=rows.filter(x=>x.ok).length,failed=rows.length-passed;
+ return send(res,200,{ok:true,type,total:rows.length,passed,failed,coveragePct:rows.length?Math.round(passed/rows.length*100):0,testedAt:new Date().toISOString(),rows,disclaimer:'Coverage test only. A pass means a provider response was received; it does not imply the quote is exchange-authoritative or suitable for trading.'});
+}
+function marketUniverse(req,res){return send(res,200,{ok:true,crypto:Object.keys(CRYPTO_ASSETS).filter(x=>!x.endsWith('USDT')),equities:Object.keys(INDIA_EQUITIES),globalIndexes:GLOBAL_INDEXES,timeframes:Object.keys(TIMEFRAMES),globalStockResolver:true,providers:[{name:'Binance public market data',status:'public-adapter',coverage:'Supported crypto pairs'},{name:'Yahoo Finance chart + symbol resolver',status:'unofficial-recent',coverage:'Global Yahoo-listed equities, ETFs and indexes subject to provider availability'},{name:'NSE India market-data page',status:'exchange-page-adapter',coverage:'NIFTY/BANKNIFTY/FINNIFTY/SENSEX'}],note:'Global coverage is provider-dependent; FinPilot must label delayed/unavailable data rather than inventing it.'})}
 function compliance(req,res){return send(res,200,{ok:true,policyVersion:'2026-10-07',jurisdiction:'India',productMode:'Financial information & decision support',regulatedAdvice:false,controls:{transactionExecution:false,guaranteedReturns:false,riskProfilingRequiredForRegulatedAdvice:true,suitabilityRequiredForRegulatedAdvice:true,evidenceRequiredForMarketSensitiveClaims:true,humanApprovalForHighImpactActions:true},sources:[{name:'SEBI Investment Advisers Regulations',url:'https://www.sebi.gov.in/sebi_data/attachdocs/feb-2025/1740726382475.pdf',freshness:'verified against official SEBI source'},{name:'SEBI Master Circular for Investment Advisers',url:'https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=6',freshness:'official SEBI listing'}]})}
 function staticFile(req,res,u){
  let p=u.pathname==='/'?'/index.html':u.pathname;
@@ -916,6 +950,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-picks')return marketPicks(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/options-math')return optionsMath(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/chain-analytics')return chainAnalytics(req,res,u);
@@ -968,3 +1003,10 @@ async function runFinPilotSmoke50(){
 }
 server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
 if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
+async function runGlobalMarketSmoke(){
+ const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
+ const test=async(list)=>{const out=[];let cursor=0;const worker=async()=>{while(true){const i=cursor++;if(i>=list.length)return;try{const x=await liveEquity(list[i]);out[i]={input:list[i],ok:true,symbol:x.symbol,price:x.price,provider:x.provider,live:x.live===true};}catch(e){out[i]={input:list[i],ok:false,error:e?.message||'error'};}}};await Promise.all(Array.from({length:4},worker));return out};
+ const [indices,stocks]=await Promise.all([test(idx),test(stocks)]);
+ console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stocks.length,pass:stocks.filter(x=>x.ok).length,fail:stocks.filter(x=>!x.ok).length,rows:stocks},elapsedMs:Date.now()-started}));
+}
+if(process.env.RUN_GLOBAL_MARKET_SMOKE==='true')setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
