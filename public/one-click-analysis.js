@@ -48,14 +48,16 @@
     return {findings,enabled,alerts};
   }
 
-  function buildPaperCouncil(query,web){
+  function buildPaperCouncil(query,web,marketReport){
     if(!window.FinPilotPaperCore)return null;
+    const verifiedPrice=Number(marketReport?.price);
+    if(!Number.isFinite(verifiedPrice)||verifiedPrice<=0)return null;
     try{
       const p=syncPaperAgents();
       const stance=web?.stance||'Mixed';
       const market={
         symbol:String(query||'STOCK').trim().toUpperCase().slice(0,24),
-        price:100,
+        price:verifiedPrice,
         momentum:stance==='Positive'?25:stance==='Cautious'?-25:0,
         quality:50,
         valuation:50,
@@ -163,22 +165,23 @@
       <div id="oneClickResult" class="card" style="margin-bottom:14px;border:2px solid #315efb;background:linear-gradient(180deg,#f8faff,#fff)">
         <div class="sectionTitle">
           <div><span class="eyebrow">Simple One-Click Analysis</span><h3 style="font-size:18px;margin-top:5px">Complete analysis · ${escLocal(q)}</h3></div>
-          <span class="pill low">COMPLETE</span>
+          <span class="pill ${report.chartAnalysis?.qualityStatus==='UNAVAILABLE'?'high':'low'}">${report.chartAnalysis?.qualityStatus==='UNAVAILABLE'?'MARKET DATA BLOCKED':'COMPLETE'}</span>
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
           <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
+        <div class="card" style="margin-bottom:12px;border:1px solid #d8e0ef;background:#fbfcff"><span class="eyebrow">MARKET DATA TRUST</span><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-top:6px"><div><b>${escLocal(report.marketReport?.provider||'No verified provider')}</b><div class="muted">${escLocal(report.marketReport?.exchange||report.marketReport?.market||'GLOBAL')} · ${escLocal(report.marketReport?.dataFreshness||'UNKNOWN')}</div></div><span class="pill ${report.chartAnalysis?.executionEligible?'low':'med'}">${report.chartAnalysis?.executionEligible?'PAPER EXECUTION ELIGIBLE':'ANALYSIS ONLY'}</span></div></div>
         <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
           <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'EOD + TV':'TV FALLBACK')}</span></div>
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
-            <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">₹${Number(report.chartAnalysis?.price||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
+            <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest market price'}</span><div class="metric">${fmtMarketMoney(report.chartAnalysis?.price,report.chartAnalysis?.currency)}</div></div>
             <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
-            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.sma20||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.sma50||0).toFixed(2)}</div></div>
-            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.support||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.resistance||0).toFixed(2)}</div></div>
+            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${fmtMarketMoney(report.chartAnalysis?.sma20,report.chartAnalysis?.currency)} / ${fmtMarketMoney(report.chartAnalysis?.sma50,report.chartAnalysis?.currency)}</div></div>
+            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${fmtMarketMoney(report.chartAnalysis?.support,report.chartAnalysis?.currency)} / ${fmtMarketMoney(report.chartAnalysis?.resistance,report.chartAnalysis?.currency)}</div></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
+          <div class="notice" style="margin-top:10px"><b>Data gate:</b> <span class="pill ${report.chartAnalysis?.qualityStatus==='LIVE VERIFIED'?'low':report.chartAnalysis?.qualityStatus==='DELAYED / ANALYSIS ONLY'?'med':'high'}">${escLocal(report.chartAnalysis?.qualityStatus||'UNAVAILABLE')}</span> · ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target ${fmtMarketMoney(report.chartAnalysis?.target,report.chartAnalysis?.currency)} · Stop ${fmtMarketMoney(report.chartAnalysis?.stop,report.chartAnalysis?.currency)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')} · ${escLocal(report.chartAnalysis?.dataFreshness||'UNKNOWN')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
 
         </div>
         <div class="grid cards" style="margin-bottom:12px">
@@ -318,7 +321,9 @@
           if(top)candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
         }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable')}
       }
-      const directMarket=await marketDirectPromise;
+      let directMarket=await marketDirectPromise;
+      const normTicker=v=>String(v||'').toUpperCase().replace(/\.(NS|BO)$/i,'');
+      if(directMarket&&candidate&&normTicker(directMarket.ticker)!==normTicker(candidate.ticker))directMarket=null;
       if(directMarket&&!candidate&&directMarket.ticker)candidate={ticker:directMarket.ticker,name:directMarket.name,confidence:82,score:82,evidenceMentions:0,positive:0,negative:0,method:'Verified market symbol',reason:'Direct verified market record matched the requested symbol.',disclaimer:'Market-data match; not a guaranteed trade.'};
       stage('3/6 · Running specialist agents and Round Table…');
       const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
@@ -333,7 +338,7 @@
       state.decision=decision;
       state.decisionHistory.unshift(decision);
       state.decisionHistory=state.decisionHistory.slice(0,50);
-      const paper=buildPaperCouncil(query,web);
+      let paper=null;
       if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
       save();
@@ -348,6 +353,20 @@
           else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
         }
       }catch(e){searchWarning=searchWarning||'Chart data unavailable'}
+      if(marketReport){
+        try{
+          const symbol=String(marketReport.ticker||candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
+          const qr=await fetch('/api/market-data-os?ticker='+encodeURIComponent(symbol)+'&interval=1h&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+          const qd=await qr.json();
+          marketReport.marketDataOS=qd?.marketDataOS||{};
+          marketReport.marketDataVerified=qd?.verified===true;
+          marketReport.executionEligible=qd?.marketDataOS?.decision==='ALLOW_ANALYSIS_AND_PAPER' || marketReport.executionEligible===true;
+          marketReport.qualityStatus=qd?.marketDataOS?.status||null;
+          marketReport.sourceAgeMs=Number(qd?.marketDataOS?.sourceAgeMs||marketReport.sourceAgeMs||0);
+          if(qd?.dataFreshness)marketReport.dataFreshness=qd.dataFreshness;
+        }catch(e){marketReport.qualityStatus='QUALITY_CHECK_UNAVAILABLE'}
+        paper=buildPaperCouncil(query,web,marketReport);
+      }
       const finalMoney=scenarioSafe({...decision,marketReport});
       decision.marketReport=marketReport;
       decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
