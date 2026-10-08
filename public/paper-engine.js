@@ -6,7 +6,7 @@
   const uid=p=>p+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
   const now=()=>new Date().toISOString();
   function defaultPaper(){return{
-    version:2,baseCurrency:'INR',startingCash:1000000,cash:1000000,realizedPnl:0,unrealizedPnl:0,
+    version:3,baseCurrency:'INR',startingCash:1000000,cash:1000000,realizedPnl:0,unrealizedPnl:0,
     fees:0,slippage:0,agents:[],positions:[],orders:[],openOrders:[],journal:[],rounds:[],
     leaderboard:[],marketSnapshot:{},account:{marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3},
     updatedAt:now()
@@ -18,7 +18,7 @@
     p.openOrders=(Array.isArray(p.openOrders)?p.openOrders:[]).filter(x=>x&&typeof x==='object');p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
     p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
     // Repair older/partial local paper state before any numeric formatter is called.
-    p.version=num(p.version,2); p.startingCash=num(p.startingCash,1000000);
+    p.version=Math.max(3,num(p.version,3)); p.startingCash=num(p.startingCash,1000000);
     p.cash=num(p.cash,p.startingCash); p.realizedPnl=num(p.realizedPnl,0);
     p.unrealizedPnl=num(p.unrealizedPnl,0); p.fees=num(p.fees,0); p.slippage=num(p.slippage,0);
     p.account={marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3,...(p.account||{})};
@@ -120,6 +120,13 @@
   }
   function paperOrder(state,agentId,symbol,side,qty,price,reason,opts={}){
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
+    const clientOrderId=opts.clientOrderId?String(opts.clientOrderId):'';
+    if(clientOrderId){
+      const existing=p.orders.find(x=>x.clientOrderId===clientOrderId);
+      if(existing)return existing;
+      const existingOpen=p.openOrders.find(x=>x.clientOrderId===clientOrderId);
+      if(existingOpen)return existingOpen;
+    }
     qty=normalizeQty(symbol,qty);price=Math.max(0,num(price));side=String(side).toUpperCase();
     if(!qty||!price||!['BUY','SELL'].includes(side))throw new Error('Valid side, quantity and price are required');
     if(opts.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty,entryPrice:price,stopPrice:opts.stopPrice,targetPrice:opts.targetPrice,marketMeta:opts.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
@@ -128,17 +135,49 @@
     let realized=updateAgentPosition(a,symbol,side,qty,fill);
     if(side==='BUY')a.cash-=fillValue+c.fee;else a.cash-=c.fee;
     p.realizedPnl+=realized-c.fee;p.fees+=c.fee;p.slippage+=slip;
-    const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
-    p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER'});a.decisions++;p.updatedAt=now();return o;
+    const o={id:uid('order'),clientOrderId:clientOrderId||null,parentOrderId:opts.parentOrderId||null,agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',stopPrice:num(opts.stopPrice),targetPrice:num(opts.targetPrice),reduceOnly:Boolean(opts.reduceOnly),source:opts.source||'PAPER',status:'FILLED',time:now(),filledAt:now(),virtualOnly:true};
+    if(opts.parentOrderId){
+      p.journal.unshift({...o,type:'PAPER_FILL'});
+    }else{
+      p.orders.unshift(o);
+      p.journal.unshift({...o,type:'PAPER_ORDER'});
+    }
+    a.decisions++;p.updatedAt=now();return o;
   }
   function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null,trailingPercent=0,options={}){
-    if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET',...options});
-    const p=ensure(state);const a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
-    if(options.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty:oq,entryPrice:(ot==='LIMIT'||ot==='STOP_LIMIT')?num(price):price,stopPrice:stop,targetPrice:target,marketMeta:options.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
+    const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
+    const ot=String(orderType||'MARKET').toUpperCase(),ss=String(side||'').toUpperCase(),oq=normalizeQty(symbol,qty);
+    if(options.clientOrderId){
+      const existing=p.orders.find(x=>x.clientOrderId===String(options.clientOrderId));
+      if(existing)return existing;
+      const existingOpen=p.openOrders.find(x=>x.clientOrderId===String(options.clientOrderId));
+      if(existingOpen)return existingOpen;
+    }
+    if(!['BUY','SELL'].includes(ss))throw new Error('Valid side is required');
+    if(oq<=0)throw new Error('Order quantity must be positive');
+    if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');
+    if(ot==='MARKET')return paperOrder(state,agentId,symbol,ss,oq,num(price),reason,{orderType:'MARKET',stopPrice:stop,targetPrice:target,...options});
+    if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');
+    if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');
+    if(ot==='TRAILING_STOP'&&!num(trailingPercent))throw new Error('Trailing percent required');
     const tif=String(timeInForce||'GTC').toUpperCase();
     if(!['GTC','DAY','IOC','FOK'].includes(tif))throw new Error('Unsupported paper time-in-force');
     const exp=expiresAt?Number(expiresAt):(tif==='DAY'?Date.now()+24*60*60*1000:null);
-    const oq=normalizeQty(symbol,qty);if(oq<=0)throw new Error('Order quantity must be positive');const ot=String(orderType).toUpperCase();if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');if(ot==='TRAILING_STOP'&&!num(trailingPercent))throw new Error('Trailing percent required');const trailingPct=ot==='TRAILING_STOP'?Math.max(0.01,num(trailingPercent)):0; const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent:trailingPct,trailHigh:null,trailLow:null,reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq};
+    const referencePrice=ot==='STOP'||ot==='TRAILING_STOP'?num(stop)||num(price):ot==='STOP_LIMIT'?num(price):num(price);
+    if(options.enforceRisk){
+      const gate=preTradeCheck(state,{agentId,symbol,side:ss,qty:oq,entryPrice:referencePrice,stopPrice:stop,targetPrice:target,marketMeta:options.marketMeta});
+      if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));
+    }
+    const reservePrice=ot==='STOP_LIMIT'?Math.max(num(price),num(stop)):referencePrice;
+    if(ss==='BUY'){
+      const estimated=oq*reservePrice*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
+      if(!(reservePrice>0)||a.cash-reservedBuyCash(state,agentId) < estimated-1e-9)throw new Error('Paper buying power reserved by existing orders or insufficient cash.');
+    }else{
+      const pos=a.positions.find(x=>x.symbol===symbol);
+      if(!pos||pos.qty+1e-12<oq)throw new Error('SELL quantity exceeds the current paper position.');
+    }
+    const trailingPct=ot==='TRAILING_STOP'?Math.max(0.01,num(trailingPercent)):0;
+    const o={id:uid('order'),clientOrderId:options.clientOrderId?String(options.clientOrderId):null,agentId,symbol,side:ss,qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent:trailingPct,trailHigh:null,trailLow:null,reduceOnly:Boolean(options.reduceOnly),bracketRole:options.bracketRole||null,bracketGroup:options.bracketGroup||null,parentId:options.parentId||null,reason:reason||'Paper order',source:options.source||'PAPER',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq,amendments:0};
     p.openOrders.unshift(o);p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER_PLACED'});p.updatedAt=now();return o;
   }
   function expirePaperOrders(state,at=Date.now()){
@@ -150,10 +189,10 @@
       p.journal.unshift({...o,type:'PAPER_ORDER_EXPIRED'});return false;
     });p.updatedAt=now();return p.openOrders;
   }
-  function reservedBuyCash(state,agentId){
+  function reservedBuyCash(state,agentId,excludeOrderId=null){
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)return 0;
-    return p.openOrders.filter(o=>o.agentId===agentId&&o.side==='BUY'&&o.status==='OPEN').reduce((n,o)=>{
-      const px=num(o.limitPrice||o.stopPrice||o.requestedPrice);return n+(o.remainingQty||o.qty)*px*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
+    return p.openOrders.filter(o=>o.agentId===agentId&&o.side==='BUY'&&o.status==='OPEN'&&o.id!==excludeOrderId).reduce((n,o)=>{
+      const px=Math.max(num(o.limitPrice),num(o.stopPrice),num(o.requestedPrice));return n+Math.max(0,num(o.remainingQty??o.qty))*px*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
     },0);
   }
   function processOpenOrders(state,prices){
@@ -163,44 +202,64 @@
       let trigger=false;
       if(o.orderType==='LIMIT')trigger=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;
       if(o.orderType==='STOP')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
-      if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;} if(o.orderType==='TRAILING_STOP'){if(o.side==='SELL'){o.trailHigh=Math.max(num(o.trailHigh,price),price);o.stopPrice=o.trailHigh*(1-num(o.trailingPercent)/100);trigger=price<=o.stopPrice;}else{o.trailLow=o.trailLow==null?price:Math.min(num(o.trailLow,price),price);o.stopPrice=o.trailLow*(1+num(o.trailingPercent)/100);trigger=price>=o.stopPrice;}}
+      if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;}
+      if(o.orderType==='TRAILING_STOP'){
+        if(o.side==='SELL'){o.trailHigh=Math.max(num(o.trailHigh,price),price);o.stopPrice=o.trailHigh*(1-num(o.trailingPercent)/100);trigger=price<=o.stopPrice;}
+        else{o.trailLow=o.trailLow==null?price:Math.min(num(o.trailLow,price),price);o.stopPrice=o.trailLow*(1+num(o.trailingPercent)/100);trigger=price>=o.stopPrice;}
+      }
       if(!trigger)return true;
       try{
-        const remaining=Math.max(0,Number(o.remainingQty??o.qty));
-        if(!remaining) {o.status='FILLED';return false;}
+        const remaining=normalizeQty(o.symbol,Math.max(0,num(o.remainingQty??o.qty)));
+        if(remaining<=0){o.status='FILLED';return false;}
         const a=p.agents.find(x=>x.id===o.agentId);if(!a)throw new Error('Paper agent not found');
-        let fillQty=remaining; const liquidityNotional=Math.max(2500,Math.min(250000,Math.abs(price)*50)); const liquidity=Math.max(1,Math.floor(liquidityNotional/Math.max(0.000001,Math.abs(price)))); fillQty=Math.min(fillQty,liquidity);
-        if(o.timeInForce==='FOK'){
-          if(o.side==='BUY'){
-            const available=Math.max(0,a.cash-reservedBuyCash(state,o.agentId)+remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
-            if(available < remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000))throw new Error('FOK not fully fillable');
-          }else if(o.reduceOnly){
-            const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<remaining)throw new Error('FOK not fully fillable');
-          }
-        }else if(o.timeInForce==='IOC'&&o.side==='BUY'){
-          const availableCash=Math.max(0,a.cash-reservedBuyCash(state,o.agentId)+remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
-          fillQty=Math.min(remaining,Math.floor(availableCash/Math.max(0.000001,price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000))));
-        }else if(o.timeInForce==='IOC'&&o.reduceOnly){
-          const pos=a.positions.find(x=>x.symbol===o.symbol);fillQty=Math.min(remaining,pos?pos.qty:0);
+        const liquidityNotional=Math.max(2500,Math.min(250000,Math.abs(price)*50));
+        const liquidityQty=normalizeQty(o.symbol,liquidityNotional/Math.max(0.000001,Math.abs(price)));
+        let fillQty=Math.min(remaining,liquidityQty);
+        if(o.timeInForce==='FOK'&&fillQty+1e-12<remaining)throw new Error('FOK not fully fillable at current simulated liquidity.');
+        if(o.side==='BUY'&&(o.timeInForce==='FOK'||o.timeInForce==='IOC')){
+          const availableCash=Math.max(0,a.cash-reservedBuyCash(state,o.agentId,o.id));
+          const unitCost=Math.max(0.000001,price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
+          const cashQty=normalizeQty(o.symbol,availableCash/unitCost);
+          fillQty=Math.min(fillQty,cashQty);
+          if(o.timeInForce==='FOK'&&fillQty+1e-12<remaining)throw new Error('FOK not fully cash-funded.');
         }
-        if(o.reduceOnly){const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<fillQty)throw new Error('Reduce-only order exceeds position');}
-        if(fillQty<1){o.status='CANCELLED';o.cancelledAt=now();return false;}
-        const depthBps=Math.min(25,Math.max(0,(remaining-fillQty)/Math.max(1,remaining)*12)); const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType,slippageBps:depthBps});
-        o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
+        if(o.timeInForce==='IOC'&&o.reduceOnly){
+          const pos=a.positions.find(x=>x.symbol===o.symbol);fillQty=Math.min(fillQty,pos?pos.qty:0);
+        }
+        if(o.reduceOnly){
+          const pos=a.positions.find(x=>x.symbol===o.symbol);if(!pos||pos.qty+1e-12<fillQty)throw new Error('Reduce-only order exceeds position');
+        }
+        if(fillQty<=0){o.status='CANCELLED';o.cancelledAt=now();const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false;}
+        let executionPrice=price;
+        if(o.orderType==='LIMIT'||o.orderType==='STOP_LIMIT'){
+          executionPrice=o.side==='BUY'?Math.min(price,o.limitPrice):Math.max(price,o.limitPrice);
+        }
+        const depthBps=Math.min(25,Math.max(0,(remaining-fillQty)/Math.max(1e-9,remaining)*12));
+        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,executionPrice,o.reason,{orderType:o.orderType,slippageBps:depthBps,parentOrderId:o.id,reduceOnly:o.reduceOnly,source:o.source});
+        o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();o.lastFillPrice=f.fillPrice;o.avgFillPrice=o.avgFillPrice?((o.avgFillPrice*(o.filledQty-fillQty)+f.fillPrice*fillQty)/o.filledQty):f.fillPrice;o.fees=(num(o.fees)+num(f.fees));o.slippage=(num(o.slippage)+num(f.slippage));o.realizedPnl=(num(o.realizedPnl)+num(f.realizedPnl));fills.push({...f,parentOrderId:o.id});
         if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
-        if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false}
+        if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false}
         o.status='PARTIALLY_FILLED';return true;
-      }catch(e){o.status='REJECTED';o.error=e.message;const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'REJECTED',error:o.error});return false}
+      }catch(e){o.status='REJECTED';o.error=e.message;p.journal.unshift({...o,type:'PAPER_ORDER_REJECTED'});return false}
     });return fills;
   }
+  function aOf(p,agentId){return p.agents.find(x=>x.id===agentId)||null}
   function amendOrder(state,orderId,changes={}){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
     if(!o)throw new Error('Open paper order not found');
     if(o.status==='CANCELLED'||o.status==='FILLED')throw new Error('Order is not amendable');
-    if(changes.qty!=null){const q=Math.floor(num(changes.qty));if(q<1||q<(o.filledQty||0))throw new Error('Invalid amended quantity');o.qty=q}
-    if(changes.limitPrice!=null)o.limitPrice=num(changes.limitPrice);
-    if(changes.stopPrice!=null)o.stopPrice=num(changes.stopPrice);
-    o.amendedAt=now();o.amendments=(o.amendments||0)+1;
+    const newQty=changes.qty!=null?normalizeQty(o.symbol,changes.qty):o.qty;
+    if(newQty<=0||newQty<(o.filledQty||0))throw new Error('Invalid amended quantity');
+    const newLimit=changes.limitPrice!=null?num(changes.limitPrice):o.limitPrice;
+    const newStop=changes.stopPrice!=null?num(changes.stopPrice):o.stopPrice;
+    if((o.orderType==='LIMIT'||o.orderType==='STOP_LIMIT')&&newLimit<=0)throw new Error('Limit price required');
+    if((o.orderType==='STOP'||o.orderType==='STOP_LIMIT')&&newStop<=0)throw new Error('Stop price required');
+    if(o.side==='BUY'){
+      const reservePrice=o.orderType==='STOP_LIMIT'?Math.max(newLimit,newStop):Math.max(newLimit,newStop,o.orderType==='STOP'||o.orderType==='TRAILING_STOP'?newStop:0);
+      const required=Math.max(0,newQty-(o.filledQty||0))*reservePrice*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000);
+      if(aOf(p,o.agentId)?.cash-reservedBuyCash(state,o.agentId,o.id) < required-1e-9)throw new Error('Amendment exceeds available paper buying power.');
+    }
+    o.qty=newQty;o.remainingQty=Math.max(0,newQty-(o.filledQty||0));o.limitPrice=newLimit;o.stopPrice=newStop;o.amendedAt=now();o.amendments=(o.amendments||0)+1;
     p.journal.unshift({...o,type:'PAPER_ORDER_AMENDED'});p.updatedAt=now();return o;
   }
   function cancelOco(state,filledOrderId){
@@ -220,7 +279,7 @@
     p.updatedAt=now();return cancelled;
   }
   function activateBracketChildren(state,entry,qty){
-    const p=ensure(state),group=entry.bracketGroup,bSide=entry.side==='BUY'?'SELL':'BUY',q=Math.max(1,Math.floor(num(qty)));
+    const p=ensure(state),group=entry.bracketGroup,bSide=entry.side==='BUY'?'SELL':'BUY',q=normalizeQty(entry.symbol,qty);if(q<=0)return;
     if(num(entry.bracket?.stopPrice)){
       const sl=placeOrder(state,entry.agentId,entry.symbol,bSide,q,'STOP',0,entry.bracket.stopPrice,null,'Bracket stop loss','GTC',null);
       sl.bracketRole='STOP';sl.bracketGroup=group;sl.reduceOnly=true;sl.parentId=entry.id;
@@ -237,8 +296,8 @@
     if(et==='MARKET') activateBracketChildren(state,entry,qty);
     return entry;
   }
-  function placeTrailingStop(state,agentId,symbol,side,qty,trailingPercent,reason){return placeOrder(state,agentId,symbol,side,qty,'TRAILING_STOP',0,null,null,reason||'Trailing stop','GTC',null,trailingPercent)}
-  function placeOco(state,agentId,symbol,side,qty,limitPrice,stopPrice,reason){const group=uid('oco');const tp=placeOrder(state,agentId,symbol,side,qty,'LIMIT',limitPrice,null,null,reason||'OCO take profit','GTC',null);tp.bracketRole='TARGET';tp.bracketGroup=group;const sl=placeOrder(state,agentId,symbol,side,qty,'STOP',0,stopPrice,null,reason||'OCO stop','GTC',null);sl.bracketRole='STOP';sl.bracketGroup=group;return{group,orders:[tp,sl]}}
+  function placeTrailingStop(state,agentId,symbol,side,qty,trailingPercent,reason){return placeOrder(state,agentId,symbol,side,qty,'TRAILING_STOP',0,null,null,reason||'Trailing stop','GTC',null,trailingPercent,{reduceOnly:true,source:'PAPER_TRAILING_STOP'})}
+  function placeOco(state,agentId,symbol,side,qty,limitPrice,stopPrice,reason){const group=uid('oco');const opts={reduceOnly:true,source:'PAPER_OCO',bracketGroup:group};const tp=placeOrder(state,agentId,symbol,side,qty,'LIMIT',limitPrice,null,null,reason||'OCO take profit','GTC',null,0,opts);tp.bracketRole='TARGET';tp.bracketGroup=group;const sl=placeOrder(state,agentId,symbol,side,qty,'STOP',0,stopPrice,null,reason||'OCO stop','GTC',null,0,opts);sl.bracketRole='STOP';sl.bracketGroup=group;return{group,orders:[tp,sl]}}
   function cancelOrder(state,orderId){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
     if(!o)throw new Error('Open paper order not found');
@@ -280,6 +339,7 @@
   function leaderboard(state){
     const p=ensure(state);return p.agents.map(a=>{const exposure=a.positions.reduce((n,x)=>n+x.qty*x.last,0),equity=a.cash+exposure,pnl=equity-a.capital;return{...a,equity:+equity.toFixed(2),pnl:+pnl.toFixed(2),returnPct:+(pnl/Math.max(1,a.capital)*100).toFixed(2),exposure:+exposure.toFixed(2)}}).sort((a,b)=>b.returnPct-a.returnPct);
   }
+  function executionPreview(state,args={}){const p=ensure(state),agent=p.agents.find(x=>x.id===args.agentId),symbol=String(args.symbol||'').toUpperCase(),side=String(args.side||'').toUpperCase(),qty=normalizeQty(symbol,args.qty),price=Math.max(0,num(args.price));if(!agent)return{ok:false,error:'Paper agent not found',virtualOnly:true};const notional=qty*price,fee=notional*p.account.commissionBps/10000,slip=notional*p.account.slippageBps/10000;const reserved=reservedBuyCash(state,agent.id);const buyingPower=Math.max(0,agent.cash-reserved);const position=agent.positions.find(x=>x.symbol===symbol);return{ok:true,virtualOnly:true,agentId:agent.id,symbol,side,qty,price,notional:+notional.toFixed(2),estimatedFee:+fee.toFixed(2),estimatedSlippage:+slip.toFixed(2),buyingPower:+buyingPower.toFixed(2),positionQty:+num(position?.qty).toFixed(8),canBuy:side==='BUY'?(buyingPower>=notional+fee+slip):true,canSell:side==='SELL'?num(position?.qty)>=qty:true,timestamp:now()}}
   function accountSummary(state){
     const p=ensure(state),rows=leaderboard(state),exposure=rows.reduce((n,a)=>n+a.exposure,0),cash=rows.reduce((n,a)=>n+a.cash,0),equity=cash+exposure;
     return{cash:+cash.toFixed(2),equity:+equity.toFixed(2),startingCash:p.startingCash,realizedPnl:+p.realizedPnl.toFixed(2),unrealizedPnl:+p.unrealizedPnl.toFixed(2),exposure:+exposure.toFixed(2),returnPct:+((equity/p.startingCash-1)*100).toFixed(2),fees:+p.fees.toFixed(2),slippage:+p.slippage.toFixed(2),openOrders:p.openOrders.length,filledOrders:p.orders.filter(x=>x.status==='FILLED').length,virtualOnly:true};
@@ -290,5 +350,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport};
 })();
