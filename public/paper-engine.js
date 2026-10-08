@@ -287,6 +287,10 @@
         }
         const depthBps=Math.min(25,Math.max(0,(remaining-fillQty)/Math.max(1e-9,remaining)*12));
         const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,executionPrice,o.reason,{orderType:o.orderType,slippageBps:depthBps,parentOrderId:o.id,reduceOnly:o.reduceOnly,source:o.source,realistic:true,marketMeta:{...marketMeta,bid,ask,price,seq:tickKey}});
+        // Keep the parent order as a broker-style execution record too: preserve
+        // the actual quote that triggered the fill for audit/reconciliation.
+        o.quoteBid=bid;o.quoteAsk=ask;o.spreadBps=+(((ask-bid)/Math.max(0.000001,(ask+bid)/2))*10000).toFixed(2);
+        o.marketImpactBps=num(f.marketImpactBps);o.executionLatencyMs=num(f.executionLatencyMs);
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();o.lastFillPrice=f.fillPrice;o.avgFillPrice=o.avgFillPrice?((o.avgFillPrice*(o.filledQty-fillQty)+f.fillPrice*fillQty)/o.filledQty):f.fillPrice;o.fees=(num(o.fees)+num(f.fees));o.slippage=(num(o.slippage)+num(f.slippage));o.realizedPnl=(num(o.realizedPnl)+num(f.realizedPnl));fills.push({...f,parentOrderId:o.id});
         if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();orderEvent(p,o,'FILLED',{fillQty,fillPrice:f.fillPrice,remainingQty:0});if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
         if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();orderEvent(p,o,'CANCELLED',{reason:'IOC remainder cancelled',remainingQty:o.remainingQty});return false}
