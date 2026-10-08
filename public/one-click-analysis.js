@@ -246,7 +246,7 @@
     throw new Error('Search engine is still loading. Please try again in a moment.');
   }
 
-  async async function runFullStockAnalysis(query){
+  async function runFullStockAnalysis(query){
     query=String(query||'').trim();
     if(!query||running)return;
     running=true;
@@ -370,6 +370,7 @@
     mountSearchActions();
   }
   window.runFullStockAnalysis=runFullStockAnalysis;
+  window.startOneClickAnalysis=runFullStockAnalysis;
   window.addEventListener('load',()=>{install();installProductionDiagnostics();});
   setTimeout(()=>{install();installProductionDiagnostics();},0);
   setTimeout(install,100);
