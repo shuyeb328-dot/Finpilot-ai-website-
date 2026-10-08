@@ -19,8 +19,8 @@ function draw(d){
  const p=+d.price,c=+d.changePct;
  set('#liveMarketPrice',money(p));set('#liveMarketChange',pct(c));setClass('#liveMarketChange',c>=0?'green':'red');
  set('#liveMarketHigh',money(+d.high));set('#liveMarketLow',money(+d.low));set('#liveMarketSource',d.source||'Binance public market data');
- set('#liveMarketFresh','LIVE');set('#liveMarketMeta','Updated '+tm(d.time));
- const q=$('liveMarketStatus');if(q){q.textContent='● LIVE';q.className='pill low';}
+ set('#liveMarketFresh',d.live?'LIVE':'NON-LIVE');set('#liveMarketMeta','Updated '+tm(d.time));
+ const q=$('liveMarketStatus');if(q){q.textContent=d.live?'● LIVE':'NON-LIVE · ANALYSIS ONLY';q.className=d.live?'pill low':'pill';}
  st.ticks.unshift({p:p,c:c,t:d.time});st.ticks=st.ticks.slice(0,8);
  const tape=$('liveMarketTape');if(tape)tape.innerHTML=st.ticks.map(x=>'<span><b>'+money(x.p)+'</b> <em class="'+(x.c>=0?'green':'red')+'">'+pct(x.c)+'</em> <small>'+tm(x.t)+'</small></span>').join('');
  const cloud=$('liveMarketCloud');if(cloud)cloud.textContent=d.cloudStored?'Cloud archive: STORED':'Cloud archive: collector ready';
@@ -28,39 +28,49 @@ function draw(d){
 function start(t){
  st.ticker=S.includes(t)?t:'BTC';
  if(window.fpES)try{window.fpES.close()}catch{}
+ window.fpES=null;
  stopFallback();
  panel();
- window.fpES=new EventSource('/api/market-stream?ticker='+encodeURIComponent(st.ticker));
- fpES.addEventListener('market',ev=>{
+ window.fpES=new EventSource('/api/market-data-stream?ticker='+encodeURIComponent(st.ticker)+'&interval=1m');
+ window.fpES.addEventListener('market',ev=>{
   try{
    const d=JSON.parse(ev.data);
-   if(d.live){
-    draw(d);
-    fetch('/api/market-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).catch(()=>{});
+   const live=Boolean(d.verified&&d.status==='LIVE'&&Number.isFinite(Number(d.price))&&Number(d.price)>0);
+   if(live){
+    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:false});
+    fetch('/api/market-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,live:true})}).catch(()=>{});
    }else{
-    const n=$('liveMarketStatus');if(n)n.textContent='DEGRADED';
+    const n=$('liveMarketStatus');if(n)n.textContent=d.status==='STALE'?'STALE · ANALYSIS ONLY':'DATA UNAVAILABLE';
+    const f=$('liveMarketFresh');if(f)f.textContent=d.status==='STALE'?'STALE':'UNAVAILABLE';
+    const m=$('liveMarketMeta');if(m)m.textContent=d.error||'Waiting for a fresh, verified quote';
    }
   }catch{
    const n=$('liveMarketStatus');if(n)n.textContent='DEGRADED';
   }
  });
- fpES.onerror=()=>{
+ window.fpES.onerror=()=>{
   const n=$('liveMarketStatus');if(n)n.textContent='RECONNECTING';
   startFallback();
  };
- startFallback();
 }
 async function fallbackPoll(){
  try{
   const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(st.ticker)+'&interval=1h&multi=0',{cache:'no-store'});
   const d=await r.json();
   if(d?.ok&&d.report){
-   const x=d.report;
-   draw({ticker:x.ticker,price:x.price,changePct:x.changePct||0,high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:x.asOf||new Date().toISOString(),live:true,cloudStored:false});
+   const x=d.report,price=Number(x.price),asOf=x.asOf||null;
+   const fresh=Boolean(x.live===true&&asOf&&Number.isFinite(Date.parse(asOf))&&Date.now()-Date.parse(asOf)<=90000);
+   if(Number.isFinite(price)&&price>0){
+    draw({ticker:x.ticker,price,changePct:Number(x.changePct||0),high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:asOf||'Unknown timestamp',live:fresh,cloudStored:false});
+    if(!fresh){
+     const n=$('liveMarketStatus');if(n)n.textContent='NON-LIVE · ANALYSIS ONLY';
+     const f=$('liveMarketFresh');if(f)f.textContent='DELAYED / UNKNOWN';
+    }
+   }
   }
  }catch{}
  clearTimeout(fallbackTimer);
- fallbackTimer=setTimeout(fallbackPoll,7000);
+ fallbackTimer=setTimeout(fallbackPoll,12000);
 }
 function startFallback(){if(fallbackTimer===null)fallbackPoll()}
 function stopFallback(){if(fallbackTimer!==null){clearTimeout(fallbackTimer);fallbackTimer=null}}
