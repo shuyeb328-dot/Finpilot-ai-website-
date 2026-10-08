@@ -510,6 +510,13 @@ async function liveEquity(ticker){
    return index;
   }catch(indexErr){
    try{
+    const world=await fetchYahooWorldIndexPage(),row=world.get(symbol);
+    if(row){
+     const result={ticker:clean,symbol,market:'INDIA_INDEX',exchange:'Yahoo Finance',name:row.name,currency:'INR',price:row.price,previous:row.price,changePct:row.changePct,dayHigh:row.price,dayLow:row.price,live:false,provider:row.provider,asOf:row.asOf,dataFreshness:row.dataFreshness,dataDisclaimer:'World index page fallback may be delayed; verify the exchange or broker quote before acting.'};
+     EQUITY_MARKET_CACHE.set('NSEINDEX:'+clean,{at:Date.now(),result});return result;
+    }
+   }catch{}
+   try{
     const result=await fetchYahooChart(symbol,'1d','5m');
     const meta=result.meta||{},q=result.indicators?.quote?.[0]||{},closes=(q.close||[]).map(Number).filter(Number.isFinite);
     const price=Number(meta.regularMarketPrice??closes.at(-1)); if(!Number.isFinite(price))throw new Error('Index price unavailable');
@@ -1057,4 +1064,4 @@ async function runGlobalMarketSmoke(){
  const [indices,stockResults]=await Promise.all([test(idx),test(stocks)]);
  console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stockResults.length,pass:stockResults.filter(x=>x.ok).length,fail:stockResults.filter(x=>!x.ok).length,rows:stockResults},elapsedMs:Date.now()-started}));
 }
-setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
+if(process.env.RUN_GLOBAL_MARKET_SMOKE==='true')setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
