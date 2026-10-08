@@ -194,7 +194,7 @@
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
-      const broadRequest=/\\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\\b/i.test(query);
+      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/i.test(query);
       if(!candidate&&broadRequest){
         try{
           const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});
