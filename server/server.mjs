@@ -559,6 +559,44 @@ async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return
 }
 function qualityUpdate(source,ok,latency,error){const x=DATA_HEALTH.sources[source]??={};if(ok){x.status='HEALTHY';x.latencyMs=latency;x.lastSuccess=new Date().toISOString();x.lastError=null}else{x.status='DEGRADED';x.lastError=error;x.latencyMs=latency;RESILIENCE.providerFailures++;RESILIENCE.lastIncident=new Date().toISOString();}const vals=Object.values(DATA_HEALTH.sources);DATA_HEALTH.qualityScore=Math.round(vals.reduce((n,v)=>n+(v.status==='HEALTHY'?100:v.status==='DEGRADED'?45:0),0)/Math.max(1,vals.length));DATA_HEALTH.freshness=DATA_HEALTH.qualityScore>=90?'FRESH':DATA_HEALTH.qualityScore>=50?'DEGRADED':'STALE';DATA_HEALTH.updatedAt=new Date().toISOString();if(!ok)emitEvent('DATA_QUALITY_ALERT',{source,error},95);}
 function resilientFetch(url,source='provider',timeoutMs=7000){if(RESILIENCE.circuitOpen)return Promise.reject(new Error('PROVIDER_CIRCUIT_OPEN'));const started=Date.now();return Promise.race([fetch(url),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]).then(async r=>{const t=Date.now()-started;if(!r.ok)throw new Error(`HTTP_${r.status}`);qualityUpdate(source,true,t);return r}).catch(async e=>{qualityUpdate(source,false,Date.now()-started,e.message);if(RESILIENCE.providerFailures>=5){RESILIENCE.circuitOpen=true;setTimeout(()=>{RESILIENCE.circuitOpen=false;RESILIENCE.providerFailures=0;},Math.min(30000,RESILIENCE.backoffMs*4));}throw e;});}
+
+// Exa Intelligence Layer: web research is evidence-only and never allowed to fabricate market numbers.
+let EXA_LAST_RUN=0, EXA_RUNNING=false, EXA_CACHE=[];
+const EXA_REFRESH_MS=Math.max(15*60*1000,Number(process.env.EXA_REFRESH_MS||60*60*1000));
+async function exaSearch(query){
+ const key=process.env.EXA_API_KEY;
+ if(!key)throw new Error('EXA_API_KEY_NOT_CONFIGURED');
+ const r=await fetch('https://api.exa.ai/search',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key},body:JSON.stringify({query,type:'auto',numResults:8,contents:{highlights:true}})});
+ const d=await r.json(); if(!r.ok)throw new Error(d?.message||'EXA_SEARCH_FAILED');
+ return (d.results||[]).map(x=>({title:x.title||'',url:x.url||'',publishedDate:x.publishedDate||null,author:x.author||null,highlights:Array.isArray(x.highlights)?x.highlights.slice(0,4):[]})).filter(x=>x.url);
+}
+async function runExaIntelligence(topic='global finance AI risks market data'){
+ if(EXA_RUNNING)return {ok:true,status:'RUNNING',lastRun:EXA_LAST_RUN,results:EXA_CACHE};
+ EXA_RUNNING=true;const started=Date.now();
+ try{
+  const queries=[
+   topic+' latest market news primary sources',
+   topic+' finance regulation official filing risk',
+   topic+' financial data quality stale data AI agents',
+   topic+' adversarial AI finance security prompt injection'
+  ];
+  const rows=await Promise.all(queries.map(q=>exaSearch(q).catch(e=>[{error:e.message,query:q}])));
+  EXA_CACHE=rows.flat().filter(x=>!x.error).slice(0,32);EXA_LAST_RUN=Date.now();
+  audit('EXA_RESEARCH_REFRESH',{topic,count:EXA_CACHE.length,latencyMs:Date.now()-started});
+  emitEvent('RESEARCH_UPDATE',{source:'Exa',count:EXA_CACHE.length,topic},70);
+  return {ok:true,status:'UPDATED',lastRun:EXA_LAST_RUN,count:EXA_CACHE.length,results:EXA_CACHE};
+ }catch(e){audit('EXA_RESEARCH_ERROR',{error:e.message});return {ok:false,status:'ERROR',error:e.message,lastRun:EXA_LAST_RUN,results:EXA_CACHE};
+ }finally{EXA_RUNNING=false}
+}
+async function exaIntelligence(req,res,u){
+ const topic=String(u.searchParams.get('topic')||'global finance').slice(0,300);
+ const force=u.searchParams.get('force')==='1';
+ if(force||Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS){const r=await runExaIntelligence(topic);return send(res,r.ok?200:503,r);}
+ return send(res,200,{ok:true,status:'FRESH_CACHE',lastRun:EXA_LAST_RUN,ageMs:Date.now()-EXA_LAST_RUN,nextRefreshMs:Math.max(0,EXA_REFRESH_MS-(Date.now()-EXA_LAST_RUN)),count:EXA_CACHE.length,configured:Boolean(process.env.EXA_API_KEY),results:EXA_CACHE});
+}
+function exaStatus(req,res){return send(res,200,{ok:true,configured:Boolean(process.env.EXA_API_KEY),running:EXA_RUNNING,lastRun:EXA_LAST_RUN,refreshMs:EXA_REFRESH_MS,count:EXA_CACHE.length});}
+setInterval(()=>{if(process.env.EXA_API_KEY&&Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)runExaIntelligence('global finance market data AI risk regulation').catch(()=>{});},60000);
+
 function eventStatus(req,res){return send(res,200,{ok:true,version:'5.2',events:EVENT_BUS.events.slice(0,30),routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups,dropped:EVENT_BUS.dropped,queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed});}
 function agentFleetStatus(req,res){return send(res,200,{ok:true,version:'6.0',agents:[...AGENT_POOL.values()],scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,completed:SCHEDULER.completed,failed:SCHEDULER.failed},routing:'event-driven selective wakeups'});}
 function dataHealth(req,res){return send(res,200,{ok:true,version:'5.4',...DATA_HEALTH,resilience:RESILIENCE});}
@@ -588,6 +626,8 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'});return res.end();}
   const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
 
+  if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/data-health')return dataHealth(req,res);
