@@ -70,9 +70,27 @@ async function serpapi(q,count){
  return enrichResults(results);
 }
 
+async function googleNewsRss(q,count){
+ const u='https://news.google.com/rss/search?q='+encodeURIComponent(q)+'&hl=en-IN&gl=IN&ceid=IN:en';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
+  if(!r.ok)throw providerError('Google News RSS returned HTTP '+r.status);
+  const xml=await r.text(),items=[];
+  const blocks=xml.match(/<item>[\\s\\S]*?<\\/item>/gi)||[];
+  for(const block of blocks.slice(0,count)){
+   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim():''};
+   const title=cleanText(val('title')),link=val('link'),snippet=cleanText(val('description')),publishedAt=val('pubDate'),source=cleanText(val('source'))||'Google News';
+   if(/^https?:\\/\\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
+  }
+  return normalize(items,'google-news-rss');
+ }catch(e){if(e.name==='AbortError')throw providerError('Google News RSS timed out');throw e}
+ finally{clearTimeout(timer)}
+}
+
 export async function searchWeb(q,{count=8}={}){
  const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
- const order=requested==='serpapi'?['serpapi']:requested==='brave'?['brave']:requested==='tavily'?['tavily']:requested==='google'?['google']:['serpapi','brave','tavily','google'];
+ const order=requested==='serpapi'?['serpapi','google-news-rss']:requested==='brave'?['brave','google-news-rss']:requested==='tavily'?['tavily','google-news-rss']:requested==='google'?['google','google-news-rss']:['serpapi','brave','tavily','google','google-news-rss'];
  const errors=[];
  for(const p of order){
   try{
@@ -81,6 +99,7 @@ export async function searchWeb(q,{count=8}={}){
    if(p==='tavily'&&process.env.TAVILY_API_KEY)results=await tavily(q,count);
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
+   if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:`https://www.google.com/search?q=${encodeURIComponent(q)}`,message:`${results.length} live result(s) returned by ${p}.`,live:true,fetchedAt:new Date().toISOString()};
   }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));continue}
  }
