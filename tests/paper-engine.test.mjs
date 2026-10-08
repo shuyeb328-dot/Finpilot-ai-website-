@@ -105,6 +105,22 @@ function fresh(){
   assert.equal(state.paperTrading.openOrders.length,0);
 }
 
+// Pre-trade risk gate + fractional crypto sizing
+{
+  const {state,a}=fresh();
+  assert.equal(core.qtyStep('BTC'),0.0001);
+  assert.equal(core.qtyStep('IRFC'),1);
+  const gate=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()}});
+  assert.ok(['PASS','WARN'].includes(gate.status));
+  assert.equal(gate.metrics.qty,0.1);
+  assert.equal(gate.metrics.qtyStep,0.0001);
+  assert.equal(gate.virtualOnly,true);
+  assert.throws(()=>core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'risk',{orderType:'MARKET',enforceRisk:true,marketMeta:{verified:false,available:false}}),/Pre-trade risk block/);
+  const stale=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString()}});
+  assert.equal(stale.status,'BLOCK');
+  assert.ok(stale.reasons.some(x=>x.includes('stale')));
+}
+
 // Reconciliation: summary must remain finite and virtual-only
 {
   const {state}=fresh();
