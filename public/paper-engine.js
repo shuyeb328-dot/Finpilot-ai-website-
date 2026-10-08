@@ -55,11 +55,13 @@
     const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+gross.toFixed(2),fees:+c.fee.toFixed(2),slippage:+c.slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
     p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER'});a.decisions++;p.updatedAt=now();return o;
   }
-  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason){
+  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null){
     if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET'});
     const p=ensure(state);const a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
-    const tif=String(arguments.length>10?'DAY':'DAY').toUpperCase();
-    const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:Math.floor(num(qty)),orderType:String(orderType).toUpperCase(),limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:null,virtualOnly:true};
+    const tif=String(timeInForce||'GTC').toUpperCase();
+    if(!['GTC','DAY'].includes(tif))throw new Error('Unsupported paper time-in-force');
+    const exp=expiresAt?Number(expiresAt):null;
+    const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:Math.floor(num(qty)),orderType:String(orderType).toUpperCase(),limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true};
     p.openOrders.unshift(o);p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER_PLACED'});p.updatedAt=now();return o;
   }
   function expirePaperOrders(state,at=Date.now()){
