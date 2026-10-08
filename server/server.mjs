@@ -1389,7 +1389,7 @@ async function runFinPilotSmoke50(){
  }
  console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,fallbackChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
 }
-server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(AUTONOMOUS_LEARNING_INIT.enabled)setTimeout(()=>autonomousLearningCycle().catch(()=>{}),2000);});
+server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(AUTONOMOUS_LEARNING_INIT.enabled)setTimeout(async()=>{const r=await autonomousLearningCycle();console.log('[autonomous-learning-startup]',JSON.stringify({ok:r.ok,status:r.status,agent:r.agent,topic:r.topic,provider:r.provider,evidence:r.evidence,accepted:r.accepted,qualityScore:r.qualityScore,candidateStatus:r.candidateStatus}));},2000);});
 if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
 async function runGlobalMarketSmoke(){
  const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
