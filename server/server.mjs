@@ -708,5 +708,5 @@ async function runFinPilotSmoke50(){
  }
  console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,fallbackChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
 }
-server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
+server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(process.env.RUN_EXA_SMOKE==='true'){setTimeout(async()=>{try{const r=await exaSearch('latest global finance market news'); console.log('[exa-smoke]',JSON.stringify({ok:true,count:r.length,configured:true}));}catch(e){console.error('[exa-smoke]',JSON.stringify({ok:false,error:e?.message||'EXA_SMOKE_FAILED',configured:Boolean(process.env.EXA_API_KEY)}));}},1000);}});
 if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
