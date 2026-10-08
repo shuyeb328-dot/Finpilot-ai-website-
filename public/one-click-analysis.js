@@ -96,13 +96,17 @@
     const target=Number(money?.upsidePct)>0&&Number(market.price)>0?Number(market.price)*(1+Number(money.upsidePct)/100):resistance;
     const stop=Number(money?.downsidePct)>0&&Number(market.price)>0?Number(market.price)*(1-Number(money.downsidePct)/100):support;
     const trend=Number(market.price)>=s20&&Number(market.price)>=s50?'BULLISH TREND':'DEFENSIVE / MIXED';
-    return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price:Number(market.price),sma20:s20,sma50:s50,support,resistance,target,stop,rsi:Number(market.rsi),trend,ticker:market.ticker||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf};
+    const quality=market.marketDataOS||{};const freshness=String(market.dataFreshness||quality.dataFreshness||'UNKNOWN').toUpperCase();const executionEligible=Boolean(market.executionEligible===true||quality.decision==='ALLOW_ANALYSIS_AND_PAPER');const qualityStatus=market.live===true&&freshness==='FRESH_SOURCE'?'LIVE VERIFIED':Number.isFinite(Number(market.price))&&Number(market.price)>0?'DELAYED / ANALYSIS ONLY':'UNAVAILABLE';
+    return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price:Number(market.price),sma20:s20,sma50:s50,support,resistance,target,stop,rsi:Number(market.rsi),trend,ticker:market.ticker||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf,currency:market.currency||'USD',exchange:market.exchange||market.listingExchange||market.market||'GLOBAL',dataFreshness:freshness,sourceAgeMs:Number(market.sourceAgeMs||quality.sourceAgeMs||0),executionEligible,qualityStatus};
   }
   function chartSvg(a){
     if(!a?.available||!a?.realtimeAvailable){
       const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\.NS$/,'');
       if(!ticker)return '<div class="notice">No verified ticker was resolved, so FinPilot will not invent a chart.</div>';
-      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>Independent chart fallback:</b> FinPilot did not receive a verified intraday candle stream for this request. The chart below is the official TradingView widget so the page still shows market data without fabricating candles. TradingView stock data may be delayed.</div><div class="tv-chart" data-tv-symbol="NSE:'+escLocal(ticker)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">TradingView chart · verify quote freshness before acting.</div></div>';
+      const ex=String(a?.exchange||'').toUpperCase();
+      const tvPrefix=/^(NSE|BSE|NASDAQ|NYSE|AMEX|LSE|TSX|HKEX|TSE|ASX)$/.test(ex)?ex:null;
+      const tvSymbol=tvPrefix?tvPrefix+':'+ticker:ticker;
+      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>Independent chart fallback:</b> FinPilot did not receive a verified intraday candle stream for this request. The chart below is the official TradingView widget so the page still shows market data without fabricating candles. TradingView stock data may be delayed.</div><div class="tv-chart" data-tv-symbol="'+escLocal(tvSymbol)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">TradingView chart · '+escLocal(a?.exchange||'symbol lookup')+' · verify quote freshness before acting.</div></div>';
     }
     const rows=a.candles,w=760,h=260,pad=28,vals=rows.flatMap(x=>[x.low,x.high]).concat([a.sma20,a.sma50,a.support,a.resistance]).filter(Number.isFinite);
     let lo=Math.min(...vals),hi=Math.max(...vals);if(!(hi>lo)){lo-=1;hi+=1;}
