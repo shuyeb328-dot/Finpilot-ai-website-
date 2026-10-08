@@ -50,16 +50,21 @@
 
   function buildPaperCouncil(query,web){
     if(!window.FinPilotPaperCore)return null;
+    // Never feed a fabricated price into the paper council. Web search evidence
+    // is not a quote and must not be converted into a market price.
+    const quote=web?.marketQuote;
+    const requested=String(query||'').trim().toUpperCase();
+    if(!quote||quote.verified!==true||!Number.isFinite(Number(quote.price))||Number(quote.price)<=0||
+       String(quote.ticker||'').trim().toUpperCase()!==requested)return null;
     try{
       const p=syncPaperAgents();
-      const stance=web?.stance||'Mixed';
       const market={
-        symbol:String(query||'STOCK').trim().toUpperCase().slice(0,24),
-        price:100,
-        momentum:stance==='Positive'?25:stance==='Cautious'?-25:0,
+        symbol:requested,
+        price:Number(quote.price),
+        momentum:Number.isFinite(Number(quote.momentum))?Number(quote.momentum):0,
         quality:50,
         valuation:50,
-        risk:stance==='Cautious'?72:50,
+        risk:50,
         evidence:Math.min(90,60+(web?.count||0)*4)
       };
       const round=FinPilotPaperCore.roundTable(state,market);
@@ -69,8 +74,14 @@
   }
 
   function scenarioSafe(report){
+    const d=report||{},m=d.marketReport||null,price=Number(m?.price),ticker=String(m?.ticker||m?.symbol||'').trim().toUpperCase();
+    const requested=String(d.candidate?.ticker||d.ticker||'').trim().toUpperCase();
+    const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&(!requested||!ticker||ticker===requested)&&m.live===true&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))<=120000);
+    if(!liveQuote){
+      return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:0,capitalAtRisk:0,targetProfit:0,stopLoss:0,maximumLoss:0,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
+    }
     try{const engine=window.FinpilotMoneyEngine;if(engine&&typeof engine.analyze==='function'){const x=engine.analyze(report,1000,30);if(x&&Number.isFinite(Number(x.buyProbability))&&x.plan)return x;}}catch(e){}
-    const d=report||{},risk=Math.max(0,Math.min(100,Number(d.risk??50))),conf=Math.max(0,Math.min(100,Number(d.confidence??50)));
+    const risk=Math.max(0,Math.min(100,Number(d.risk??50))),conf=Math.max(0,Math.min(100,Number(d.confidence??50)));
     const buy=Math.max(5,Math.min(85,50+(conf-risk)*.22)),sell=Math.max(5,Math.min(85,30+(risk-conf)*.18)),hold=Math.max(5,100-buy-sell),total=buy+sell+hold,b=buy/total*100,s=sell/total*100,h=hold/total*100;
     const up=Math.max(2,Math.min(18,3.5+conf*.06)),down=Math.max(2,Math.min(18,2.5+risk*.08)),reward=1000*up/100,loss=1000*down/100;
     return {version:'fallback',upgradeCount:50,amount:1000,horizon:30,action:b>=s+8&&up/down>=1.25?'BUY BIAS':s>=b+8?'SELL / AVOID':'HOLD / WAIT',riskBand:risk>=70?'HIGH':risk>=45?'MEDIUM':'LOW',approved:false,buyProbability:Number(b.toFixed(2)),sellProbability:Number(s.toFixed(2)),holdProbability:Number(h.toFixed(2)),upsidePct:Number(up.toFixed(2)),downsidePct:Number(down.toFixed(2)),estimatedProfit:Number(reward.toFixed(2)),estimatedLoss:Number(loss.toFixed(2)),riskReward:Number((up/down).toFixed(2)),expectedValue:Number(((b/100)*reward-(s/100)*loss).toFixed(2)),inputs:{risk,confidence:conf,ceo:conf,cfo:conf,judge:conf,evidence:50,market:50},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:Math.round(1000*Math.max(0,Math.min(4.5,1.5+(100-risk)*.035))/100),capitalAtRisk:0,targetPct:Number(up.toFixed(2)),stopPct:-Number(down.toFixed(2)),trailingStopPct:Number((down*.65).toFixed(2)),targetProfit:0,stopLoss:0,maximumLoss:0,breakEvenPct:.25,breakEvenCost:2.5,riskReward:Number((up/down).toFixed(2)),expectedValue:0,stress7:Number((down*1.35).toFixed(2)),stress30:Number((down*1.75).toFixed(2)),stress90:Number((down*2.25).toFixed(2)),positionCap:0,gateReasons:['Scenario engine fallback'],actionReason:'Primary scenario engine was unavailable; no capital allocation is approved.'},probabilityBasis:'Fallback safety calculation because the primary scenario engine was unavailable.',disclaimer:'Fallback scenario only. No trade is approved.'};
