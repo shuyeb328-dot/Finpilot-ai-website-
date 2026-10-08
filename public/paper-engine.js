@@ -102,7 +102,7 @@
   function markToMarket(state,prices){
     const p=ensure(state),px=prices||p.marketSnapshot||{};let exposure=0,unreal=0;
     p.agents.forEach(a=>a.positions.forEach(pos=>{const last=Math.max(0,num(px[pos.symbol],pos.last||pos.avg));pos.last=last;exposure+=pos.qty*last;unreal+=(last-pos.avg)*pos.qty}));
-    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};processOpenOrders(state,px);processRiskExits(state,px);p.updatedAt=now();return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(p.cash+exposure).toFixed(2)};
+    p.unrealizedPnl=+unreal.toFixed(2);p.marketSnapshot={...p.marketSnapshot,...px};processOpenOrders(state,px);processRiskExits(state,px);p.updatedAt=now();const cash=p.agents.reduce((n,a)=>n+a.cash,0);return{exposure:+exposure.toFixed(2),unrealizedPnl:p.unrealizedPnl,equity:+(cash+exposure).toFixed(2)};
   }
   function leaderboard(state){
     const p=ensure(state);return p.agents.map(a=>{const exposure=a.positions.reduce((n,x)=>n+x.qty*x.last,0),equity=a.cash+exposure,pnl=equity-a.capital;return{...a,equity:+equity.toFixed(2),pnl:+pnl.toFixed(2),returnPct:+(pnl/Math.max(1,a.capital)*100).toFixed(2),exposure:+exposure.toFixed(2)}}).sort((a,b)=>b.returnPct-a.returnPct);
