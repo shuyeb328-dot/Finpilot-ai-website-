@@ -1,0 +1,18 @@
+name: Paper Arena browser smoke
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npx -y @playwright/test@1.63.0 install --with-deps chromium
+      - run: npx -y @playwright/test@1.63.0 test tests/paper-arena.browser.spec.mjs --project=chromium --reporter=line
