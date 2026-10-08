@@ -15,4 +15,4 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npx -y @playwright/test@1.63.0 install --with-deps chromium
-      - run: npx -y @playwright/test@1.63.0 test tests/paper-arena.browser.spec.mjs --project=chromium --reporter=line
+      - run: npx -y @playwright/test@1.63.0 test tests/paper-arena.browser.spec.mjs --reporter=line
