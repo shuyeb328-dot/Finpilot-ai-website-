@@ -133,7 +133,7 @@
     if(opts.enforceRisk){const gate=preTradeCheck(state,{agentId,symbol,side,qty,entryPrice:price,stopPrice:opts.stopPrice,targetPrice:opts.targetPrice,marketMeta:opts.marketMeta});if(gate.status==='BLOCK')throw new Error('Pre-trade risk block: '+gate.reasons.join(' '));}
     const fill=fillPrice(p,side,price,num(opts.slippageBps||0)),fillValue=qty*fill,c=costs(p,fillValue),slip=Math.abs(fill-price)*qty;
     if(side==='BUY'&&a.cash<fillValue+c.fee)throw new Error('Paper cash limit exceeded');
-    if(options.reduceOnly){const pos=a.positions.find(x=>x.symbol===symbol);if(side==='BUY')throw new Error('Reduce-only BUY is not supported in the long-only paper account.');if(!pos||pos.qty+1e-12<qty)throw new Error('Reduce-only order exceeds paper position.');}
+    if(opts.reduceOnly){const pos=a.positions.find(x=>x.symbol===symbol);if(side==='BUY')throw new Error('Reduce-only BUY is not supported in the long-only paper account.');if(!pos||pos.qty+1e-12<qty)throw new Error('Reduce-only order exceeds paper position.');}
     let realized=updateAgentPosition(a,symbol,side,qty,fill);
     if(side==='BUY')a.cash-=fillValue+c.fee;else a.cash-=c.fee;
     p.realizedPnl+=realized-c.fee;p.fees+=c.fee;p.slippage+=slip;
