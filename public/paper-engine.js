@@ -68,7 +68,7 @@
       let trigger=false;
       if(o.orderType==='LIMIT')trigger=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;
       if(o.orderType==='STOP')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
-      if(o.orderType==='STOP_LIMIT')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
+      if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;}
       if(!trigger)return true;
       try{const f=paperOrder(state,o.agentId,o.symbol,o.side,o.qty,price,o.reason,{orderType:o.orderType});o.status='FILLED';o.filledAt=now();fills.push(f);return false}catch(e){o.status='REJECTED';o.error=e.message;return false}
     });return fills;
