@@ -133,4 +133,63 @@ function fresh(){
   assert.equal(risk.virtualOnly,true);
 }
 
+/* Execution 2.0 regression coverage */
+{
+  const {state,a}=fresh();
+  const marketMeta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const limit=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'fractional risk-gated limit','GTC',null,0,{enforceRisk:true,marketMeta,clientOrderId:'reg-btc-limit-1'});
+  assert.equal(limit.status,'OPEN');
+  assert.equal(limit.qty,0.1);
+  core.processOpenOrders(state,{BTC:79900});
+  assert.equal(limit.status,'FILLED');
+  assert.equal(limit.filledQty,0.1);
+  assert.equal(a.positions[0].qty,0.1);
+  assert.equal(state.paperTrading.orders.filter(x=>x.id===limit.id).length,1);
+}
+{
+  const {state,a}=fresh();
+  const before=core.paperOrder(state,'a1','BTC','BUY',0.25,80000,'fractional entry');
+  const bracket=core.placeBracket(state,'a1','BTC','BUY',0.25,'MARKET',80000,79000,82000,'fractional bracket');
+  assert.equal(a.positions[0].qty,0.5);
+  const children=state.paperTrading.openOrders.filter(o=>o.bracketGroup===bracket.bracketGroup);
+  assert.equal(children.length,2);
+  assert.equal(children.every(o=>o.qty===0.25),true);
+  assert.equal(before.status,'FILLED');
+}
+{
+  const {state}=fresh();
+  const meta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const first=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'reserve 1','GTC',null,0,{enforceRisk:true,marketMeta:meta,clientOrderId:'reserve-1'});
+  assert.equal(first.status,'OPEN');
+  assert.throws(()=>core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'reserve 2','GTC',null,0,{enforceRisk:true,marketMeta:meta,clientOrderId:'reserve-2'}),/buying power|Insufficient/);
+}
+{
+  const {state,a}=fresh();
+  core.paperOrder(state,'a1','BTC','BUY',0.5,80000,'fractional amend base');
+  const o=core.placeOrder(state,'a1','BTC','SELL',0.5,'LIMIT',82000,null,null,'fractional exit');
+  assert.equal(o.qty,0.5);
+  core.amendOrder(state,o.id,{qty:0.25,limitPrice:81000});
+  assert.equal(o.qty,0.25);
+  assert.equal(o.remainingQty,0.25);
+}
+{
+  const {state}=fresh();
+  core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'FOK base');
+  const o=core.placeOrder(state,'a1','BTC','SELL',0.1,'LIMIT',79000,null,null,'FOK test','FOK');
+  core.processOpenOrders(state,{BTC:79000});
+  assert.equal(o.status,'FILLED');
+  assert.equal(state.paperTrading.openOrders.length,0);
+}
+{
+  const {state,a}=fresh();
+  const marketMeta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const id='idempotent-market-1';
+  const a1=core.placeOrder(state,'a1','BTC','BUY',0.1,'MARKET',80000,null,null,'idempotent','GTC',null,0,{enforceRisk:true,marketMeta,clientOrderId:id});
+  const cashAfter=a.cash;
+  const a2=core.placeOrder(state,'a1','BTC','BUY',0.1,'MARKET',80000,null,null,'idempotent retry','GTC',null,0,{enforceRisk:true,marketMeta,clientOrderId:id});
+  assert.equal(a2.id,a1.id);
+  assert.equal(a.cash,cashAfter);
+  assert.equal(state.paperTrading.orders.filter(x=>x.id===a1.id).length,1);
+}
+
 console.log('Paper engine execution tests passed');
