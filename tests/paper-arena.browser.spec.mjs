@@ -42,6 +42,10 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await page.waitForTimeout(500);
 
   await page.waitForTimeout(1000);
+  await expect(page.locator('#fpChatLauncher')).toBeVisible();
+  await expect(page.locator('#fpBenchmarkLauncher')).toBeVisible();
+  expect(await page.evaluate(() => typeof window.FinPilotChat)).toBe('object');
+  expect(await page.evaluate(() => typeof window.FinPilotBenchmark)).toBe('object');
   console.log('PAPER_AFTER_SHOW', JSON.stringify(await page.evaluate(() => ({core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded), engineError: window.__finPaperEngineError || null, paperText: document.getElementById('paperlab')?.innerText || ''}))));
 
   await expect(page.locator('#paperlab')).toContainText('PAPER ONLY', { timeout: 30000 });
