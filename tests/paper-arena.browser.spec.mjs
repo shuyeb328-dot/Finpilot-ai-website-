@@ -40,7 +40,10 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
 
   const verified = page.getByRole('button', { name: /Get verified price/i });
   await verified.click();
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
+  await expect(page.locator('#paperChart')).toContainText(/Provider:/, { timeout: 15000 });
+  expect(await page.locator('#paperChart svg').count()).toBe(1);
+  expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
   // The browser test first attempts the real verified quote path. For deterministic execution,
   // it then switches the ticket to an explicitly synthetic SMOKE instrument.
   await page.locator('#paperSymbol').evaluate(el => { el.value = 'SMOKE'; });
