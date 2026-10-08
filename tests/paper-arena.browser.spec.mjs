@@ -49,6 +49,7 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   const verified = page.getByRole('button', { name: /Get verified price/i });
   await verified.click();
   await page.waitForTimeout(2500);
+  console.log('PAPER_MARKET_AFTER_CLICK', JSON.stringify(await page.evaluate(async () => { let api=null; try { const r=await fetch('/api/stock-report?ticker=BTC&interval=1h&multi=1&diag='+Date.now(),{cache:'no-store'}); api={status:r.status,body:(await r.text()).slice(0,1200)}; } catch(e){ api={error:String(e?.message||e)}; } return {status:document.getElementById('paperMarketStatus')?.innerText||'',chart:document.getElementById('paperChart')?.innerText||'',api}; })));
   await expect(page.locator('#paperChart')).toContainText(/Provider:/, { timeout: 15000 });
   expect(await page.locator('#paperChart svg').count()).toBe(1);
   expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
