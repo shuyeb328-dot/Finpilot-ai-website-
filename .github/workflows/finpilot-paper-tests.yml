@@ -16,4 +16,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: for f in public/*.js; do node --check "$f"; done
       - run: npm run check
