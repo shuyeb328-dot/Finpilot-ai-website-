@@ -1006,7 +1006,7 @@ if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e
 async function runGlobalMarketSmoke(){
  const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
  const test=async(list)=>{const out=[];let cursor=0;const worker=async()=>{while(true){const i=cursor++;if(i>=list.length)return;try{const x=await liveEquity(list[i]);out[i]={input:list[i],ok:true,symbol:x.symbol,price:x.price,provider:x.provider,live:x.live===true};}catch(e){out[i]={input:list[i],ok:false,error:e?.message||'error'};}}};await Promise.all(Array.from({length:4},worker));return out};
- const [indices,stocks]=await Promise.all([test(idx),test(stocks)]);
- console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stocks.length,pass:stocks.filter(x=>x.ok).length,fail:stocks.filter(x=>!x.ok).length,rows:stocks},elapsedMs:Date.now()-started}));
+ const [indices,stockResults]=await Promise.all([test(idx),test(stocks)]);
+ console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stockResults.length,pass:stockResults.filter(x=>x.ok).length,fail:stockResults.filter(x=>!x.ok).length,rows:stockResults},elapsedMs:Date.now()-started}));
 }
 if(process.env.RUN_GLOBAL_MARKET_SMOKE==='true')setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
