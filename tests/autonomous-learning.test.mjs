@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {AUTONOMOUS_AGENT_PROFILES,runCycle,runLiveAgentComparison,status} from '../server/autonomous-learning.mjs';
+import {AUTONOMOUS_AGENT_PROFILES,runCycle,runLiveAgentComparison,status,scoreEvidence} from '../server/autonomous-learning.mjs';
 
 assert.equal(AUTONOMOUS_AGENT_PROFILES.length,12);
 assert.ok(AUTONOMOUS_AGENT_PROFILES.some(x=>x.id==='Research'));
