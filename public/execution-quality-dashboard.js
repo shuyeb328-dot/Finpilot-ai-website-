@@ -1,0 +1,34 @@
+/* FinPilot Execution Quality dashboard 1.0 — paper trading telemetry only. */
+(function(){
+  'use strict';
+  const KEY='finpilot_web_v2300';
+  const css=`
+  #fpEqLauncher{position:fixed;right:18px;bottom:18px;z-index:9998;border:0;border-radius:999px;background:#14233b;color:#fff;padding:12px 16px;font-weight:750;box-shadow:0 8px 28px #14233b30;cursor:pointer}
+  #fpEqPanel{position:fixed;right:18px;bottom:72px;width:min(720px,calc(100vw - 28px));max-height:78vh;overflow:auto;z-index:9999;background:var(--surface,#fff);color:var(--text,#172033);border:1px solid var(--line,#e4e8ef);border-radius:16px;box-shadow:0 18px 60px #10182835;padding:18px;display:none}
+  #fpEqPanel *{box-sizing:border-box}#fpEqPanel .eqHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}#fpEqPanel h3{margin:0;font-size:17px}#fpEqPanel p{margin:5px 0;color:var(--muted,#6b7688);font-size:12px;line-height:1.5}
+  #fpEqPanel .eqActions{display:flex;gap:8px;flex-wrap:wrap}#fpEqPanel button{border:1px solid var(--line,#e4e8ef);background:var(--surface-2,#f8fafc);color:inherit;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:650}
+  #fpEqPanel .eqGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:12px 0}#fpEqPanel .eqCard{border:1px solid var(--line,#e4e8ef);background:var(--surface-2,#f8fafc);border-radius:11px;padding:12px;min-width:0}#fpEqPanel .eqCard small{display:block;color:var(--muted,#6b7688);font-size:11px}#fpEqPanel .eqCard b{display:block;font-size:20px;margin-top:5px;overflow-wrap:anywhere}#fpEqPanel .eqTableWrap{overflow-x:auto}#fpEqPanel table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}#fpEqPanel th,#fpEqPanel td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line,#e4e8ef)}#fpEqPanel th{color:var(--muted,#6b7688);font-weight:650}#fpEqPanel .eqTag{display:inline-block;border-radius:5px;padding:3px 6px;background:#e9f8f1;color:#138a5b;font-size:10px;font-weight:800}#fpEqPanel .eqEmpty{padding:22px;text-align:center;border:1px dashed var(--line,#e4e8ef);border-radius:12px;color:var(--muted,#6b7688)}
+  @media(max-width:520px){#fpEqPanel{right:8px;bottom:68px;width:calc(100vw - 16px);padding:13px}#fpEqPanel .eqGrid{grid-template-columns:repeat(2,minmax(0,1fr))}#fpEqPanel .eqCard b{font-size:17px}#fpEqLauncher{right:10px;bottom:10px}}`;
+  function addStyles(){if(document.getElementById('fpEqStyle'))return;const s=document.createElement('style');s.id='fpEqStyle';s.textContent=css;document.head.appendChild(s)}
+  function readState(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}}
+  function fmt(n,d=1){return n==null||!Number.isFinite(Number(n))?'—':Number(n).toFixed(d)}
+  function render(){
+    const panel=document.getElementById('fpEqPanel');if(!panel)return;
+    const state=readState(),core=window.FinPilotPaperCore;
+    if(!core||typeof core.executionQualityReport!=='function'){panel.innerHTML='<div class="eqHead"><div><h3>Execution Quality</h3><p>Paper execution telemetry is waiting for the trading engine.</p></div><button data-eq-close>Close</button></div>';wireClose(panel);return}
+    const report=core.executionQualityReport(state);
+    try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+    const rows=report.rows||[];
+    const card=(label,value,sub='')=>'<div class="eqCard"><small>'+label+'</small><b>'+value+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</div>';
+    const body=rows.length?'<div class="eqTableWrap"><table><thead><tr><th>Symbol</th><th>Side</th><th>Order</th><th>Fill</th><th>Slippage</th><th>Latency</th><th>Score</th></tr></thead><tbody>'+rows.slice(0,20).map(r=>'<tr><td><b>'+escapeHtml(r.symbol||'—')+'</b></td><td>'+escapeHtml(r.side||'—')+'</td><td>'+escapeHtml(r.orderType||'—')+'</td><td>'+fmt(r.fillPrice,2)+'</td><td>'+(r.adverseSlippageBps==null?'—':fmt(r.adverseSlippageBps,1)+' bps')+'</td><td>'+(r.executionLatencyMs==null?'—':fmt(r.executionLatencyMs,0)+' ms')+'</td><td>'+(r.score==null?'—':fmt(r.score,0)+'/100')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="eqEmpty"><b>No measured fills yet</b><p>Place and fill paper orders to populate the execution report. Scores only use dimensions actually recorded by the paper engine.</p></div>';
+    panel.innerHTML='<div class="eqHead"><div><h3>Execution Quality Intelligence</h3><p>Paper-trading diagnostics · descriptive metrics, not profit predictions or live-broker execution.</p></div><div class="eqActions"><button data-eq-refresh>Refresh</button><button data-eq-close>Close</button></div></div>'+
+    '<div class="eqGrid">'+card('Average quality score',report.averageScore==null?'—':fmt(report.averageScore)+'/100','Only fills with enough telemetry')+card('Measured fills',report.scoredFills+'/'+report.fills,'Scored / total recorded')+card('Adverse slippage',report.averageAdverseSlippageBps==null?'—':fmt(report.averageAdverseSlippageBps)+' bps','Positive means worse than mid')+card('Average latency',report.averageLatencyMs==null?'—':fmt(report.averageLatencyMs,0)+' ms','Only when recorded')+card('Market impact',report.averageMarketImpactBps==null?'—':fmt(report.averageMarketImpactBps)+' bps','Only when recorded')+card('Stale quote fills',String(report.staleQuoteFills),'Freshness failures observed')+'</div>'+
+    '<p><span class="eqTag">PAPER ONLY</span> Auto-promotion: disabled · Real-money execution: disabled · Comparison gate: '+(report.governance.ready?'sample threshold met':'need '+Math.max(0,report.governance.minimumSampleForComparison-report.scoredFills)+' more scored fills and zero stale fills')+'</p><h4 style="margin:18px 0 8px">Recent execution records</h4>'+body;
+    wireClose(panel);
+  }
+  function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function wireClose(panel){panel.querySelectorAll('[data-eq-close]').forEach(b=>b.onclick=()=>panel.style.display='none');panel.querySelectorAll('[data-eq-refresh]').forEach(b=>b.onclick=render)}
+  function mount(){if(!document.body||document.getElementById('fpEqLauncher'))return;addStyles();const b=document.createElement('button');b.id='fpEqLauncher';b.textContent='↗ Execution Quality';b.setAttribute('aria-controls','fpEqPanel');b.onclick=()=>{const p=document.getElementById('fpEqPanel');p.style.display=p.style.display==='block'?'none':'block';if(p.style.display==='block')render()};const p=document.createElement('section');p.id='fpEqPanel';p.setAttribute('aria-label','Execution Quality Intelligence');document.body.append(b,p);render()}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+  window.FinPilotExecutionQualityDashboard={refresh:render,version:'1.0'};
+})();
