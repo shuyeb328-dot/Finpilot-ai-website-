@@ -68,13 +68,21 @@
     }catch(e){return null}
   }
 
+  function scenarioSafe(report){
+    try{const engine=window.FinpilotMoneyEngine;if(engine&&typeof engine.analyze==='function'){const x=engine.analyze(report,1000,30);if(x&&Number.isFinite(Number(x.buyProbability))&&x.plan)return x;}}catch(e){}
+    const d=report||{},risk=Math.max(0,Math.min(100,Number(d.risk??50))),conf=Math.max(0,Math.min(100,Number(d.confidence??50)));
+    const buy=Math.max(5,Math.min(85,50+(conf-risk)*.22)),sell=Math.max(5,Math.min(85,30+(risk-conf)*.18)),hold=Math.max(5,100-buy-sell),total=buy+sell+hold,b=buy/total*100,s=sell/total*100,h=hold/total*100;
+    const up=Math.max(2,Math.min(18,3.5+conf*.06)),down=Math.max(2,Math.min(18,2.5+risk*.08)),reward=1000*up/100,loss=1000*down/100;
+    return {version:'fallback',upgradeCount:50,amount:1000,horizon:30,action:b>=s+8&&up/down>=1.25?'BUY BIAS':s>=b+8?'SELL / AVOID':'HOLD / WAIT',riskBand:risk>=70?'HIGH':risk>=45?'MEDIUM':'LOW',approved:false,buyProbability:Number(b.toFixed(2)),sellProbability:Number(s.toFixed(2)),holdProbability:Number(h.toFixed(2)),upsidePct:Number(up.toFixed(2)),downsidePct:Number(down.toFixed(2)),estimatedProfit:Number(reward.toFixed(2)),estimatedLoss:Number(loss.toFixed(2)),riskReward:Number((up/down).toFixed(2)),expectedValue:Number(((b/100)*reward-(s/100)*loss).toFixed(2)),inputs:{risk,confidence:conf,ceo:conf,cfo:conf,judge:conf,evidence:50,market:50},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:Math.round(1000*Math.max(0,Math.min(4.5,1.5+(100-risk)*.035))/100),capitalAtRisk:0,targetPct:Number(up.toFixed(2)),stopPct:-Number(down.toFixed(2)),trailingStopPct:Number((down*.65).toFixed(2)),targetProfit:0,stopLoss:0,maximumLoss:0,breakEvenPct:.25,breakEvenCost:2.5,riskReward:Number((up/down).toFixed(2)),expectedValue:0,stress7:Number((down*1.35).toFixed(2)),stress30:Number((down*1.75).toFixed(2)),stress90:Number((down*2.25).toFixed(2)),positionCap:0,gateReasons:['Scenario engine fallback'],actionReason:'Primary scenario engine was unavailable; no capital allocation is approved.'},probabilityBasis:'Fallback safety calculation because the primary scenario engine was unavailable.',disclaimer:'Fallback scenario only. No trade is approved.'};
+  }
+
   function renderOneClickPanel(q,report){
     const box=document.getElementById('searchResults');
     if(!box)return;
     const e=report.executive||{};
     const web=report.webSignal||{};
     const paper=report.paper;
-    const money=window.FinpilotMoneyEngine?.analyze(report,1000,30)||null;
+    const money=scenarioSafe(report);
     const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
@@ -134,7 +142,29 @@
           <div class="notice" style="margin-top:10px"><b>Re-evaluation triggers:</b> ${v8?.triggers?.length?v8.triggers.map(escLocal).join(' · '):'No immediate trigger; continue monitoring.'}</div>
           <div class="notice" style="margin-top:8px"><b>v8 decision trace:</b> ${v8?.trace?.map(escLocal).join(' → ')||'Not available'}</div>
           <div class="muted" style="margin-top:8px">${escLocal(v8?.disclaimer||'')}</div>
-        </div>        <div class="notice" style="margin-top:12px"><b>All-in-one pipeline:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → isolated paper council. No real order was placed.</div>
+        </div>        <div class="card" style="margin-top:12px;border:2px solid #315efb;background:#f7f9ff">
+          <div class="sectionTitle"><div><span class="eyebrow">₹1,000 TOP-TIER RISK PLAN</span><h3 style="font-size:18px;margin-top:5px">Capital plan · target · stop · loss budget</h3></div><span class="pill ${money.plan?.approval==='CONDITIONAL'?'low':'high'}">${escLocal(money.plan?.approval||'BLOCKED')}</span></div>
+          <div class="grid four">
+            <div class="card"><span class="muted">Requested</span><div class="metric">₹${Number(money.plan?.requestedAmount||1000).toLocaleString('en-IN')}</div><span class="muted">scenario capital</span></div>
+            <div class="card"><span class="muted">Recommended exposure</span><div class="metric ${Number(money.plan?.recommendedAmount||0)>0?'green':'red'}">₹${Number(money.plan?.recommendedAmount||0).toLocaleString('en-IN')}</div><span class="muted">${money.plan?.approval==='CONDITIONAL'?'paper-only conditional size':'capital protected'}</span></div>
+            <div class="card"><span class="muted">Risk budget</span><div class="metric red">₹${Number(money.plan?.riskBudget||0).toLocaleString('en-IN')}</div><span class="muted">maximum planned risk</span></div>
+            <div class="card"><span class="muted">Maximum loss</span><div class="metric red">₹${Number(money.plan?.maximumLoss||0).toLocaleString('en-IN')}</div><span class="muted">scenario boundary</span></div>
+          </div>
+          <div class="grid four" style="margin-top:10px">
+            <div class="card"><span class="muted">Target</span><div class="metric green">+${Number(money.plan?.targetPct||0).toFixed(2)}%</div><span class="muted">+₹${Number(money.plan?.targetProfit||0).toLocaleString('en-IN')}</span></div>
+            <div class="card"><span class="muted">Stop-loss</span><div class="metric red">${Number(money.plan?.stopPct||0).toFixed(2)}%</div><span class="muted">−₹${Number(money.plan?.stopLoss||0).toLocaleString('en-IN')}</span></div>
+            <div class="card"><span class="muted">Trailing stop</span><div class="metric">${Number(money.plan?.trailingStopPct||0).toFixed(2)}%</div><span class="muted">dynamic risk control</span></div>
+            <div class="card"><span class="muted">Break-even</span><div class="metric">${Number(money.plan?.breakEvenPct||0).toFixed(2)}%</div><span class="muted">cost buffer ₹${Number(money.plan?.breakEvenCost||0).toFixed(2)}</span></div>
+          </div>
+          <div class="notice" style="margin-top:10px"><b>Plan decision:</b> ${escLocal(money.plan?.actionReason||'No plan available.')}<br><b>Entry:</b> ${escLocal(money.plan?.entry||'Use verified market price only.')}</div>
+          <div class="grid three" style="margin-top:10px">
+            <div class="notice"><b>7-day stress</b><br>−${Number(money.plan?.stress7||0).toFixed(2)}%</div>
+            <div class="notice"><b>30-day stress</b><br>−${Number(money.plan?.stress30||0).toFixed(2)}%</div>
+            <div class="notice"><b>90-day stress</b><br>−${Number(money.plan?.stress90||0).toFixed(2)}%</div>
+          </div>
+          <div class="notice highNotice" style="margin-top:10px"><b>Safety:</b> ${escLocal((money.plan?.gateReasons||[]).join(' · ')||'No blocking gate detected.')} — This is a paper scenario; no real order is placed.</div>
+        </div>
+        <div class="notice" style="margin-top:12px"><b>All-in-one pipeline:</b> Internet evidence → Financial Brain → ${report.agentCount} agents → 7-voice Round Table → CEO → CFO → Judge → Action Center → isolated paper council. No real order was placed.</div>
       </div>`;
     const old=document.getElementById('oneClickResult');
     if(old)old.remove();
