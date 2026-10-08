@@ -28,7 +28,7 @@ function cleanText(v){
   .replace(/&gt;/gi,'>')
   .replace(/&#x27;/gi,"'")
   .replace(/&#x2F;/gi,'/')
-  .replace(/&#(d+);/g,(_,n)=>String.fromCharCode(Number(n)))
+  .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(Number(n)))
   .replace(/<[^>]*>/g,' ')
   .replace(/\s+/g,' ').trim();
 }
