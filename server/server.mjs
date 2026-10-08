@@ -446,14 +446,15 @@ async function fetchYahooPageQuote(symbol){
   const r=await fetch(url,{headers:{'Accept':'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'},signal:controller.signal});
   if(!r.ok)throw new Error('Yahoo page HTTP '+r.status);
   const html=await r.text();
-  const marker='\"symbol\":\"'+symbol.replace(/([\\.^$*+?()[\\]{}|])/g,'\\\\$1')+'\"';
-  const pos=html.indexOf(marker);
-  if(pos<0)throw new Error('Yahoo page symbol marker unavailable');
-  const block=html.slice(Math.max(0,pos-1000),Math.min(html.length,pos+16000));
-  const raw=(name)=>{const re=new RegExp('\\\"'+name+'\\\":\\{\\\"raw\\\":(-?[0-9.]+)','i');const m=block.match(re);return m?Number(m[1]):null};
-  const price=raw('regularMarketPrice');
+  const esc=String(symbol).replace(/[.*+?^${}()|[\\]\\]/g,'\\\\$&');
+  const field=(name)=>{
+   const p1=new RegExp('<fin-streamer[^>]*data-symbol=[\\\"\\\']'+esc+'[\\\"\\\'][^>]*data-field=[\\\"\\\']'+name+'[\\\"\\\'][^>]*data-value=[\\\"\\\'](-?[0-9.]+)','i');
+   const p2=new RegExp('<fin-streamer[^>]*data-field=[\\\"\\\']'+name+'[\\\"\\\'][^>]*data-symbol=[\\\"\\\']'+esc+'[\\\"\\\'][^>]*data-value=[\\\"\\\'](-?[0-9.]+)','i');
+   const m=(html.match(p1)||html.match(p2));return m?Number(m[1]):null;
+  };
+  const price=field('regularMarketPrice');
   if(!Number.isFinite(price))throw new Error('Yahoo page symbol-specific price unavailable');
-  const previous=raw('regularMarketPreviousClose'),changePct=raw('regularMarketChangePercent'),dayHigh=raw('regularMarketDayHigh'),dayLow=raw('regularMarketDayLow');
+  const previous=field('regularMarketPreviousClose'),changePct=field('regularMarketChangePercent'),dayHigh=field('regularMarketDayHigh'),dayLow=field('regularMarketDayLow');
   const result={ticker:symbol,symbol,market:'GLOBAL_MARKET',exchange:'Yahoo Finance',name:symbol,price,previous:Number.isFinite(previous)?previous:price,changePct:Number.isFinite(changePct)?changePct:0,dayHigh:Number.isFinite(dayHigh)?dayHigh:price,dayLow:Number.isFinite(dayLow)?dayLow:price,live:false,provider:'Yahoo Finance web quote fallback · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'web quote / may be delayed',dataDisclaimer:'Fallback web quote; verify exchange or broker quote before acting.'};
   EQUITY_MARKET_CACHE.set('PAGE:'+symbol,{at:Date.now(),result});return result;
  }finally{clearTimeout(timer)}
