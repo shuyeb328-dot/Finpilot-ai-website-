@@ -76,6 +76,25 @@
     return {version:'fallback',upgradeCount:50,amount:1000,horizon:30,action:b>=s+8&&up/down>=1.25?'BUY BIAS':s>=b+8?'SELL / AVOID':'HOLD / WAIT',riskBand:risk>=70?'HIGH':risk>=45?'MEDIUM':'LOW',approved:false,buyProbability:Number(b.toFixed(2)),sellProbability:Number(s.toFixed(2)),holdProbability:Number(h.toFixed(2)),upsidePct:Number(up.toFixed(2)),downsidePct:Number(down.toFixed(2)),estimatedProfit:Number(reward.toFixed(2)),estimatedLoss:Number(loss.toFixed(2)),riskReward:Number((up/down).toFixed(2)),expectedValue:Number(((b/100)*reward-(s/100)*loss).toFixed(2)),inputs:{risk,confidence:conf,ceo:conf,cfo:conf,judge:conf,evidence:50,market:50},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:Math.round(1000*Math.max(0,Math.min(4.5,1.5+(100-risk)*.035))/100),capitalAtRisk:0,targetPct:Number(up.toFixed(2)),stopPct:-Number(down.toFixed(2)),trailingStopPct:Number((down*.65).toFixed(2)),targetProfit:0,stopLoss:0,maximumLoss:0,breakEvenPct:.25,breakEvenCost:2.5,riskReward:Number((up/down).toFixed(2)),expectedValue:0,stress7:Number((down*1.35).toFixed(2)),stress30:Number((down*1.75).toFixed(2)),stress90:Number((down*2.25).toFixed(2)),positionCap:0,gateReasons:['Scenario engine fallback'],actionReason:'Primary scenario engine was unavailable; no capital allocation is approved.'},probabilityBasis:'Fallback safety calculation because the primary scenario engine was unavailable.',disclaimer:'Fallback scenario only. No trade is approved.'};
   }
 
+  function buildChartAnalysis(market,money,candidate){
+    if(!market)return {available:false,message:'Live price-series data was not returned for this candidate.'};
+    const candles=Array.isArray(market.candles)?market.candles.filter(x=>Number.isFinite(Number(x.close))).slice(-80):[];
+    const s20=Number(market.sma20),s50=Number(market.sma50);
+    const resistance=Number(market.recentHigh||market.resistance),support=Number(market.recentLow||market.support);
+    const target=Number(money?.upsidePct)>0&&Number(market.price)>0?Number(market.price)*(1+Number(money.upsidePct)/100):resistance;
+    const stop=Number(money?.downsidePct)>0&&Number(market.price)>0?Number(market.price)*(1-Number(money.downsidePct)/100):support;
+    const trend=Number(market.price)>=s20&&Number(market.price)>=s50?'BULLISH TREND':'DEFENSIVE / MIXED';
+    return {available:candles.length>1,candles,price:Number(market.price),sma20:s20,sma50:s50,support,resistance,target,stop,rsi:Number(market.rsi),trend,ticker:market.ticker||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf};
+  }
+  function chartSvg(a){
+    if(!a?.available)return '<div class="notice">Chart unavailable because the live price series was not returned. FinPilot will not invent candles.</div>';
+    const rows=a.candles,w=760,h=260,pad=28,vals=rows.flatMap(x=>[x.low,x.high]).concat([a.sma20,a.sma50,a.support,a.resistance]).filter(Number.isFinite);
+    let lo=Math.min(...vals),hi=Math.max(...vals);if(!(hi>lo)){lo-=1;hi+=1;}
+    const x=i=>pad+(w-2*pad)*(i/Math.max(1,rows.length-1)),y=v=>h-pad-(h-2*pad)*((v-lo)/(hi-lo));
+    const path=rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(r.close).toFixed(1)).join(' ');
+    const line=(v,dash)=>Number.isFinite(v)?'<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+y(v).toFixed(1)+'" y2="'+y(v).toFixed(1)+'" stroke="'+(dash?'#94a3b8':'#cbd5e1')+'" stroke-width="1" stroke-dasharray="'+(dash?'5 4':'2 3')+'"/><text x="'+(w-pad-2)+'" y="'+(y(v)-4).toFixed(1)+'" text-anchor="end" fill="#64748b" font-size="11">'+escLocal(Number(v).toFixed(2))+'</text>':'';
+    return '<div style="overflow:auto"><svg viewBox="0 0 '+w+' '+h+'" style="width:100%;min-width:620px;height:260px;background:#f8fafc;border-radius:10px" aria-label="Live technical price chart">'+line(a.support,true)+line(a.resistance,true)+'<path d="'+path+'" fill="none" stroke="#315efb" stroke-width="3"/>'+line(a.sma20,false)+line(a.sma50,false)+'</svg></div>';
+  }
   function renderOneClickPanel(q,report){
     const box=document.getElementById('searchResults');
     if(!box)return;
@@ -97,6 +116,17 @@
         <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
           <div class="sectionTitle"><div><span class="eyebrow">AI MARKET CANDIDATE</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Candidate score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">Evidence mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Signal balance</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why selected:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
+        </div>
+        <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
+          <div class="sectionTitle"><div><span class="eyebrow">LIVE TECHNICAL CHART</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.available?'low':'med'}">${report.chartAnalysis?.available?'LIVE SERIES':'NO SERIES'}</span></div>
+          ${chartSvg(report.chartAnalysis)}
+          <div class="grid cards" style="margin-top:10px">
+            <div class="card"><span class="muted">Live price</span><div class="metric">₹${Number(report.chartAnalysis?.price||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
+            <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
+            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.sma20||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.sma50||0).toFixed(2)}</div></div>
+            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.support||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.resistance||0).toFixed(2)}</div></div>
+          </div>
+          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>
         </div>
         <div class="grid cards" style="margin-bottom:12px">
           <div class="card"><span class="muted">Web evidence</span><div class="metric">${web.count||0}</div><span class="muted">${escLocal(web.provider||'web')} · ${escLocal(web.stance||'Mixed')}</span></div>
@@ -218,6 +248,17 @@
       if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
       state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
       save();
+      let marketReport=null;
+      try{
+        const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
+        if(symbol){
+          const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1',{cache:'no-store'});
+          const md=await mr.json();
+          if(md?.ok&&md?.report)marketReport=md.report;
+        }
+      }catch(e){searchWarning=searchWarning||'Chart data unavailable';}
+      decision.marketReport=marketReport;
+      decision.chartAnalysis=buildChartAnalysis(marketReport,money,candidate);
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
       const progress=document.getElementById('oneClickProgress');if(progress)progress.remove();
