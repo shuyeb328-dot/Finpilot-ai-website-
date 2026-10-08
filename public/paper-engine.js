@@ -110,7 +110,7 @@
         if(fillQty<1){o.status='CANCELLED';o.cancelledAt=now();return false;}
         const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
-        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketGroup)cancelOco(state,o.id);return false}
+        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketRole==='ENTRY'&&o.bracket)activateBracketChildren(state,o,o.filledQty||o.qty);if(o.bracketRole&&o.bracketRole!=='ENTRY')cancelOco(state,o.id);return false}
         if(o.timeInForce==='IOC'){o.status='CANCELLED';o.cancelledAt=now();const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});return false}
         o.status='PARTIALLY_FILLED';return true;
       }catch(e){o.status='REJECTED';o.error=e.message;const ledger=p.orders.find(x=>x.id===o.id);if(ledger)Object.assign(ledger,{status:'REJECTED',error:o.error});return false}
@@ -126,21 +126,38 @@
     o.amendedAt=now();o.amendments=(o.amendments||0)+1;
     p.journal.unshift({...o,type:'PAPER_ORDER_AMENDED'});p.updatedAt=now();return o;
   }
-  function placeBracket(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason){
-    const p=ensure(state),group=uid('bracket');
-    const entry=placeOrder(state,agentId,symbol,side,qty,entryType,entryPrice,null,null,reason,'GTC',null);
-    entry.bracketRole='ENTRY';entry.bracketGroup=group;entry.bracket={stopPrice:num(stopPrice),targetPrice:num(targetPrice),oco:true};
-    if(String(entryType).toUpperCase()==='MARKET'){
-      const exitSide=String(side).toUpperCase()==='BUY'?'SELL':'BUY';
-      if(num(stopPrice)) {
-        const sl=placeOrder(state,agentId,symbol,exitSide,qty,'STOP',0,stopPrice,null,'Bracket stop loss','GTC',null);
-        sl.bracketRole='STOP';sl.bracketGroup=group;sl.reduceOnly=true;
+  function cancelOco(state,filledOrderId){
+    const p=ensure(state),o=p.orders.find(x=>x.id===filledOrderId)||p.openOrders.find(x=>x.id===filledOrderId);
+    if(!o||!o.bracketGroup)return [];
+    const cancelled=[];
+    p.openOrders=p.openOrders.filter(x=>{
+      if(x.bracketGroup===o.bracketGroup&&x.id!==o.id&&x.status==='OPEN'){
+        x.status='CANCELLED';x.cancelledAt=now();cancelled.push(x.id);
+        const ledger=p.orders.find(y=>y.id===x.id);
+        if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:x.cancelledAt});
+        p.journal.unshift({...x,type:'PAPER_OCO_CANCELLED'});
+        return false
       }
-      if(num(targetPrice)) {
-        const tp=placeOrder(state,agentId,symbol,exitSide,qty,'LIMIT',targetPrice,null,null,'Bracket take profit','GTC',null);
-        tp.bracketRole='TARGET';tp.bracketGroup=group;tp.reduceOnly=true;
-      }
+      return true
+    });
+    p.updatedAt=now();return cancelled;
+  }
+  function activateBracketChildren(state,entry,qty){
+    const p=ensure(state),group=entry.bracketGroup,bSide=entry.side==='BUY'?'SELL':'BUY',q=Math.max(1,Math.floor(num(qty)));
+    if(num(entry.bracket?.stopPrice)){
+      const sl=placeOrder(state,entry.agentId,entry.symbol,bSide,q,'STOP',0,entry.bracket.stopPrice,null,'Bracket stop loss','GTC',null);
+      sl.bracketRole='STOP';sl.bracketGroup=group;sl.reduceOnly=true;sl.parentId=entry.id;
     }
+    if(num(entry.bracket?.targetPrice)){
+      const tp=placeOrder(state,entry.agentId,entry.symbol,bSide,q,'LIMIT',entry.bracket.targetPrice,null,null,'Bracket take profit','GTC',null);
+      tp.bracketRole='TARGET';tp.bracketGroup=group;tp.reduceOnly=true;tp.parentId=entry.id;
+    }
+  }
+  function placeBracket(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason){
+    const p=ensure(state),group=uid('bracket'),et=String(entryType).toUpperCase(),entrySide=String(side).toUpperCase();
+    const entry=placeOrder(state,agentId,symbol,entrySide,qty,et,entryPrice,null,null,reason,'GTC',null);
+    entry.bracketRole='ENTRY';entry.bracketGroup=group;entry.bracket={stopPrice:num(stopPrice),targetPrice:num(targetPrice),oco:true};
+    if(et==='MARKET') activateBracketChildren(state,entry,qty);
     return entry;
   }
   function cancelOrder(state,orderId){
