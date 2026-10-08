@@ -149,10 +149,11 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit}={}){
   const results=[];
   const profiles=[...AUTONOMOUS_AGENT_PROFILES];
   const concurrency=3;
+  let nextProfileIndex=0;
   async function worker(){
     while(true){
-      const idx=profiles.findIndex(p=>!results.some(x=>x.agent===p.id&&x.runId===runId));
-      if(idx<0)return;
+      const idx=nextProfileIndex++;
+      if(idx>=profiles.length)return;
       const profile=profiles[idx];
       const topic=profile.topics[state.cycle%profile.topics.length];
       const queries=[
