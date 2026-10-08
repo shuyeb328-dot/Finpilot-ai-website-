@@ -990,6 +990,22 @@ async function investmentPlan(req,res,u){
    warning:'Live/recent market data can be delayed; fees, slippage, taxes, gaps and liquidity can change realized results. Decision support only.'});
  }catch(err){return send(res,502,{ok:false,error:'LIVE_MARKET_ANALYSIS_UNAVAILABLE',message:String(err?.message||err)})}
 }
+function quantumStatus(req,res){
+ const configured=Boolean(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY);
+ return send(res,200,{ok:true,configured,backend:configured?'EXTERNAL_QUANTUM_PROVIDER':'UNCONFIGURED',mode:'HYBRID_OPTIMIZATION',finalValidator:'CLASSICAL',providerUrlConfigured:Boolean(process.env.QUANTUM_API_URL),note:configured?'External provider may be used for candidate search; FinPilot still applies classical risk/liquidity/diversification/compliance validation.':'No external quantum provider is configured. Client Training Fabric uses a deterministic classical fallback and does not claim quantum advantage.'});
+}
+async function quantumOptimize(req,res){
+ const configured=Boolean(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY);
+ if(!configured)return send(res,503,{ok:false,error:'QUANTUM_PROVIDER_NOT_CONFIGURED',backend:'UNCONFIGURED',fallback:'client-classical-search',finalValidator:'CLASSICAL'});
+ const x=await body(req);
+ try{
+   const payload={task:'FINPILOT_HYBRID_PORTFOLIO_SEARCH',constraints:{maxConcentration:x.maxConcentration??35,minLiquidity:x.minLiquidity??20,maxRiskBudget:x.maxRiskBudget??10},capital:Number(x.capital||100000),assets:Array.isArray(x.assets)?x.assets:[]};
+   const r=await fetch(process.env.QUANTUM_API_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.QUANTUM_API_KEY},body:JSON.stringify(payload)});
+   const text=await r.text(); let d={}; try{d=JSON.parse(text)}catch{d={raw:text}};
+   if(!r.ok)return send(res,502,{ok:false,error:'QUANTUM_PROVIDER_ERROR',status:r.status,detail:d});
+   return send(res,200,{ok:true,backend:'EXTERNAL_QUANTUM_PROVIDER',status:'CANDIDATE_RETURNED',candidate:d,finalValidator:'CLASSICAL',validationRequired:true});
+ }catch(e){return send(res,502,{ok:false,error:'QUANTUM_PROVIDER_UNAVAILABLE',message:String(e?.message||e),finalValidator:'CLASSICAL'});}
+}
 function commandDecision(req,res,u){const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();return send(res,200,{ok:true,engine:'executive-market-command-v4000',ticker,workflow:['Market Data','Technical Engine','Options Math','Bull Agent','Bear Agent','Risk Agent','CFO','CEO'],principles:['Fresh evidence required','Conflicts surfaced','No fabricated live contracts','CFO can veto','CEO cannot bypass compliance','Human approval required before execution'],status:'ANALYSIS_ONLY'})}
 
 
@@ -1235,6 +1251,8 @@ const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
 
   if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
+  if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
