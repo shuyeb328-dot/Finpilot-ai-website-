@@ -28,7 +28,7 @@ const state={
   running:false,cycle:0,cursor:0,activeAgent:null,lastCycleAt:null,lastSuccessAt:null,lastError:null,nextRunAt:null,
   stats:{cycles:0,queries:0,evidenceCollected:0,evidenceAccepted:0,candidates:0,trainingCases:0,duplicates:0,failed:0,primarySources:0,sourceDomains:0,contradictionFlags:0},
   agents:Object.fromEntries(AUTONOMOUS_AGENT_PROFILES.map(a=>[a.id,{status:'IDLE',jobs:0,lastResearchAt:null,lastTopic:null,lastQuality:null,lastCandidate:null}])),
-  queue:[],candidates:[],trainingCases:[],evidence:[]
+  queue:[],candidates:[],trainingCases:[],evidence:[],liveTest:{running:false,lastRunAt:null,lastError:null,tests:0,averageScore:null,rankings:[],agents:{}}
 };
 
 let timer=null,dbPool=null,schemaReady=false;
@@ -98,6 +98,8 @@ async function db(){
   try{
     await dbPool.query('CREATE TABLE IF NOT EXISTS finpilot_learning_evidence (id BIGSERIAL PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, agent TEXT NOT NULL, topic TEXT, query TEXT, title TEXT, url TEXT, source TEXT, source_tier TEXT, published_at TIMESTAMPTZ, quality_score DOUBLE PRECISION, payload JSONB, collected_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
     await dbPool.query('CREATE TABLE IF NOT EXISTS finpilot_learning_candidates (id BIGSERIAL PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, agent TEXT NOT NULL, topic TEXT, status TEXT NOT NULL, quality_score DOUBLE PRECISION, evidence_count INT, primary_count INT, diversity_count INT, payload JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+    await dbPool.query('CREATE TABLE IF NOT EXISTS finpilot_agent_live_benchmarks (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, agent TEXT NOT NULL, topic TEXT, score DOUBLE PRECISION, rank_no INT, status TEXT, payload JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+    await dbPool.query('CREATE INDEX IF NOT EXISTS finpilot_agent_live_benchmarks_agent_idx ON finpilot_agent_live_benchmarks(agent,created_at DESC)');
     schemaReady=true;
   }catch(e){schemaReady=false;state.lastError='DB schema: '+e.message}
   return schemaReady?dbPool:null;
@@ -117,6 +119,67 @@ async function persistCandidate(c){
   )}catch{}
 }
 
+
+function liveAgentScore(rows){
+  if(!rows.length)return {score:0,qualityScore:0,primaryRate:0,diversity:0,freshnessScore:0,evidence:0,contradiction:0};
+  const qualityScore=Math.round(rows.reduce((n,x)=>n+x.qualityScore,0)/rows.length);
+  const primaryRate=Math.round(rows.filter(x=>x.sourceTier==='PRIMARY').length/rows.length*100);
+  const diversity=new Set(rows.map(x=>x.domain).filter(Boolean)).size;
+  const diversityScore=Math.min(100,diversity*12.5);
+  const freshnessScore=Math.round(rows.reduce((n,x)=>n+x.freshness.score,0)/rows.length);
+  const text=rows.map(x=>(x.title+' '+x.snippet).toLowerCase()).join(' ');
+  const pos=(text.match(/growth|gain|increase|upgrade|bullish|outperform|record/g)||[]).length;
+  const neg=(text.match(/loss|decline|downgrade|bearish|risk|warning|lawsuit|fraud/g)||[]).length;
+  const contradiction=Math.abs(pos-neg)>=3?1:0;
+  const score=Math.max(0,Math.min(100,Math.round(qualityScore*.35+primaryRate*.25+diversityScore*.15+freshnessScore*.15+Math.min(100,rows.length*5)*.10-(contradiction?8:0))));
+  return {score,qualityScore,primaryRate,diversity,diversityScore,freshnessScore,evidence:rows.length,contradiction};
+}
+async function persistLiveBenchmarkRows(runId,rows){
+  const pool=await db();if(!pool)return;
+  for(const r of rows)try{await pool.query(
+    'INSERT INTO finpilot_agent_live_benchmarks(run_id,agent,topic,score,rank_no,status,payload) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [runId,r.agent,r.topic,r.score,r.rank,r.status,r]
+  )}catch{}
+}
+export async function runLiveAgentComparison({searchWeb,emitEvent,audit}={}){
+  if(state.liveTest.running)return {ok:true,status:'RUNNING',liveTest:state.liveTest};
+  if(typeof searchWeb!=='function')return {ok:false,status:'ERROR',error:'SEARCH_ENGINE_UNAVAILABLE'};
+  state.liveTest.running=true;state.liveTest.lastError=null;
+  const runId='live-'+Date.now().toString(36);
+  const results=[];
+  const profiles=[...AUTONOMOUS_AGENT_PROFILES];
+  const concurrency=3;
+  async function worker(){
+    while(true){
+      const idx=profiles.findIndex(p=>!results.some(x=>x.agent===p.id&&x.runId===runId));
+      if(idx<0)return;
+      const profile=profiles[idx];
+      const topic=profile.topics[state.cycle%profile.topics.length];
+      const queries=[
+        topic+' '+profile.querySuffix+' latest',
+        topic+' counter evidence risks failures contradictions latest'
+      ];
+      try{
+        const responses=await Promise.all(queries.map(q=>searchWeb(q,{count:maxResults}).catch(e=>({provider:'error',results:[],error:e.message}))));
+        const merged=[];for(let i=0;i<responses.length;i++)for(const item of (responses[i]?.results||[]))merged.push({...item,queryLabel:queries[i]});
+        const rows=normalize(merged,profile,queries[0]);
+        const s=liveAgentScore(rows);
+        results.push({runId,agent:profile.id,topic,score:s.score,status:s.score>=85?'ELITE':s.score>=75?'READY':s.score>=65?'REVIEW':'WEAK',provider:[...new Set(responses.map(x=>x?.provider).filter(Boolean))].join(','),...s});
+      }catch(e){results.push({runId,agent:profile.id,topic,score:0,status:'ERROR',provider:'unknown',error:e.message,evidence:0,qualityScore:0,primaryRate:0,diversity:0,freshnessScore:0,contradiction:0})}
+    }
+  }
+  await Promise.all(Array.from({length:concurrency},()=>worker()));
+  results.sort((a,b)=>b.score-a.score);
+  results.forEach((r,i)=>{r.rank=i+1;r.delta=state.liveTest.agents[r.agent]?.score==null?null:r.score-state.liveTest.agents[r.agent].score});
+  const avg=results.length?Math.round(results.reduce((n,x)=>n+x.score,0)/results.length):0;
+  state.liveTest={running:false,lastRunAt:now(),lastError:results.some(x=>x.status==='ERROR')?'ONE_OR_MORE_AGENT_TESTS_FAILED':null,tests:results.length,averageScore:avg,
+    rankings:results.map(x=>({agent:x.agent,score:x.score,rank:x.rank,status:x.status,delta:x.delta,evidence:x.evidence,primaryRate:x.primaryRate,diversity:x.diversity,freshnessScore:x.freshnessScore})),
+    agents:Object.fromEntries(results.map(x=>[x.agent,x]))};
+  await persistLiveBenchmarkRows(runId,results);
+  audit?.('AUTONOMOUS_AGENT_LIVE_COMPARISON',{runId,tests:results.length,averageScore:avg,winner:results[0]?.agent||null,weakest:results.at(-1)?.agent||null});
+  emitEvent?.('AGENT_LIVE_COMPARISON',{runId,tests:results.length,averageScore:avg,winner:results[0]?.agent||null,weakest:results.at(-1)?.agent||null},80);
+  return {ok:true,status:'COMPLETED',runId,tests:results.length,averageScore:avg,rankings:state.liveTest.rankings,agents:state.liveTest.agents};
+}
 export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={}){
   if(!free(getSchedulerState))return {ok:true,status:'DEFERRED_BUSY'};
   const profile=pickAgent();
