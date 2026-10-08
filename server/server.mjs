@@ -765,13 +765,15 @@ async function stockReport(req,res,u){
  try{
    const hit=getCached(cacheKey); if(hit) return send(res,200,{...hit,cached:true});
    if(CRYPTO_ASSETS[t]){
-     const payload={ok:true,report:await liveCrypto(t,interval,multi)};
-     cached(cacheKey,payload);
+     const report=await liveCrypto(t,interval,multi);
+     const payload={ok:true,report};
+     if(Array.isArray(report?.candles)&&report.candles.length>1) cached(cacheKey,payload);
      return send(res,200,payload);
    }
    try{
-     const payload={ok:true,report:await liveEquity(t)};
-     cached(cacheKey,payload);
+     const report=await liveEquity(t);
+     const payload={ok:true,report};
+     if(Array.isArray(report?.candles)&&report.candles.length>1) cached(cacheKey,payload);
      return send(res,200,payload);
    }catch(liveErr){
      if(t==='SBC'){
