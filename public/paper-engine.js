@@ -8,7 +8,7 @@
   function defaultPaper(){return{
     version:3,baseCurrency:'INR',startingCash:1000000,cash:1000000,realizedPnl:0,unrealizedPnl:0,
     fees:0,slippage:0,agents:[],positions:[],orders:[],openOrders:[],journal:[],rounds:[],
-    leaderboard:[],marketSnapshot:{},execution:{lastTick:null,reconciledAt:null},account:{marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3},
+    leaderboard:[],marketSnapshot:{},decisionLedger:[],execution:{lastTick:null,reconciledAt:null},account:{marginEnabled:false,leverage:1,commissionBps:8,slippageBps:3},
     updatedAt:now()
   }}
   function ensure(state){
@@ -16,7 +16,7 @@
     const p=state.paperTrading;
     p.agents=(Array.isArray(p.agents)?p.agents:[]).filter(a=>a&&typeof a==='object');p.positions=(Array.isArray(p.positions)?p.positions:[]).filter(x=>x&&typeof x==='object');p.orders=(Array.isArray(p.orders)?p.orders:[]).filter(x=>x&&typeof x==='object');
     p.openOrders=(Array.isArray(p.openOrders)?p.openOrders:[]).filter(x=>x&&typeof x==='object');p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
-    p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
+    p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};p.decisionLedger=Array.isArray(p.decisionLedger)?p.decisionLedger.filter(x=>x&&typeof x==='object'):[];
     p.execution={lastTick:null,reconciledAt:null,tickCount:0,lastTickAt:null,model:'REALISTIC',latencyMs:75,impactBpsCap:30,...(p.execution||{})};
     p.execution.latencyMs=Math.max(0,num(p.execution.latencyMs,75));
     p.execution.impactBpsCap=Math.max(0,num(p.execution.impactBpsCap,30));
@@ -36,6 +36,19 @@
     if(!a){const capital=p.startingCash/Math.max(1,p.agents.length+1);a={id:agent.id,name:agent.name,role:agent.role||'Specialist',capital,cash:capital,positions:[],pnl:0,winRate:null,decisions:0,confidence:70,enabled:true,strategy:agent.strategy||'Evidence-first',createdAt:now()};p.agents.push(a)}
     a.positions=Array.isArray(a.positions)?a.positions:[];return a;
   }
+
+  // Decision-to-outcome bridge: records the recommendation context used by later paper fills.
+  function recordDecision(state,agentId,symbol,action,meta={}){
+    const p=ensure(state),a=aOf(p,agentId)||p.agents.find(x=>String(x.id)===String(agentId));
+    if(!a)throw new Error('Paper agent not found');
+    const row={id:uid('decision'),agentId:a.id,agentName:a.name||agentId,symbol:String(symbol||'SIM').toUpperCase(),action:String(action||'HOLD').toUpperCase(),confidence:clamp(num(meta.confidence,50)),edge:clamp(num(meta.edge,50)),thesis:meta.thesis||'',source:meta.source||'AGENT_DECISION',roundId:meta.roundId||null,time:now(),outcomeStatus:'UNRESOLVED',virtualOnly:true};
+    p.decisionLedger.unshift(row);if(p.decisionLedger.length>500)p.decisionLedger=p.decisionLedger.slice(0,500);p.updatedAt=now();return row;
+  }
+  function latestDecision(p,agentId,symbol){
+    const key=String(symbol||'').toUpperCase(),cut=Date.now()-30*60*1000;
+    return p.decisionLedger.find(d=>d.agentId===agentId&&String(d.symbol||'').toUpperCase()===key&&Date.parse(d.time||0)>=cut)||null;
+  }
+
   function think(agent,market){
     const momentum=clamp(num(market.momentum),-100,100),quality=clamp(num(market.quality,50)),valuation=clamp(num(market.valuation,50)),risk=clamp(num(market.risk,50)),evidence=clamp(num(market.evidence,50));
     const bull=quality*.28+valuation*.22+Math.max(0,momentum)*.18+evidence*.18+(100-risk)*.14;
@@ -125,6 +138,7 @@
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
     const clientOrderId=opts.clientOrderId?String(opts.clientOrderId):'';
     const marketMeta=opts.marketMeta||{};
+    const linkedDecision=opts.decisionId? p.decisionLedger.find(d=>d.id===String(opts.decisionId)):latestDecision(p,agentId,symbol);
     if(clientOrderId){
       const existing=p.orders.find(x=>x.clientOrderId===clientOrderId);
       if(existing)return existing;
@@ -149,7 +163,7 @@
     if(side==='BUY')a.cash-=fillValue+c.fee;else a.cash-=c.fee;
     p.realizedPnl+=realized-c.fee;p.fees+=c.fee;p.slippage+=slip;
     const filledAt=now();
-    const o={id:uid('order'),clientOrderId:clientOrderId||null,parentOrderId:opts.parentOrderId||null,agentId,symbol,side,qty,requestedPrice:price,quoteBid:bid||null,quoteAsk:ask||null,spreadBps:+spreadBps.toFixed(2),marketImpactBps:+impactBps.toFixed(2),executionLatencyMs,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',stopPrice:num(opts.stopPrice),targetPrice:num(opts.targetPrice),reduceOnly:Boolean(opts.reduceOnly),source:opts.source||'PAPER',status:'FILLED',time:now(),filledAt,virtualOnly:true};
+    const o={id:uid('order'),clientOrderId:clientOrderId||null,parentOrderId:opts.parentOrderId||null,agentId,symbol,side,qty,requestedPrice:price,quoteBid:bid||null,quoteAsk:ask||null,spreadBps:+spreadBps.toFixed(2),marketImpactBps:+impactBps.toFixed(2),executionLatencyMs,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',decisionId:linkedDecision?.id||opts.decisionId||null,decisionAction:String(opts.decisionAction||linkedDecision?.action||'').toUpperCase()||null,decisionConfidence:linkedDecision?num(linkedDecision.confidence,null):num(opts.decisionConfidence,null),decisionEdge:linkedDecision?num(linkedDecision.edge,null):num(opts.decisionEdge,null),decisionAt:linkedDecision?.time||null,orderType:opts.orderType||'MARKET',stopPrice:num(opts.stopPrice),targetPrice:num(opts.targetPrice),reduceOnly:Boolean(opts.reduceOnly),source:opts.source||'PAPER',status:'FILLED',time:now(),filledAt,virtualOnly:true};
     if(opts.parentOrderId){
       p.journal.unshift({...o,type:'PAPER_FILL',executionModel:opts.realistic?'REALISTIC':'BASELINE'});
     }else{
@@ -423,7 +437,8 @@
     const final=buy>sell&&avg>=60&&risk<78?'PAPER BUY':sell>buy&&avg<=40?'PAPER SELL':'PAPER HOLD';
     const confidence=clamp(60+Math.abs(avg-50)*.7+Math.abs(buy-sell)*3-risk*.12);
     const dissent=debates.filter(x=>final.includes('BUY')?x.thought.action==='SELL':final.includes('SELL')?x.thought.action==='BUY':x.thought.action!=='HOLD');
-    const r={id:uid('round'),symbol:market.symbol||'SIM',final,confidence:+confidence.toFixed(1),vote:{buy,sell,hold},avgEdge:+avg.toFixed(1),risk,debates:debates.map(x=>({agentId:x.agent.id,name:x.agent.name,role:x.agent.role,thought:x.thought})),dissent:dissent.map(x=>x.agent.name),time:now(),virtualOnly:true};
+    const r={id:uid('round'),symbol:market.symbol||'SIM',confidence:+confidence.toFixed(1),vote:{buy,sell,hold},avgEdge:+avg.toFixed(1),risk,debates:debates.map(x=>({agentId:x.agent.id,name:x.agent.name,role:x.agent.role,thought:x.thought})),dissent:dissent.map(x=>x.agent.name),time:now(),virtualOnly:true};
+    debates.forEach(x=>recordDecision(state,x.agent.id,r.symbol,x.thought.action,{confidence:x.thought.confidence,edge:x.thought.edge,thesis:x.thought.thesis,roundId:r.id,source:'ROUND_TABLE'}));
     p.rounds.unshift(r);p.rounds=p.rounds.slice(0,50);p.journal.unshift({type:'PAPER_ROUND_TABLE',...r});p.updatedAt=now();return r;
   }
   function markToMarket(state,prices){
@@ -483,5 +498,27 @@
     const stale=rows.filter(r=>r.quoteFreshnessScore===0).length;
     return {version:'1.0',mode:'PAPER_ONLY',fills:rows.length,scoredFills:scored.length,averageScore:avg(scored.map(r=>r.score)),averageAdverseSlippageBps:avg(slippage),averageLatencyMs:avg(latency),averageMarketImpactBps:avg(impact),staleQuoteFills:stale,partialFillCount:rows.filter(r=>r.partialFillRatio>0).length,rows:rows.slice(0,100),governance:{autoPromotion:false,liveExecution:false,minimumSampleForComparison:30,ready:scored.length>=30&&stale===0},virtualOnly:true};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport,executionQualityReport};
+
+  function agentExecutionOutcomeReport(state){
+    const p=ensure(state),eq=executionQualityReport(state),rows=eq.rows||[],byOrder=new Map(rows.map(r=>[String(r.orderId),r])),filled=p.orders.filter(o=>['FILLED','PARTIALLY_FILLED'].includes(String(o.status||'').toUpperCase()));
+    const groups=new Map();
+    const ensureGroup=(a)=>{const id=a?.id||'UNKNOWN';if(!groups.has(id))groups.set(id,{agentId:id,agentName:a?.name||id,role:a?.role||'Specialist',fills:0,scoredFills:0,decisionLinked:0,closedOutcomes:0,wins:0,losses:0,realizedPnl:0,unrealizedPnl:0,fees:0,slippage:0,executionScores:[],decisionAccuracy:[],symbols:new Set()});return groups.get(id)};
+    filled.forEach(o=>{
+      const g=ensureGroup(p.agents.find(a=>a.id===o.agentId));g.fills++;g.symbols.add(o.symbol);
+      g.realizedPnl+=num(o.realizedPnl);g.fees+=num(o.fees);g.slippage+=num(o.slippage);
+      const xr=byOrder.get(String(o.id));if(xr?.score!=null){g.scoredFills++;g.executionScores.push(xr.score)}
+      if(o.decisionId){g.decisionLinked++;if(num(o.realizedPnl)!==0){g.closedOutcomes++;const win=num(o.realizedPnl)>0;g.decisionAccuracy.push(win?100:0);if(win)g.wins++;else g.losses++;}}
+    });
+    p.agents.forEach(a=>{const g=ensureGroup(a);g.unrealizedPnl+=a.positions.reduce((n,pos)=>n+(num(pos.last)-num(pos.avg))*num(pos.qty),0)});
+    const agents=[...groups.values()].map(g=>{
+      const avg=arr=>arr.length?+(arr.reduce((n,x)=>n+x,0)/arr.length).toFixed(1):null;
+      const executionScore=avg(g.executionScores),decisionOutcomeScore=avg(g.decisionAccuracy),coverage=g.fills?+(g.decisionLinked/g.fills*100).toFixed(1):0;
+      const qualityParts=[];if(executionScore!=null)qualityParts.push({score:executionScore,weight:60});if(decisionOutcomeScore!=null)qualityParts.push({score:decisionOutcomeScore,weight:40});
+      const combinedScore=qualityParts.length?+(qualityParts.reduce((n,x)=>n+x.score*x.weight,0)/qualityParts.reduce((n,x)=>n+x.weight,0)).toFixed(1):null;
+      const sampleReady=g.scoredFills>=30&&g.closedOutcomes>=10&&g.decisionLinked>=10;
+      return {agentId:g.agentId,agentName:g.agentName,role:g.role,fills:g.fills,scoredFills:g.scoredFills,decisionLinked:g.decisionLinked,decisionCoverage:coverage,closedOutcomes:g.closedOutcomes,wins:g.wins,losses:g.losses,winRate:g.closedOutcomes?+(g.wins/g.closedOutcomes*100).toFixed(1):null,realizedPnl:+g.realizedPnl.toFixed(2),unrealizedPnl:+g.unrealizedPnl.toFixed(2),fees:+g.fees.toFixed(2),slippage:+g.slippage.toFixed(2),executionQualityScore:executionScore,decisionOutcomeScore,combinedOutcomeScore:combinedScore,symbols:[...g.symbols],trainingReviewEligible:sampleReady,virtualOnly:true};
+    }).sort((a,b)=>(b.combinedOutcomeScore??b.executionQualityScore??-1)-(a.combinedOutcomeScore??a.executionQualityScore??-1));
+    return {version:'1.0',mode:'PAPER_AGENT_OUTCOMES',agents,governance:{autoPromotion:false,productionMutation:false,minimumScoredFills:30,minimumClosedOutcomes:10,minimumLinkedDecisions:10,notes:'Outcome data is evaluation telemetry only.'},virtualOnly:true};
+  }
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport,executionQualityReport,recordDecision,agentExecutionOutcomeReport};
 })();
