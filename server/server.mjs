@@ -97,13 +97,132 @@ async function learn(req,res){
  const confidenceAdjustment=completed.length?Math.max(-15,Math.min(10,(accuracy??70)-70)):0;
  return send(res,200,{ok:true,engine:'learning-v2700',metrics:{completed:wins+misses,wins,misses,accuracy,confidenceAdjustment},agentScores:byAgent,repeatedMistakes:mistakes,updatedAt:new Date().toISOString()});
 }
+
+const RESEARCH_SCHEMA_READY={ready:false};
+async function ensureResearchSchema(){
+ const pool=await marketStore();
+ if(!pool)return false;
+ if(RESEARCH_SCHEMA_READY.ready)return true;
+ await pool.query(`CREATE TABLE IF NOT EXISTS research_queries (
+   id BIGSERIAL PRIMARY KEY,
+   query TEXT NOT NULL,
+   provider TEXT,
+   result_count INTEGER NOT NULL DEFAULT 0,
+   confidence INTEGER,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ )`);
+ await pool.query(`CREATE TABLE IF NOT EXISTS research_sources (
+   id BIGSERIAL PRIMARY KEY,
+   query_id BIGINT REFERENCES research_queries(id) ON DELETE CASCADE,
+   title TEXT,
+   url TEXT NOT NULL,
+   source TEXT,
+   domain TEXT,
+   snippet TEXT,
+   published_at TIMESTAMPTZ,
+   source_tier TEXT,
+   freshness_score INTEGER,
+   relevance_score INTEGER,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+   UNIQUE(query_id,url)
+ )`);
+ await pool.query(`CREATE TABLE IF NOT EXISTS research_analyses (
+   id BIGSERIAL PRIMARY KEY,
+   query_id BIGINT REFERENCES research_queries(id) ON DELETE CASCADE,
+   summary TEXT,
+   bullish_count INTEGER NOT NULL DEFAULT 0,
+   bearish_count INTEGER NOT NULL DEFAULT 0,
+   risk_count INTEGER NOT NULL DEFAULT 0,
+   primary_source_count INTEGER NOT NULL DEFAULT 0,
+   source_diversity INTEGER NOT NULL DEFAULT 0,
+   freshness_score INTEGER NOT NULL DEFAULT 0,
+   confidence INTEGER NOT NULL DEFAULT 0,
+   analysis JSONB NOT NULL DEFAULT '{}'::jsonb,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ )`);
+ await pool.query('CREATE INDEX IF NOT EXISTS research_sources_domain_idx ON research_sources(domain)');
+ await pool.query('CREATE INDEX IF NOT EXISTS research_sources_created_idx ON research_sources(created_at DESC)');
+ await pool.query('CREATE INDEX IF NOT EXISTS research_queries_created_idx ON research_queries(created_at DESC)');
+ RESEARCH_SCHEMA_READY.ready=true;
+ return true;
+}
+function researchDomain(url){
+ try{return new URL(url).hostname.replace(/^www\./,'').toLowerCase()}catch{return ''}
+}
+function analyzeResearchResults(q,rows){
+ const now=Date.now(), domains=new Set(), seen=new Set();
+ let bull=0,bear=0,risk=0,primary=0,fresh=0;
+ const sources=rows.map((r)=>{
+   const domain=researchDomain(r.url); domains.add(domain);
+   const text=String([r.title,r.snippet].join(' ')).toLowerCase();
+   const age=r.publishedAt?Math.max(0,now-Date.parse(r.publishedAt)):null;
+   const freshFlag=age===null||age<7*86400000;
+   if(freshFlag)fresh++;
+   if(/sec\.gov|sebi\.gov|rbi\.org|nseindia|bseindia|\.gov\./i.test(domain))primary++;
+   if(/bull|buy|upgrade|growth|profit|surge|rally|outperform|positive|breakout/.test(text))bull++;
+   if(/bear|sell|downgrade|loss|decline|fall|crash|negative|weak|warning|lawsuit|fraud/.test(text))bear++;
+   if(/risk|regulation|rate|inflation|geopolit|sanction|volatil|debt|default|liquidity/.test(text))risk++;
+   const key=domain+'|'+String(r.title||'').toLowerCase();
+   const relevance=/stock|market|finance|economy|earnings|shares|nifty|sensex|crypto|bond|forex|option|futures|company|business|regulation|rbi|sebi|sec/.test(text)?90:60;
+   return {title:r.title||'',url:r.url,source:r.source||'web',domain,snippet:String(r.snippet||'').slice(0,1800),publishedAt:r.publishedAt||null,
+     sourceTier:/sec\.gov|sebi\.gov|rbi\.org|nseindia|bseindia|\.gov\./i.test(domain)?'PRIMARY':'SECONDARY',
+     freshnessScore:freshFlag?100:40,relevanceScore:relevance,key,duplicate:seen.has(key)};
+ });
+ const n=Math.max(1,sources.length), sourceDiversity=Math.round(Math.min(100,domains.size/Math.min(8,n)*100));
+ const freshnessScore=Math.round(fresh/n*100);
+ const confidence=Math.max(0,Math.min(100,Math.round(.35*freshnessScore+.25*sourceDiversity+.2*Math.min(100,primary*20)+.2*Math.min(100,Math.max(bull,bear,risk)*12))));
+ const direction=bull>bear*1.2?'BULLISH_BIAS':bear>bull*1.2?'BEARISH_BIAS':'MIXED';
+ const summary=`${q}: ${rows.length} sources archived; evidence is ${direction.replace('_',' ')} with ${risk} risk signals. This is evidence synthesis, not a guaranteed market forecast.`;
+ return {summary,bull,bear,risk,primary,fresh,sourceDiversity,freshnessScore,confidence,direction,sources};
+}
+async function archiveResearch(q,d){
+ try{
+  if(!(await ensureResearchSchema()))return {cloudStored:false};
+  const pool=MARKET_POOL;
+  const x=analyzeResearchResults(q,d.results||[]);
+  const qr=await pool.query('INSERT INTO research_queries(query,provider,result_count,confidence) VALUES($1,$2,$3,$4) RETURNING id',[q,d.provider||'unknown',x.sources.length,x.confidence]);
+  const queryId=qr.rows[0].id;
+  for(const s of x.sources){
+   await pool.query('INSERT INTO research_sources(query_id,title,url,source,domain,snippet,published_at,source_tier,freshness_score,relevance_score) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(query_id,url) DO UPDATE SET snippet=EXCLUDED.snippet,source=EXCLUDED.source,published_at=EXCLUDED.published_at,freshness_score=EXCLUDED.freshness_score,relevance_score=EXCLUDED.relevance_score',
+    [queryId,s.title,s.url,s.source,s.domain,s.snippet,s.publishedAt||null,s.sourceTier,s.freshnessScore,s.relevanceScore]);
+  }
+  await pool.query('INSERT INTO research_analyses(query_id,summary,bullish_count,bearish_count,risk_count,primary_source_count,source_diversity,freshness_score,confidence,analysis) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+   [queryId,x.summary,x.bull,x.bear,x.risk,x.primary,x.sourceDiversity,x.freshnessScore,x.confidence,JSON.stringify({direction:x.direction})]);
+  return {cloudStored:true,queryId,analysis:{summary:x.summary,direction:x.direction,bullish:x.bull,bearish:x.bear,risk:x.risk,primarySourceCount:x.primary,sourceDiversity:x.sourceDiversity,freshnessScore:x.freshnessScore,confidence:x.confidence}};
+ }catch(e){return {cloudStored:false,cloudError:e.message}}
+}
+async function cloudKnowledge(req,res,u){
+ try{
+  if(!(await ensureResearchSchema()))return send(res,200,{ok:true,cloud:false,items:[],message:'Cloud knowledge archive unavailable; DATABASE_URL required.'});
+  const q=(u.searchParams.get('q')||'').trim();
+  const limit=Math.min(100,Math.max(1,Number(u.searchParams.get('limit')||25)));
+  if(q){
+   const like='%'+q.replace(/[%_]/g,'\\$&')+'%';
+   const r=await MARKET_POOL.query(`SELECT rq.id,rq.query,rq.provider,rq.result_count AS "resultCount",rq.confidence,rq.created_at AS "createdAt",
+      ra.summary,ra.bullish_count AS bullish,ra.bearish_count AS bearish,ra.risk_count AS risk,
+      ra.primary_source_count AS "primarySourceCount",ra.source_diversity AS "sourceDiversity",ra.freshness_score AS "freshnessScore"
+      FROM research_queries rq LEFT JOIN research_analyses ra ON ra.query_id=rq.id
+      WHERE rq.query ILIKE $1 ORDER BY rq.created_at DESC LIMIT $2`,[like,limit]);
+   return send(res,200,{ok:true,cloud:true,items:r.rows});
+  }
+  const r=await MARKET_POOL.query(`SELECT rq.id,rq.query,rq.provider,rq.result_count AS "resultCount",rq.confidence,rq.created_at AS "createdAt",
+      ra.summary,ra.bullish_count AS bullish,ra.bearish_count AS bearish,ra.risk_count AS risk,
+      ra.primary_source_count AS "primarySourceCount",ra.source_diversity AS "sourceDiversity",ra.freshness_score AS "freshnessScore"
+      FROM research_queries rq LEFT JOIN research_analyses ra ON ra.query_id=rq.id
+      ORDER BY rq.created_at DESC LIMIT $1`,[limit]);
+  const count=await MARKET_POOL.query('SELECT COUNT(*)::int AS n FROM research_sources');
+  return send(res,200,{ok:true,cloud:true,totalSources:count.rows[0]?.n||0,items:r.rows});
+ }catch(e){return send(res,200,{ok:true,cloud:false,items:[],error:e.message})}
+}
 async function search(req,res,u){
  const q=(u.searchParams.get('q')||'').trim();
  const count=Math.min(10,Math.max(1,Number(u.searchParams.get('count')||8)));
  if(!q)return send(res,400,{ok:false,error:'Missing query'});
  try{
   const d=await searchWeb(q,{count});
-  return send(res,200,{ok:true,query:q,...d});
+  const archive=await archiveResearch(q,d);
+  emitEvent('RESEARCH_UPDATE',{source:d.provider||'web',query:q,count:Array.isArray(d.results)?d.results.length:0,archive},65);
+  return send(res,200,{ok:true,query:q,...d,...archive});
  }catch(e){
   const google=`https://www.google.com/search?q=${encodeURIComponent(q)}`;
   return send(res,502,{ok:false,error:e.code||'SEARCH_PROVIDER_UNAVAILABLE',query:q,provider:null,results:[],externalUrl:google,message:e.message||'Search provider unavailable.',live:false});
@@ -792,6 +911,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
   if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',time:new Date().toISOString(),security:'hardened',realtime:true,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
