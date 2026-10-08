@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
-import {AUTONOMOUS_AGENT_PROFILES,runCycle,runLiveAgentComparison,status,scoreEvidence} from '../server/autonomous-learning.mjs';
+import {AUTONOMOUS_AGENT_PROFILES,runCycle,runLiveAgentComparison,status,scoreEvidence,classifyBenchmarkStatus} from '../server/autonomous-learning.mjs';
 
 assert.equal(AUTONOMOUS_AGENT_PROFILES.length,12);
+assert.equal(classifyBenchmarkStatus({score:80,authorityScore:70,primaryRate:25,freshnessScore:70,evidenceDepthScore:80,contradiction:0}),'READY');
+assert.equal(classifyBenchmarkStatus({score:90,authorityScore:80,primaryRate:45,freshnessScore:75,evidenceDepthScore:90,contradiction:0}),'ELITE');
+assert.equal(classifyBenchmarkStatus({score:80,authorityScore:55,primaryRate:0,freshnessScore:80,evidenceDepthScore:100,contradiction:0}),'REVIEW');
+
 assert.ok(AUTONOMOUS_AGENT_PROFILES.some(x=>x.id==='Research'));
 assert.ok(AUTONOMOUS_AGENT_PROFILES.some(x=>x.id==='RedTeam'));
 
