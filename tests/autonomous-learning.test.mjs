@@ -7,20 +7,20 @@ assert.ok(AUTONOMOUS_AGENT_PROFILES.some(x=>x.id==='RedTeam'));
 
 const groups=[
   [
-    {title:'Official filing A',url:'https://www.sec.gov/a',snippet:'Primary filing with material capital allocation evidence.',publishedAt:new Date().toISOString(),source:'SEC'},
-    {title:'Official filing B',url:'https://www.rbi.org.in/b',snippet:'Primary official policy and liquidity evidence.',publishedAt:new Date().toISOString(),source:'RBI'}
+    {title:'Official filing A',url:'https://www.sec.gov/a',snippet:'Primary filing with detailed capital allocation, cash flow, liquidity, risk factors, and material financial disclosures for the research question.',publishedAt:new Date().toISOString(),source:'SEC'},
+    {title:'Official filing B',url:'https://www.rbi.org.in/b',snippet:'Primary official policy notice with detailed liquidity, monetary, market stability, and compliance guidance relevant to the research question.',publishedAt:new Date().toISOString(),source:'RBI'}
   ],
   [
-    {title:'Independent analysis A',url:'https://www.reuters.com/a',snippet:'Independent recent analysis with market context.',publishedAt:new Date().toISOString(),source:'Reuters'},
-    {title:'Independent analysis B',url:'https://www.bloomberg.com/b',snippet:'Independent recent analysis of capital allocation.',publishedAt:new Date().toISOString(),source:'Bloomberg'}
+    {title:'Independent analysis A',url:'https://www.reuters.com/a',snippet:'Independent recent analysis with market context, company fundamentals, valuation implications, downside scenarios, and uncertainty discussion.',publishedAt:new Date().toISOString(),source:'Reuters'},
+    {title:'Independent analysis B',url:'https://www.bloomberg.com/b',snippet:'Independent recent analysis covering capital allocation decisions, earnings quality, balance sheet risk, and alternative interpretations.',publishedAt:new Date().toISOString(),source:'Bloomberg'}
   ],
   [
-    {title:'Industry evidence A',url:'https://www.ft.com/a',snippet:'Recent evidence on investment decisions and liquidity.',publishedAt:new Date().toISOString(),source:'FT'},
-    {title:'Company investor relations',url:'https://ir.example.com/c',snippet:'Recent investor relations disclosure on capital plans.',publishedAt:new Date().toISOString(),source:'Company IR'}
+    {title:'Industry evidence A',url:'https://www.ft.com/a',snippet:'Recent evidence on investment decisions, liquidity, financing constraints, valuation, and market conditions with enough context to compare scenarios.',publishedAt:new Date().toISOString(),source:'FT'},
+    {title:'Company investor relations',url:'https://ir.example.com/c',snippet:'Recent investor relations disclosure with detailed capital plans, operating metrics, balance-sheet context, risk factors, and management guidance.',publishedAt:new Date().toISOString(),source:'Company IR'}
   ],
   [
-    {title:'Independent evidence C',url:'https://www.cnbc.com/c',snippet:'Recent balanced market evidence without a strong contradiction.',publishedAt:new Date().toISOString(),source:'CNBC'},
-    {title:'Government guidance',url:'https://www.gov.in/d',snippet:'Recent government guidance relevant to financial decisions.',publishedAt:new Date().toISOString(),source:'Gov'}
+    {title:'Independent evidence C',url:'https://www.cnbc.com/c',snippet:'Recent balanced market evidence covering both upside and downside drivers, market conditions, and uncertainty without a strong contradiction.',publishedAt:new Date().toISOString(),source:'CNBC'},
+    {title:'Government guidance',url:'https://www.gov.in/d',snippet:'Recent government guidance with detailed financial decision, regulatory, liquidity, and compliance context relevant to the research question.',publishedAt:new Date().toISOString(),source:'Gov'}
   ]
 ];
 let qi=0;
