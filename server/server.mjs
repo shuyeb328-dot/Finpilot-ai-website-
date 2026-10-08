@@ -226,6 +226,7 @@ function derivativeDecision(report, instrument, riskBudget=1){
  return {probability:{bullish:bull, bearish:bear, neutral},side,ceoDecision:ceo,cfoDecision:cfo,confidence:Math.round((Math.max(bull,bear)-neutral)*0.7+30),modelNote:'Model probability is a scenario score, not a guaranteed probability of profit or price direction.',approvalRequired:true};
 }
 
+const INDIA_INDICES={NIFTY:'^NSEI',BANKNIFTY:'^NSEBANK',FINNIFTY:'^CNXFIN',SENSEX:'^BSESN'};
 const INDIA_EQUITIES={
  TCS:'TCS.NS',INFY:'INFY.NS',RELIANCE:'RELIANCE.NS',GAIL:'GAIL.NS',HINDZINC:'HINDZINC.NS',
  ITC:'ITC.NS',TATAPOWER:'TATAPOWER.NS',TATASTEEL:'TATASTEEL.NS',SUNPHARMA:'SUNPHARMA.NS',
@@ -234,7 +235,7 @@ const INDIA_EQUITIES={
  BHARTIARTL:'BHARTIARTL.NS',LT:'LT.NS',ADANIPORTS:'ADANIPORTS.NS',BAJFINANCE:'BAJFINANCE.NS',
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
 };
-function yahooSymbol(t){const k=String(t||'').trim().toUpperCase();return INDIA_EQUITIES[k]||(/^[A-Z0-9._-]+$/.test(k)?(k.endsWith('.NS')?k:`${k}.NS`):null);}
+function yahooSymbol(t){const k=String(t||'').trim().toUpperCase();return INDIA_INDICES[k]||INDIA_EQUITIES[k]||(/^[A-Z0-9._-]+$/.test(k)?(k.endsWith('.NS')?k:`${k}.NS`):null);}
 async function fetchYahooChart(symbol,range='5d',interval='1h'){
  const hosts=['query1.finance.yahoo.com','query2.finance.yahoo.com'];
  let last='provider unavailable';
