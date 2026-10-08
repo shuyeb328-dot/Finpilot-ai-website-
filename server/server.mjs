@@ -437,6 +437,23 @@ async function fetchYahooChart(symbol,range='5d',interval='1h'){
  }
  throw new Error(last);
 }
+async function fetchYahooPageQuote(symbol){
+ const cached=EQUITY_MARKET_CACHE.get('PAGE:'+symbol);
+ if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),7000);
+ try{
+  const url='https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'/?p='+encodeURIComponent(symbol);
+  const r=await fetch(url,{headers:{'Accept':'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'},signal:controller.signal});
+  if(!r.ok)throw new Error('Yahoo page HTTP '+r.status);
+  const html=await r.text();
+  const raw=(name)=>{const re=new RegExp('\\\"'+name+'\\\":\\{\\\"raw\\\":(-?[0-9.]+)','i');const m=html.match(re);return m?Number(m[1]):null};
+  const price=raw('regularMarketPrice');
+  if(!Number.isFinite(price))throw new Error('Yahoo page price unavailable');
+  const previous=raw('regularMarketPreviousClose'),changePct=raw('regularMarketChangePercent'),dayHigh=raw('regularMarketDayHigh'),dayLow=raw('regularMarketDayLow');
+  const result={ticker:symbol,symbol,market:'GLOBAL_MARKET',exchange:'Yahoo Finance',name:symbol,price,previous:Number.isFinite(previous)?previous:price,changePct:Number.isFinite(changePct)?changePct:0,dayHigh:Number.isFinite(dayHigh)?dayHigh:price,dayLow:Number.isFinite(dayLow)?dayLow:price,live:false,provider:'Yahoo Finance web quote fallback · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'web quote / may be delayed',dataDisclaimer:'Fallback web quote; verify exchange or broker quote before acting.'};
+  EQUITY_MARKET_CACHE.set('PAGE:'+symbol,{at:Date.now(),result});return result;
+ }finally{clearTimeout(timer)}
+}
 async function fetchTejEod(symbol){
  const clean=String(symbol||'').toUpperCase().replace(/\\.NS$/,'').replace(/[^A-Z0-9&-]/g,'');
  if(!clean)throw new Error('Invalid NSE symbol for TejHQ fallback.');
@@ -485,8 +502,11 @@ async function liveEquity(ticker){
  catch(e){
   try{result=await fetchYahooChart(symbol,'1mo','1d');sourceRange='1mo/1d'}
   catch(e2){
-   try{return await fetchTejEod(clean)}
-   catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; TejHQ=${e3.message}`)}
+   try{return await fetchYahooPageQuote(symbol)}
+   catch(pageErr){
+    try{return await fetchTejEod(clean)}
+    catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; YahooPage=${pageErr.message}; TejHQ=${e3.message}`)}
+   }
   }
  }
  const meta=result.meta||{},q=result.indicators?.quote?.[0]||{};
