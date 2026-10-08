@@ -189,10 +189,20 @@
     if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>Running full analysis…</b> Search → evidence → agents → CEO/CFO/Judge → paper council</div>');
     try{
       const search=ensureRawSearch();
-      await search(query);
+      let searchWarning='';
+      try{ await search(query); }catch(e){ searchWarning=String(e?.message||'Live web search unavailable'); window.__lastSearch={results:[],provider:null,live:false}; }
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
-      const candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
+      let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,window.__lastSearch,web)||null;
+      const broadRequest=/\\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\\b/i.test(query);
+      if(!candidate&&broadRequest){
+        try{
+          const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});
+          const picks=await rp.json();
+          const top=picks?.candidates?.[0];
+          if(top) candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
+        }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable');}
+      }
       const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
       const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,money,sourceAge);
       const decision={
@@ -211,7 +221,7 @@
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
       const progress=document.getElementById('oneClickProgress');if(progress)progress.remove();
-      toast('1-click full analysis complete · all decision layers updated');
+      toast((searchWarning?'Market scan used · ':'')+'1-click full analysis complete · all decision layers updated');
     }catch(e){
       const progress=document.getElementById('oneClickProgress');
       if(progress)progress.innerHTML='<b>Analysis stopped.</b> '+escLocal(e?.message||'Unknown error');
