@@ -2,18 +2,19 @@
 function paperAgents(){const builtins=AGENTS.map((a,i)=>({id:'builtin-'+i,name:a[0],role:a[2]}));return builtins.concat((state.agents||[]).map(a=>({id:a.id,name:a.name,role:a.role})))}
 function syncPaperAgents(){const p=FinPilotPaperCore.ensure(state),list=paperAgents();list.forEach(a=>FinPilotPaperCore.ensureAgent(p,a));if(!p.positions.length&&!p.orders.length&&list.length){const cap=p.startingCash/list.length;p.agents.forEach(a=>{a.capital=cap;a.cash=cap;a.pnl=0})}window.FinPilotBridge.save();return p}
 function paperMarket(){const g=id=>document.getElementById(id);return{symbol:(g('paperSymbol')?.value||'BTC').trim().toUpperCase(),price:Number(g('paperPrice')?.value||0),momentum:Number(g('paperMomentum')?.value||0),quality:Number(g('paperQuality')?.value||50),valuation:Number(g('paperValuation')?.value||50),risk:Number(g('paperRisk')?.value||50),evidence:Number(g('paperEvidence')?.value||50)}}
-let paperMarketStream=null,paperMarketStreamTimer=null,paperMarketStreamSymbol='';
-function closePaperMarketStream(){if(paperMarketStream){try{paperMarketStream.close()}catch{}paperMarketStream=null}if(paperMarketStreamTimer){clearTimeout(paperMarketStreamTimer);paperMarketStreamTimer=null}}
+var paperMarketStream=window.__finpilotPaperMarketStream||null,paperMarketStreamTimer=window.__finpilotPaperMarketStreamTimer||null,paperMarketStreamSymbol=window.__finpilotPaperMarketStreamSymbol||'';
+function persistPaperStreamRefs(){window.__finpilotPaperMarketStream=paperMarketStream;window.__finpilotPaperMarketStreamTimer=paperMarketStreamTimer;window.__finpilotPaperMarketStreamSymbol=paperMarketStreamSymbol}
+function closePaperMarketStream(){if(paperMarketStream){try{paperMarketStream.close()}catch{}paperMarketStream=null}if(paperMarketStreamTimer){clearTimeout(paperMarketStreamTimer);paperMarketStreamTimer=null}persistPaperStreamRefs()}
 function connectPaperMarketStream(market){
  closePaperMarketStream();
- const sym=String(market?.symbol||'BTC').toUpperCase(); paperMarketStreamSymbol=sym;
+ const sym=String(market?.symbol||'BTC').toUpperCase(); paperMarketStreamSymbol=sym;persistPaperStreamRefs();
  if(!window.EventSource)return;
  let retries=0;
  const open=()=>{
   if(paperMarketStreamSymbol!==sym)return;
   const interval=document.getElementById('paperInterval')?.value||'1h';
   const es=new EventSource('/api/market-data-stream?ticker='+encodeURIComponent(sym)+'&interval='+encodeURIComponent(interval)+'&pollMs=5000');
-  paperMarketStream=es;
+  paperMarketStream=es;persistPaperStreamRefs();
   es.onopen=()=>{retries=0;const out=document.getElementById('paperMarketStatus');if(out)out.dataset.stream='connected'};
   es.addEventListener('market',ev=>{
    try{
@@ -33,7 +34,7 @@ function connectPaperMarketStream(market){
    retries=Math.min(6,retries+1);
    const delay=Math.min(30000,1000*Math.pow(2,retries));
    const out=document.getElementById('paperMarketStatus');if(out)out.textContent='STREAM RECONNECTING · retry in '+Math.ceil(delay/1000)+'s';
-   paperMarketStreamTimer=setTimeout(open,delay);
+   paperMarketStreamTimer=setTimeout(open,delay);persistPaperStreamRefs();
   };
  };
  open();
