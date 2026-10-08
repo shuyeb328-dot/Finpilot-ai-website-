@@ -602,7 +602,15 @@ async function runFinPilotSmoke50(){
  const tickers=['TCS','RELIANCE','INFY','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','HINDALCO'];
  const charts=[];
  for(const t of tickers){try{const x=await liveEquity(t);charts.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price})}catch(e){charts.push({ticker:t,ok:false,error:e?.message||'error'})}}
- console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,elapsedMs:Date.now()-started}));
+ const routeChecks=[];
+ for(const t of tickers.slice(0,5)){
+  try{
+   const r=await fetch('http://127.0.0.1:'+PORT+'/api/stock-report?ticker='+encodeURIComponent(t)+'&interval=1h&multi=1&selftest='+Date.now(),{headers:{'Cache-Control':'no-cache'}});
+   const d=await r.json();
+   routeChecks.push({ticker:t,http:r.status,ok:Boolean(r.ok&&d?.ok&&d?.report?.candles?.length>1),candles:d?.report?.candles?.length||0,price:d?.report?.price||0,error:d?.error||null});
+  }catch(e){routeChecks.push({ticker:t,http:0,ok:false,candles:0,price:0,error:e?.message||'route test failed'})}
+ }
+ console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
 }
 server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
 setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),5000);
