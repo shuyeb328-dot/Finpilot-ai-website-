@@ -335,4 +335,14 @@
   window.addEventListener('load',()=>{install();installProductionDiagnostics();});
   setTimeout(()=>{install();installProductionDiagnostics();},0);
   setTimeout(install,100);
+  const fpInstallTimer=setInterval(()=>{
+    try{
+      install();
+      installProductionDiagnostics();
+      const q=document.getElementById('searchQuery')?.value||document.getElementById('globalSearch')?.value||'';
+      const box=document.getElementById('searchResults');
+      if(q&&box&&!document.getElementById('oneClickLauncher'))mountSearchCard(q);
+      if(rawDoSearch)clearInterval(fpInstallTimer);
+    }catch(e){}
+  },500);
 })();
