@@ -14,8 +14,8 @@
   function ensure(state){
     if(!state.paperTrading)state.paperTrading=defaultPaper();
     const p=state.paperTrading;
-    p.agents=Array.isArray(p.agents)?p.agents:[];p.positions=Array.isArray(p.positions)?p.positions:[];p.orders=Array.isArray(p.orders)?p.orders:[];
-    p.openOrders=Array.isArray(p.openOrders)?p.openOrders:[];p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
+    p.agents=(Array.isArray(p.agents)?p.agents:[]).filter(a=>a&&typeof a==='object');p.positions=(Array.isArray(p.positions)?p.positions:[]).filter(x=>x&&typeof x==='object');p.orders=(Array.isArray(p.orders)?p.orders:[]).filter(x=>x&&typeof x==='object');
+    p.openOrders=(Array.isArray(p.openOrders)?p.openOrders:[]).filter(x=>x&&typeof x==='object');p.journal=Array.isArray(p.journal)?p.journal:[];p.rounds=Array.isArray(p.rounds)?p.rounds:[];p.leaderboard=Array.isArray(p.leaderboard)?p.leaderboard:[];
     p.marketSnapshot=p.marketSnapshot&&typeof p.marketSnapshot==='object'?p.marketSnapshot:{};
     // Repair older/partial local paper state before any numeric formatter is called.
     p.version=num(p.version,2); p.startingCash=num(p.startingCash,1000000);
