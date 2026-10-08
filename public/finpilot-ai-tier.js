@@ -16,3 +16,19 @@
   window.FinPilotAITier={refresh};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh);else refresh();
 })();
+(function(){
+  function patchGlobalPowerOneClick(){
+    const root=document.getElementById("fpPowerOneClick");
+    if(!root)return;
+    const title=root.querySelector("h3");
+    const text=(title?.textContent||"").toUpperCase();
+    const india=/\.NS\b|\.BO\b|\^NSE|\^BSE|\bNIFTY\b|\bBANKNIFTY\b|\bFINNIFTY\b|\bSENSEX\b/.test(text);
+    if(india)return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+    let n;
+    while((n=walker.nextNode())){if(n.nodeValue.includes("₹"))n.nodeValue=n.nodeValue.replaceAll("₹","$");}
+  }
+  const obs=new MutationObserver(patchGlobalPowerOneClick);
+  function start(){patchGlobalPowerOneClick();obs.observe(document.body,{childList:true,subtree:true});}
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start,{once:true});else start();
+})();
