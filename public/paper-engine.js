@@ -31,7 +31,8 @@
     const bear=(100-quality)*.22+(100-valuation)*.22+Math.max(0,-momentum)*.2+risk*.22+(100-evidence)*.14;
     const edge=clamp(50+(bull-bear)/2);let action=edge>=67?'BUY':edge<=33?'SELL':'HOLD';if(risk>=78&&action==='BUY')action='HOLD';
     const confidence=clamp(58+Math.abs(edge-50)*.65+Math.abs(momentum)*.08);
-    return{action,confidence:+confidence.toFixed(1),edge:+edge.toFixed(1),bull:+bull.toFixed(1),bear:+bear.toFixed(1),
+    const steps=[`Momentum ${momentum.toFixed(1)}`,`Quality ${quality.toFixed(1)}`,`Valuation ${valuation.toFixed(1)}`,`Risk ${risk.toFixed(1)}`,`Evidence ${evidence.toFixed(1)}`];
+    return{action,confidence:+confidence.toFixed(1),edge:+edge.toFixed(1),bull:+bull.toFixed(1),bear:+bear.toFixed(1),steps,
       thesis:action==='BUY'?'Evidence and quality outweigh downside risk; accumulate only inside the paper risk budget.':action==='SELL'?'Downside factors dominate the evidence; reduce exposure in simulation rather than chase the move.':'Evidence is not strong enough for a high-conviction position; preserve optionality and wait for confirmation.',
       invalidation:action==='BUY'?'Quality/evidence <40 or risk >80.':action==='SELL'?'Quality >65 with improving evidence.':'Edge exits the 33–67 neutral band.',timestamp:now()};
   }
