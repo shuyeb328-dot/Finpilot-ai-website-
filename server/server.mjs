@@ -796,6 +796,36 @@ async function marketDataOS(req,res,u){
  return send(res,200,result);
 }
 
+async function marketDataStream(req,res,u){
+ const raw=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
+ const interval=u.searchParams.get('interval')||'1h';
+ const heartbeatMs=15000, pollMs=Math.max(3000,Math.min(15000,Number(u.searchParams.get('pollMs')||5000)));
+ res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'});
+ res.write(': finpilot-market-stream\\n\\n');
+ let closed=false, timer=null, seq=0, lastSignature='';
+ const writeEvent=(event,data)=>{if(closed)return;res.write('event: '+event+'\\n');res.write('data: '+JSON.stringify(data)+'\\n\\n');};
+ const poll=async()=>{
+  if(closed)return;
+  try{
+   const base='http://127.0.0.1:'+PORT+'/api/market-data-os?ticker='+encodeURIComponent(raw)+'&interval='+encodeURIComponent(interval);
+   const controller=new AbortController(); const to=setTimeout(()=>controller.abort(),12000);
+   const r=await fetch(base,{headers:{'Accept':'application/json'},signal:controller.signal}); clearTimeout(to);
+   const d=await r.json();
+   const now=Date.now();
+   const verified=Boolean(d?.ok&&d?.available&&d?.verified&&Number.isFinite(Number(d?.price))&&Number(d.price)>0);
+   const ageMs=d?.asOf?Math.max(0,now-Date.parse(d.asOf)):0;
+   const stale=ageMs>30000;
+   const payload={seq:++seq,ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs};
+   const sig=JSON.stringify([payload.status,payload.price,payload.asOf,payload.providerCount]);
+   if(sig!==lastSignature){lastSignature=sig;writeEvent('market',payload);}
+  }catch(e){writeEvent('status',{seq:++seq,ticker:raw,status:'UNAVAILABLE',verified:false,stale:true,error:String(e?.message||e),receivedAt:new Date().toISOString()});}
+ };
+ await poll();
+ timer=setInterval(poll,pollMs);
+ const heartbeat=setInterval(()=>{if(!closed)res.write(': heartbeat '+Date.now()+'\\n\\n');},heartbeatMs);
+ req.on('close',()=>{closed=true;clearInterval(timer);clearInterval(heartbeat);});
+}
+
 async function stockReport(req,res,u){
  const t=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
@@ -1237,6 +1267,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/market-data-stream')return marketDataStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
