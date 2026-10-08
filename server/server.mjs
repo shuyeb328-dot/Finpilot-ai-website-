@@ -1128,7 +1128,18 @@ function optimizeOS(req,res){
  const after={maxConcurrency:SCHEDULER.maxConcurrency,marketRefreshMs:AUTO.marketRefreshMs,cacheTtlMs:AUTO.cacheTtlMs};audit('AUTO_OPTIMIZE',{before,after});return send(res,200,{ok:true,version:'6.9',mode:'BOUNDED_SELF_OPTIMIZATION',before,after,protected:POLICY});
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
-function cleanIndexHtml(html){let out=String(html||'');const end=out.indexOf('</html>');if(end>=0)out=out.slice(0,end+7);out=out.replace(/const mc=marketCurrency\\(m\\),symbol=mc==='USD'\\?'[\\s\\S]*?\\n\\s*const html=/,\"const mc=marketCurrency(m),symbol=mc==='USD'?'
+function cleanIndexHtml(html){
+ let out=String(html||"");
+ const end=out.indexOf("</html>");
+ if(end>=0)out=out.slice(0,end+7);
+ const marker="const mc=marketCurrency(m),symbol=mc==='USD'?'";
+ const p=out.indexOf(marker);
+ if(p>=0){
+  const h=out.indexOf("\n   const html=",p);
+  if(h>p)out=out.slice(0,p)+"const mc=marketCurrency(m),symbol=mc==='USD'?'$':'\\u20b9';"+out.slice(h);
+ }
+ return out;
+}
 function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
 
 const server=http.createServer(async(req,res)=>{
