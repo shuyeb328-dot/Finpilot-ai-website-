@@ -87,8 +87,9 @@
         if(o.timeInForce==='FOK'&&Number(o.fillRatio||1)<1){o.status='REJECTED';o.error='FOK not fully fillable';return false;} const ratio=Math.max(0.25,Math.min(1,Number(o.fillRatio||1)));
         const fillQty=Math.max(1,Math.min(o.qty,Math.floor(o.qty*ratio)));
         const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
+        if(o.reduceOnly){const pos=(p.agents.find(a=>a.id===o.agentId)||{}).positions?.find(x=>x.symbol===o.symbol);if(!pos||pos.qty<fillQty)throw new Error('Reduce-only order exceeds position');}
         o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
-        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();return false}
+        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();if(o.bracketGroup)cancelOco(state,o.id);return false}
         o.status='PARTIALLY_FILLED';return true;
       }catch(e){o.status='REJECTED';o.error=e.message;return false}
     });return fills;
@@ -104,16 +105,21 @@
     p.journal.unshift({...o,type:'PAPER_ORDER_AMENDED'});p.updatedAt=now();return o;
   }
   function placeBracket(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason){
-    const entry=placeOrder(state,agentId,symbol,side,qty,entryType,entryPrice,stopPrice,targetPrice,reason,'GTC',null);
-    entry.bracketRole='ENTRY';
-    entry.bracket={stopPrice:num(stopPrice),targetPrice:num(targetPrice),oco:true};
+    const p=ensure(state),group=uid('bracket');
+    const entry=placeOrder(state,agentId,symbol,side,qty,entryType,entryPrice,null,null,reason,'GTC',null);
+    entry.bracketRole='ENTRY';entry.bracketGroup=group;entry.bracket={stopPrice:num(stopPrice),targetPrice:num(targetPrice),oco:true};
+    if(String(entryType).toUpperCase()==='MARKET'){
+      const exitSide=String(side).toUpperCase()==='BUY'?'SELL':'BUY';
+      if(num(stopPrice)) {
+        const sl=placeOrder(state,agentId,symbol,exitSide,qty,'STOP',0,stopPrice,null,'Bracket stop loss','GTC',null);
+        sl.bracketRole='STOP';sl.bracketGroup=group;sl.reduceOnly=true;
+      }
+      if(num(targetPrice)) {
+        const tp=placeOrder(state,agentId,symbol,exitSide,qty,'LIMIT',targetPrice,null,null,'Bracket take profit','GTC',null);
+        tp.bracketRole='TARGET';tp.bracketGroup=group;tp.reduceOnly=true;
+      }
+    }
     return entry;
-  }
-  function cancelOco(state,filledOrderId){
-    const p=ensure(state),o=p.orders.find(x=>x.id===filledOrderId);if(!o||!o.bracketGroup)return [];
-    const cancelled=[];
-    p.openOrders=p.openOrders.filter(x=>{if(x.bracketGroup===o.bracketGroup&&x.id!==o.id){x.status='CANCELLED';cancelled.push(x.id);return false}return true});
-    return cancelled;
   }
   function cancelOrder(state,orderId){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
