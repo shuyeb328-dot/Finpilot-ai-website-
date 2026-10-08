@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('production Paper Arena boots and executes a virtual fill in-browser', async ({ page }) => {
   const errors = [];
-  page.on('pageerror', err => errors.push(String(err?.message || err)));
+  page.on('pageerror', err => errors.push(String(err?.stack || err?.message || err)));
   await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=2', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   await page.waitForTimeout(3000);
