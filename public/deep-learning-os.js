@@ -48,6 +48,7 @@ function weighted(a,f){
 function resolveCandidate(query,search,web){
   const q=String(query||'').toUpperCase();
   const catalog=[
+    ['NIFTY','Nifty 50'],['BANKNIFTY','Nifty Bank'],['FINNIFTY','Nifty Financial Services'],['SENSEX','BSE Sensex'],
     ['TCS','Tata Consultancy Services'],['INFY','Infosys'],['RELIANCE','Reliance Industries'],['GAIL','GAIL (India)'],
     ['HINDZINC','Hindustan Zinc'],['ITC','ITC'],['TATAPOWER','Tata Power'],['TATASTEEL','Tata Steel'],
     ['SUNPHARMA','Sun Pharmaceutical'],['TRENT','Trent'],['TECHM','Tech Mahindra'],['HCLTECH','HCLTech'],
@@ -62,7 +63,7 @@ function resolveCandidate(query,search,web){
   let candidates=catalog.filter(c=>corpus.includes(c[0])||corpus.includes(c[1].toUpperCase()));
   if(!candidates.length && !broad){
     const clean=q.replace(/\b(BUY|SELL|STOCK|SHARE|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO)\b/g,' ').trim().split(/\s+/)[0];
-    if(clean)candidates=[[clean,clean+' (symbol detected from query)']];
+    if(clean && /^[A-Z0-9._-]{1,20}$/.test(clean))candidates=[[clean,clean+' (symbol detected from query)']];
   }
   if(!candidates.length)return null;
   const f=features(typeof state!=='undefined'?state:{},web);
