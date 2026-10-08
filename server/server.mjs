@@ -302,17 +302,33 @@ async function liveCrypto(t, interval='1h', multi=true){
  const tf=TIMEFRAMES[interval]||'1h';
  const intervals=multi?['15m','1h','4h'].filter(x=>x!==tf).concat(tf):[tf];
  const unique=[...new Set(intervals)];
- const [ticker,...series]=await Promise.all([
+ let ticker,series,provider='Binance public market data';
+ try{
+  [ticker,...series]=await Promise.all([
    fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`),
-   ...unique.map(x=>fetchJson(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${x}&limit=${x==='1d'?220:220}`))
- ]);
+   ...unique.map(x=>fetchJson(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${x}&limit=220`))
+  ]);
+ }catch(binanceError){
+  const krakenPair=key==='BTC'?'XBTUSD':key+'USD';
+  const map={ '15m':15,'1h':60,'4h':240,'1d':1440 };
+  const kTicker=await fetchJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair));
+  const rawTicker=Object.values(kTicker?.result||{})[0];
+  if(!rawTicker?.c?.[0])throw new Error('CRYPTO_MARKET_UNAVAILABLE: Binance and Kraken unavailable');
+  ticker={lastPrice:Number(rawTicker.c[0]),prevClosePrice:Number(rawTicker.o||rawTicker.c[0]),highPrice:Number(rawTicker.h?.[1]||rawTicker.c[0]),lowPrice:Number(rawTicker.l?.[1]||rawTicker.c[0]),volume:Number(rawTicker.v?.[1]||0)};
+  series=await Promise.all(unique.map(async x=>{
+   const d=await fetchJson('https://api.kraken.com/0/public/OHLC?pair='+encodeURIComponent(krakenPair)+'&interval='+map[x]);
+   const rows=Object.values(d?.result||{}).find(v=>Array.isArray(v))||[];
+   return rows.slice(-220).map(v=>[Number(v[0])*1000,Number(v[1]),Number(v[2]),Number(v[3]),Number(v[4]),Number(v[6]||0)]);
+  }));
+  provider='Kraken public market data fallback';
+ }
  const reports=unique.map((x,i)=>cryptoTimeframe(series[i],ticker,x));
  const main=reports.find(x=>x.interval===tf)||reports[0];
  const bullish=reports.filter(x=>x.direction==='BULLISH').length, bearish=reports.filter(x=>x.direction==='BEARISH').length;
  const consensus=bullish===reports.length?'BULLISH':bearish===reports.length?'BEARISH':'MIXED';
  const risk=Math.min(100,Math.max(10,Math.round(main.riskScore+(consensus==='MIXED'?8:consensus==='BEARISH'?15:-4))));
  const name=key.replace('USDT','');
- return {...main,ticker:name,symbol,name,market:'CRYPTO',provider:'Binance public market data',live:true,asOf:new Date().toISOString(),riskScore:risk,posture:consensus==='BULLISH'?(main.price>=main.resistance*.995?'BREAKOUT WATCH':'BULLISH / CONFIRMATION'):consensus==='BEARISH'?'DEFENSIVE / REVIEW':'MIXED / WAIT FOR CONFIRMATION',multiTimeframe:{consensus,checked:reports.map(r=>({interval:r.interval,direction:r.direction,rsi:r.rsi,priceVsSma50:r.price>r.sma50,priceVsSma200:r.price>r.sma200})),bullish,bearish},sources:[{name:'Binance',use:`Live ${unique.join(', ')} OHLCV + 24h ticker`,freshness:'Fetched at request time',url:'https://www.binance.com/en/markets'}],evidenceQuality:'LIVE — provider response received at request time; multi-timeframe consensus calculated by FinPilot'};
+ return {...main,ticker:name,symbol,name,market:'CRYPTO',provider,live:true,asOf:new Date().toISOString(),riskScore:risk,posture:consensus==='BULLISH'?(main.price>=main.resistance*.995?'BREAKOUT WATCH':'BULLISH / CONFIRMATION'):consensus==='BEARISH'?'DEFENSIVE / REVIEW':'MIXED / WAIT FOR CONFIRMATION',multiTimeframe:{consensus,checked:reports.map(r=>({interval:r.interval,direction:r.direction,rsi:r.rsi,priceVsSma50:r.price>r.sma50,priceVsSma200:r.price>r.sma200})),bullish,bearish},sources:[{name:'Binance',use:`Live ${unique.join(', ')} OHLCV + 24h ticker`,freshness:'Fetched at request time',url:'https://www.binance.com/en/markets'}],evidenceQuality:'LIVE — provider response received at request time; multi-timeframe consensus calculated by FinPilot'};
 }
 function cryptoTimeframe(klines,ticker,interval){
  const closes=klines.map(x=>Number(x[4]));
@@ -518,11 +534,12 @@ async function marketProvenanceRoute(req,res,u){
 }
 async function runLiveProductionSmoke(){
  const base='http://127.0.0.1:'+String(process.env.PORT||10000);
- const paths=['/api/health','/api/core-status','/api/data-health','/api/exa-status','/api/market-provider-status','/api/market-provider-health','/api/cloud-knowledge?limit=2','/api/market-provenance?limit=2','/api/autonomy-status','/api/policy-status','/api/security-status','/api/agent-fleet-status','/api/execution-guard?approved=false&risk=80&confidence=90','/api/investment-plan?ticker=BTC&capital=1000&riskPct=1'];
+ const paths=['/api/health','/api/core-status','/api/data-health','/api/exa-status','/api/market-provider-status','/api/market-provider-health','/api/cloud-knowledge?limit=2','/api/market-provenance?limit=2','/api/autonomy-status','/api/policy-status','/api/security-status','/api/agent-fleet-status','/api/investment-plan?ticker=BTC&capital=1000&riskPct=1'];
  const out=[];
  for(const path of paths){const started=Date.now();try{const r=await fetch(base+path,{cache:'no-store',signal:AbortSignal.timeout(12000)});const text=await r.text();let j={};try{j=JSON.parse(text)}catch{};out.push({path,status:r.status,ok:r.ok,bodyOk:j?.ok,error:j?.error||null,ms:Date.now()-started})}catch(e){out.push({path,status:0,ok:false,error:e.message,ms:Date.now()-started})}}
  try{const r=await fetch(base+'/',{cache:'no-store',signal:AbortSignal.timeout(8000)});const html=await r.text();out.push({path:'/',status:r.status,ok:r.ok,htmlBytes:html.length,hasSearch:html.includes('searchResults'),hasPortfolio:html.includes('Portfolio Command Center'),hasRecovery:html.includes('Search module recovered from a UI error')})}catch(e){out.push({path:'/',status:0,ok:false,error:e.message})}
- console.log('[live-production-smoke] '+JSON.stringify({passed:out.filter(x=>x.ok&&x.bodyOk!==false).length,total:out.length,failed:out.filter(x=>!x.ok||x.bodyOk===false),results:out}));
+ let executionGuardSmoke=null;try{const r=await fetch(base+'/api/execution-guard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userApproved:false,riskScore:80,confidence:90}),signal:AbortSignal.timeout(8000)});executionGuardSmoke={status:r.status,ok:r.ok,body:await r.json()}}catch(e){executionGuardSmoke={ok:false,error:e.message}}
+ console.log('[live-production-smoke] '+JSON.stringify({passed:out.filter(x=>x.ok&&x.bodyOk!==false).length,total:out.length,failed:out.filter(x=>!x.ok||x.bodyOk===false),executionGuard:executionGuardSmoke,results:out}));
 }
 function marketProvenance(symbol,provider,live,freshness='unknown'){
  return {symbol,provider,live:Boolean(live),freshness,observedAt:new Date().toISOString(),provenance:'FinPilot market-data mesh'};
