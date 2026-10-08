@@ -101,7 +101,7 @@
         const remaining=Math.max(0,Number(o.remainingQty??o.qty));
         if(!remaining) {o.status='FILLED';return false;}
         const a=p.agents.find(x=>x.id===o.agentId);if(!a)throw new Error('Paper agent not found');
-        let fillQty=remaining; const liquidity=Math.max(1,Math.floor(Math.abs(price)*0.02/Math.max(0.000001,price)*100)); fillQty=Math.min(fillQty,Math.max(1,liquidity));
+        let fillQty=remaining; const liquidityNotional=Math.max(2500,Math.min(250000,Math.abs(price)*50)); const liquidity=Math.max(1,Math.floor(liquidityNotional/Math.max(0.000001,Math.abs(price)))); fillQty=Math.min(fillQty,liquidity);
         if(o.timeInForce==='FOK'){
           if(o.side==='BUY'){
             const available=Math.max(0,a.cash-reservedBuyCash(state,o.agentId)+remaining*price*(1+num(p.account.commissionBps)/10000+num(p.account.slippageBps)/10000));
