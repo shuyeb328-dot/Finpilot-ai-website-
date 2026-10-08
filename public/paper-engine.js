@@ -93,8 +93,8 @@
     const p=ensure(state);return p.agents.map(a=>{const exposure=a.positions.reduce((n,x)=>n+x.qty*x.last,0),equity=a.cash+exposure,pnl=equity-a.capital;return{...a,equity:+equity.toFixed(2),pnl:+pnl.toFixed(2),returnPct:+(pnl/Math.max(1,a.capital)*100).toFixed(2),exposure:+exposure.toFixed(2)}}).sort((a,b)=>b.returnPct-a.returnPct);
   }
   function accountSummary(state){
-    const p=ensure(state),rows=leaderboard(state),exposure=rows.reduce((n,a)=>n+a.exposure,0),equity=p.cash+exposure;
-    return{cash:+p.cash.toFixed(2),equity:+equity.toFixed(2),startingCash:p.startingCash,realizedPnl:+p.realizedPnl.toFixed(2),unrealizedPnl:+p.unrealizedPnl.toFixed(2),exposure:+exposure.toFixed(2),returnPct:+((equity/p.startingCash-1)*100).toFixed(2),fees:+p.fees.toFixed(2),slippage:+p.slippage.toFixed(2),openOrders:p.openOrders.length,filledOrders:p.orders.filter(x=>x.status==='FILLED').length,virtualOnly:true};
+    const p=ensure(state),rows=leaderboard(state),exposure=rows.reduce((n,a)=>n+a.exposure,0),cash=rows.reduce((n,a)=>n+a.cash,0),equity=cash+exposure;
+    return{cash:+cash.toFixed(2),equity:+equity.toFixed(2),startingCash:p.startingCash,realizedPnl:+p.realizedPnl.toFixed(2),unrealizedPnl:+p.unrealizedPnl.toFixed(2),exposure:+exposure.toFixed(2),returnPct:+((equity/p.startingCash-1)*100).toFixed(2),fees:+p.fees.toFixed(2),slippage:+p.slippage.toFixed(2),openOrders:p.openOrders.length,filledOrders:p.orders.filter(x=>x.status==='FILLED').length,virtualOnly:true};
   }
   function riskReport(state){
     const p=ensure(state),s=accountSummary(state),eq=Math.max(1,s.equity),concentration={};
