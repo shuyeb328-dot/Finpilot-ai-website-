@@ -76,7 +76,6 @@
     const paper=report.paper;
     const money=window.FinpilotMoneyEngine?.analyze(report,1000,30)||null;
     const candidate=report.candidate||null;
-    const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
