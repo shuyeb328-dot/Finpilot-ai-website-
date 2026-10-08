@@ -1192,7 +1192,7 @@ async function drainScheduler(){
 }
 async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return;a.runs++;a.lastRun=new Date().toISOString();a.health='RUNNING';EVENT_BUS.wakeups++;
  const p=job.trigger.payload||{};let result='MONITOR',evidenceScore=0;
- if(job.trigger.type==='AUTONOMOUS_RESEARCH_UPDATE'){const q=Number(p.qualityScore||0);evidenceScore=q;if(job.agentId==='research')result=q>=70?'LEARNING_CANDIDATE_REVIEW':'EVIDENCE_REVIEW';else if(job.agentId==='risk')result=q<65?'LEARNING_RISK_FLAG':'LEARNING_RISK_REVIEW';else if(job.agentId==='quant')result=q>=70?'LESEARCH_READY':'DATA_REJECT';else if(job.agentId==='compliance')result=q>=70?'SOURCE_CHECK_PASS':'SOURCE_CHECK_REQUIRED';else if(job.agentId==='ceo')result=q>=80?'LEARNING_SYNTHESIS_READY':'LEARNING_SYNTHESIS_BLOCKED';
+ if(job.trigger.type==='AUTONOMOUS_RESEARCH_UPDATE'){const q=Number(p.qualityScore||0);evidenceScore=q;if(job.agentId==='research')result=q>=70?'LEARNING_CANDIDATE_REVIEW':'EVIDENCE_REVIEW';else if(job.agentId==='risk')result=q<65?'LEARNING_RISK_FLAG':'LEARNING_RISK_REVIEW';else if(job.agentId==='quant')result=q>=70?'RESEARCH_READY':'DATA_REJECT';else if(job.agentId==='compliance')result=q>=70?'SOURCE_CHECK_PASS':'SOURCE_CHECK_REQUIRED';else if(job.agentId==='ceo')result=q>=80?'LEARNING_SYNTHESIS_READY':'LEARNING_SYNTHESIS_BLOCKED';
  } else if(job.trigger.type==='RESEARCH_UPDATE'){const z=p.analysis||EXA_ANALYSIS;evidenceScore=Number(z.confidence||0);
    if(job.agentId==='research')result=evidenceScore>=70?'EVIDENCE_VERIFIED':'EVIDENCE_REVIEW';
    else if(job.agentId==='risk')result=evidenceScore<60||z.contradictions>Math.max(2,EXA_CACHE.length*.2)?'RISK_ESCALATE':'RISK_REVIEW';
@@ -1389,7 +1389,7 @@ async function runFinPilotSmoke50(){
  }
  console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,routeChecks,fallbackChecks,frontendContract:{tradingViewFallback:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('tradingview.com/external-embedding/embed-widget-advanced-chart.js'),equitySnapshot:fs.readFileSync(path.join(ROOT,'one-click-analysis.js'),'utf8').includes('live-equity-snapshot')},elapsedMs:Date.now()-started}));
 }
-server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
+server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax())); if(AUTONOMOUS_LEARNING_INIT.enabled)setTimeout(()=>autonomousLearningCycle().catch(()=>{}),2000);});
 if(process.env.RUN_SMOKE_50==='true')setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),1500);
 async function runGlobalMarketSmoke(){
  const started=Date.now();const idx=GLOBAL_INDEXES.map(x=>x.symbol);const stocks=GLOBAL_STOCK_TEST_SET.map(x=>x[1]);
