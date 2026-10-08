@@ -75,8 +75,18 @@
       window.FinPilotBridge.toast(e.message||'Paper order rejected');
     }
   }
+  async function paperProAIExecute(){
+    const rec=paperProRecommendation();
+    if(rec.action==="HOLD"){window.FinPilotBridge.toast("AI recommendation is HOLD — execution blocked");return}
+    const q=document.getElementById("paperQty");
+    if(q&&rec.qty>0)q.value=rec.qty;
+    paperProSide(rec.action);
+    await paperProSubmit(rec.action);
+  }
   async function paperProQuick(side){
+    const rec=paperProRecommendation();
     paperProSide(side);
+    const q=document.getElementById('paperQty');if(q&&rec.qty>0)q.value=rec.qty;
     var t=document.getElementById('paperOrderType');if(t){t.value='MARKET';paperProSyncType()}
     await paperProSubmit(side);
   }
@@ -167,6 +177,8 @@
   window.paperProQuick=paperProQuick;
   window.paperProCancel=paperProCancel;
   window.paperProSetRisk=paperProSetRisk;
+  window.paperProAIExecute=paperProAIExecute;
+  window.paperExecute=paperProAIExecute;
   window.paperProRecommendation=paperProRecommendation;
   window.paperProHeartbeat=paperProHeartbeat;
   window.paperLab=proPaperLab;
