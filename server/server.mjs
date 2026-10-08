@@ -531,6 +531,7 @@ function routeEvent(event){
  if(event.type==='MARKET_TICK')matches=AGENT_CATALOG.filter(a=>['market','risk','quant'].includes(a.id));
  if(event.type==='SECURITY_ALERT')matches=AGENT_CATALOG.filter(a=>['security','compliance','cfo','ceo'].includes(a.id));
  if(event.type==='DATA_QUALITY_ALERT')matches=AGENT_CATALOG.filter(a=>['research','compliance','risk'].includes(a.id));
+ if(event.type==='RESEARCH_UPDATE')matches=AGENT_CATALOG.filter(a=>['research','risk','quant','compliance','ceo'].includes(a.id));
  if(event.type==='USER_DECISION')matches=AGENT_CATALOG.filter(a=>['cfo','risk','compliance','ceo'].includes(a.id));
  for(const a of matches){const live=AGENT_POOL.get(a.id);if(live)live.wakeups++;EVENT_BUS.routed++;scheduleAgent(a.id,event);}
 }
