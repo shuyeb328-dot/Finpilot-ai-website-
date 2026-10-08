@@ -97,7 +97,46 @@ function recordOutcome(agent,confidence,correct,context){const c=calibration(age
 function stage(agent){const s=load();const p=s.promotions[agent]||{status:'SHADOW',score:0,generalization:0,canary:0,approved:false};return p}
 function promote(agent){const s=load(),m=s.scores[agent];if(!m)throw new Error('Train the agent first');const gen=100-Math.max(0,(m.score||0)<85?20:0);const safety=Number(m.safety||0);const pass=m.score>=85&&safety>=90&&gen>=80;if(!pass){s.promotions[agent]={status:'SHADOW',score:m.score,generalization:gen,canary:0,approved:false,reason:'Safety/calibration gate not passed'};save(s);return s.promotions[agent]}s.promotions[agent]={status:'CANARY',score:m.score,generalization:gen,canary:50,approved:false,reason:'Candidate improved; canary evaluation required'};s.queue=s.queue.filter(x=>x.agent!==agent);addAudit('PROMOTION_CANARY',{agent,score:m.score,safety});save(s);return s.promotions[agent]}
 function finishCanary(agent,observed){const s=load(),p=s.promotions[agent];if(!p||p.status!=='CANARY')return {ok:false,reason:'Agent is not in CANARY'};const ok=Number(observed)>=85&&Number(s.scores?.[agent]?.safety||0)>=90;p.status=ok?'APPROVED_PROPOSAL':'SHADOW';p.canary=Number(observed);p.approved=ok;s.promotions[agent]=p;addAudit(ok?'CANARY_PASS':'CANARY_FAIL',{agent,observed});save(s);return {ok,proposal:p}}
-function hybridOptimize(input){const capital=Math.max(1,Number(input?.capital||100000)),assets=Array.isArray(input?.assets)&&input.assets.length?input.assets:['A','B','C','D','E'];const classical=assets.map((a,i)=>({asset:a,weight:Math.round(100/assets.length)+(i===0?4:0)}));let best=classical,score=-Infinity;for(let i=0;i<128;i++){const ws=assets.map((a,j)=>Math.max(0,Math.round((Math.sin((i+1)*(j+2))*1000+1000)/200)));const total=ws.reduce((a,b)=>a+b,0)||1;const normalized=ws.map((w,j)=>({asset:assets[j],weight:+(w/total*100).toFixed(2)}));const concentration=Math.max(...normalized.map(x=>x.weight));const diversification=100-concentration;const objective=diversification-(normalized.filter(x=>x.weight<5).length*4);if(objective>score){score=objective;best=normalized}}const candidate={backend:'CLASSICAL_FALLBACK_SIMULATING_QUANTUM_SEARCH',status:'FALLBACK',objective:'constrained allocation search',assets,best,objectiveScore:Math.round(score),constraints:{maxConcentration:35,minLiquidity:20,maxRiskBudget:input?.maxRiskBudget??10}};const s=load();s.quantum.runs++;s.quantum.last=candidate;s.quantum.backend='UNCONFIGURED';save(s);addAudit('HYBRID_OPTIMIZATION',{backend:candidate.backend,score:candidate.objectiveScore});return candidate}
+function validateCandidate(candidate,input){
+ const weights=Array.isArray(candidate?.best)?candidate.best:[];
+ const maxConc=Math.max(0,...weights.map(x=>Number(x.weight)||0));
+ const sum=weights.reduce((n,x)=>n+(Number(x.weight)||0),0);
+ const constraints={maxConcentration:Number(input?.maxConcentration??35),minLiquidity:Number(input?.minLiquidity??20),maxRiskBudget:Number(input?.maxRiskBudget??10)};
+ const violations=[];
+ if(Math.abs(sum-100)>0.5)violations.push('WEIGHTS_NOT_NORMALIZED');
+ if(maxConc>constraints.maxConcentration)violations.push('CONCENTRATION_LIMIT');
+ const diversification=100-maxConc;
+ const riskScore=Math.max(0,Math.min(100,Math.round((maxConc*.7)+Math.max(0,weights.length-2)*3)));
+ const liquidityScore=Math.max(0,Math.min(100,Math.round(100-(weights.filter(x=>(Number(x.weight)||0)<3).length*8))));
+ if(liquidityScore<constraints.minLiquidity)violations.push('LIQUIDITY_LIMIT');
+ const passed=violations.length===0;
+ return {passed,violations,concentrationPct:+maxConc.toFixed(2),diversificationPct:+diversification.toFixed(2),riskScore,liquidityScore,constraints};
+}
+function hybridOptimize(input){
+ const capital=Math.max(1,Number(input?.capital||100000)),assets=Array.isArray(input?.assets)&&input.assets.length?input.assets:['A','B','C','D','E'];
+ const classical=assets.map((a,i)=>({asset:a,weight:+(100/assets.length+(i===0?4:0)).toFixed(2)}));
+ let best=classical,score=-Infinity;
+ for(let i=0;i<128;i++){
+   const ws=assets.map((a,j)=>Math.max(0,Math.round((Math.sin((i+1)*(j+2))*1000+1000)/200)));
+   const total=ws.reduce((a,b)=>a+b,0)||1;
+   const normalized=ws.map((w,j)=>({asset:assets[j],weight:+(w/total*100).toFixed(2)}));
+   const concentration=Math.max(...normalized.map(x=>x.weight));
+   const diversification=100-concentration;
+   const objective=diversification-(normalized.filter(x=>x.weight<5).length*4);
+   if(objective>score){score=objective;best=normalized}
+ }
+ const baseline={best:classical,objectiveScore:Math.round(100-Math.max(...classical.map(x=>x.weight)))};
+ const candidate={backend:'CLASSICAL_FALLBACK_SIMULATING_QUANTUM_SEARCH',status:'FALLBACK',objective:'constrained allocation search',assets,best,objectiveScore:Math.round(score),constraints:{maxConcentration:input?.maxConcentration??35,minLiquidity:input?.minLiquidity??20,maxRiskBudget:input?.maxRiskBudget??10}};
+ const validation=validateCandidate(candidate,input||{});
+ const baselineValidation=validateCandidate(baseline,input||{});
+ const contribution=Math.round((candidate.objectiveScore-(baseline.objectiveScore||0))*10)/10;
+ candidate.validation=validation;
+ candidate.baseline={objectiveScore:baseline.objectiveScore,validation:baselineValidation};
+ candidate.quantumContributionScore=contribution;
+ candidate.winner=validation.passed&&(!baselineValidation.passed||candidate.objectiveScore>=baseline.objectiveScore)?'HYBRID_CANDIDATE': 'CLASSICAL_BASELINE';
+ const s=load();s.quantum.runs++;s.quantum.last=candidate;s.quantum.backend='UNCONFIGURED';save(s);addAudit('HYBRID_OPTIMIZATION',{backend:candidate.backend,score:candidate.objectiveScore,quantumContributionScore:contribution,validation});
+ return candidate
+}
 async function quantumOptimize(input){try{const r=await fetch('/api/quantum-optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input||{})});if(r.ok){const d=await r.json();const s=load();s.quantum.runs++;s.quantum.last=d;s.quantum.backend=d.backend||'EXTERNAL';s.quantum.last.usedExternal=true;save(s);return d}}catch{}return hybridOptimize(input)}
 function snapshot(){const s=load();const vals=Object.values(s.scores||{});const avg=vals.length?Math.round(vals.reduce((n,x)=>n+x.score,0)/vals.length):null;return {version:'FABRIC-1.0',agents:AGENTS.length,levels:LEVELS,avgScore:avg,weakAgents:weakAgents(s.scores||{}),queue:s.queue.length,runs:s.runs.length,outcomes:s.outcomes.length,quantum:s.quantum,promotions:s.promotions,calibration:Object.fromEntries(AGENTS.map(a=>[a,s.calibration[a]?.score??null]))}}
 function setStatus(text){const x=document.getElementById('fpFabricProgress');if(x)x.textContent=text||'Ready'}
@@ -107,6 +146,6 @@ function showResult(run){const v=document.getElementById('fpFabricProgress');if(
 function mount(){if(document.getElementById('fpTrainingLauncher'))return;const b=document.createElement('button');b.id='fpTrainingLauncher';b.className='btn';b.textContent='◈ Training Director';b.style.cssText='position:fixed;right:14px;bottom:102px;z-index:90';b.onclick=panel;document.body.appendChild(b)}
 const st=document.createElement('style');st.textContent='.fpTFShade{position:fixed;inset:0;z-index:10000;background:rgba(2,8,20,.76);display:grid;place-items:center;padding:14px}.fpTFPanel{width:min(1200px,100%);max-height:94vh;overflow:auto;background:#071426;color:#e9f2ff;border:1px solid #1d4069;border-radius:20px;padding:20px;box-shadow:0 30px 120px rgba(0,0,0,.55);font:14px system-ui}.fpTFHead{display:flex;justify-content:space-between;gap:15px}.fpTFHead h2{margin:5px 0}.fpTFHead p{color:#91a7c5;margin:4px 0 0}.fpTFStats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0}.fpTFStats div,.fpTFCard{border:1px solid #173757;background:#0a1a2e;border-radius:12px;padding:12px}.fpTFStats span{display:block;color:#7f96b5;font-size:10px;text-transform:uppercase}.fpTFStats b{font-size:18px}.fpTFTabs{display:flex;gap:8px;flex-wrap:wrap}.fpTFProgress{margin:10px 0;padding:10px;border:1px solid #1c426a;border-radius:9px;background:#091a2d;color:#7fe6bd}.fpTFGrid{display:grid;grid-template-columns:1.15fr .85fr;gap:12px}.fpTFTitle{font-weight:800;margin-bottom:8px}.fpTFAgent{display:grid;grid-template-columns:.7fr 1.7fr .55fr;gap:8px;padding:8px 0;border-bottom:1px solid #16324e;font-size:11px}.fpTFAgent span{color:#9bb0ca}.fpTFAgent em{color:#7fe6bd;font-style:normal;text-align:right}.fpTFQueue,.fpTFRow{display:grid;grid-template-columns:1fr auto;gap:5px;padding:8px 0;border-bottom:1px solid #16324e}.fpTFQueue small{grid-column:1/-1;color:#9bb0ca}.fpTFQueue span{color:#f6c85f}.fpTFRow{grid-template-columns:1fr 50px 86px 70px;align-items:center;font-size:11px}.fpTFRow i{font-style:normal;color:#7fe6bd}.fpTFMemory{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.fpTFMemory span{display:flex;justify-content:space-between;padding:8px;border:1px solid #16324e;border-radius:8px}.fpTFMemory em{font-style:normal;color:#7fe6bd}.fpTFNote{margin-top:10px;color:#9bb0ca;line-height:1.5}@media(max-width:800px){.fpTFGrid{grid-template-columns:1fr}.fpTFStats{grid-template-columns:1fr 1fr}.fpTFAgent{grid-template-columns:1fr}.fpTFAgent em{text-align:left}.fpTFRow{grid-template-columns:1fr 45px 76px}.fpTFRow .btn{grid-column:1/-1}.fpTFMemory{grid-template-columns:1fr 1fr}}';
 document.head.appendChild(st);
-window.FinPilotTrainingFabric={version:'1.0',agents:AGENTS,levels:LEVELS,curriculum:CURRICULUM,cases:CASES,train,redTeam,recordOutcome,trainTarget,promote,finishCanary,hybridOptimize,quantumOptimize,snapshot,panel};
+window.FinPilotTrainingFabric={version:'1.0',agents:AGENTS,levels:LEVELS,curriculum:CURRICULUM,cases:CASES,train,redTeam,recordOutcome,trainTarget,promote,finishCanary,validateCandidate,hybridOptimize,quantumOptimize,snapshot,panel};
 window.addEventListener('load',mount);setTimeout(mount,150);
 })();
