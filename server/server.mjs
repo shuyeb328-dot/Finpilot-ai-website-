@@ -446,7 +446,7 @@ async function fetchYahooPageQuote(symbol){
   const r=await fetch(url,{headers:{'Accept':'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'},signal:controller.signal});
   if(!r.ok)throw new Error('Yahoo page HTTP '+r.status);
   const html=await r.text();
-  const esc=String(symbol).replace(/[.*+?^${}()|[\\]\\]/g,'\\const esc=String(symbol).replace(/[.*+?^${}()|[\\]\\]/g,'\\\\$&');');
+  const esc=String(symbol).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   const field=(name)=>{
    const p1=new RegExp('<fin-streamer[^>]*data-symbol=[\\\"\\\']'+esc+'[\\\"\\\'][^>]*data-field=[\\\"\\\']'+name+'[\\\"\\\'][^>]*data-value=[\\\"\\\'](-?[0-9.]+)','i');
    const p2=new RegExp('<fin-streamer[^>]*data-field=[\\\"\\\']'+name+'[\\\"\\\'][^>]*data-symbol=[\\\"\\\']'+esc+'[\\\"\\\'][^>]*data-value=[\\\"\\\'](-?[0-9.]+)','i');
