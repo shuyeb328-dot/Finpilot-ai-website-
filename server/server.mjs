@@ -1164,4 +1164,3 @@ async function runGlobalMarketSmoke(){
  const indices=await test(idx,1); await new Promise(r=>setTimeout(r,1000)); const stockResults=await test(stocks,2);
  console.log('[global-market-smoke]',JSON.stringify({indexes:{total:indices.length,pass:indices.filter(x=>x.ok).length,fail:indices.filter(x=>!x.ok).length,rows:indices},stocks:{total:stockResults.length,pass:stockResults.filter(x=>x.ok).length,fail:stockResults.filter(x=>!x.ok).length,rows:stockResults},elapsedMs:Date.now()-started}));
 }
-if(process.env.RUN_GLOBAL_MARKET_SMOKE==='true')setTimeout(()=>runGlobalMarketSmoke().catch(e=>console.error('[global-market-smoke-fatal]',e?.message||e)),1500);
