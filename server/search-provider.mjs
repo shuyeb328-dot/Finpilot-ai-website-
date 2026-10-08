@@ -18,7 +18,19 @@ function normalize(items,provider){
  })).filter(x=>/^https?:\/\//i.test(x.url));
 }
 function cleanText(v){
- return String(v||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
+ return String(v||'')
+  .replace(/<[^>]*>/g,' ')
+  .replace(/&nbsp;/gi,' ')
+  .replace(/&amp;/gi,'&')
+  .replace(/&quot;/gi,'"')
+  .replace(/&#39;/g,"'")
+  .replace(/&lt;/gi,'<')
+  .replace(/&gt;/gi,'>')
+  .replace(/&#x27;/gi,"'")
+  .replace(/&#x2F;/gi,'/')
+  .replace(/&#(d+);/g,(_,n)=>String.fromCharCode(Number(n)))
+  .replace(/<[^>]*>/g,' ')
+  .replace(/\s+/g,' ').trim();
 }
 async function fetchPageText(url){
  const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);
