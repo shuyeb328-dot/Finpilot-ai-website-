@@ -62,7 +62,7 @@
     return step===1?Math.floor(n):Math.floor(n/step+1e-9)*step;
   }
   function estimateQuoteAgeSec(meta){
-    const t=meta?.receivedAt||meta?.tick?.receivedAt||meta?.asOf;
+    const t=meta?.sourceAsOf||meta?.asOf||meta?.tick?.sourceAsOf||meta?.tick?.asOf||meta?.receivedAt||meta?.tick?.receivedAt;
     const ms=t?Date.now()-Date.parse(t):0;
     return Number.isFinite(ms)&&ms>=0?ms/1000:0;
   }
