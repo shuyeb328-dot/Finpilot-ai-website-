@@ -271,3 +271,28 @@ function fresh(){
 
 
 console.log('Paper engine execution tests passed');
+
+
+// Execution Quality Intelligence 1.0: score telemetry only when fill metadata exists; never promote.
+{
+  const {state}=fresh();
+  const o=core.paperOrder(state,'a1','IRFC','BUY',10,101,'quality telemetry');
+  Object.assign(o,{quoteBid:99,quoteAsk:101,avgFillPrice:101,executionLatencyMs:120,marketImpactBps:2,quoteAgeSec:2,executionEligible:true,filledQty:10});
+  const report=core.executionQualityReport(state);
+  assert.equal(report.mode,'PAPER_ONLY');
+  assert.equal(report.fills,1);
+  assert.equal(report.scoredFills,1);
+  assert.equal(report.rows[0].adverseSlippageBps,100);
+  assert.equal(report.rows[0].spreadBps,200);
+  assert.ok(report.averageScore>=0&&report.averageScore<=100);
+  assert.equal(report.governance.autoPromotion,false);
+  assert.equal(report.governance.liveExecution,false);
+  assert.equal(report.governance.ready,false);
+}
+{
+  const {state}=fresh();
+  const report=core.executionQualityReport(state);
+  assert.equal(report.fills,0);
+  assert.equal(report.averageScore,null);
+  assert.equal(report.governance.ready,false);
+}
