@@ -307,11 +307,17 @@
     p.marketSnapshot[symbol]=price;
     p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,asOf:sourceAsOf,streamSeq:seq,streamStatus:tick.status||'LIVE',executionEligible:tick.executionEligible!==false,verification:tick.verification||p.lastMarket?.verification||{available:true,providerCount:tick.providerCount||1}};
     const fills=processOpenOrders(state,{[symbol]:price},meta);
-    let exposure=0,unreal=0;
-    p.agents.forEach(a=>a.positions.forEach(pos=>{if(pos.symbol===symbol)pos.last=price;const last=Math.max(0,num(pos.last,pos.avg));exposure+=pos.qty*last;unreal+=(last-pos.avg)*pos.qty;}));
-    p.unrealizedPnl=+unreal.toFixed(2);
     const age=estimateQuoteAgeSec(meta);
-    const riskFills=age<=30?processRiskExits(state,{[symbol]:price}):[];
+    const executionFresh=meta.executionEligible!==false && meta.verified!==false && age<=30;
+    let exposure=0,unreal=0;
+    p.agents.forEach(a=>a.positions.forEach(pos=>{
+      if(executionFresh&&pos.symbol===symbol)pos.last=price;
+      const last=Math.max(0,num(pos.last,pos.avg));
+      exposure+=pos.qty*last;
+      unreal+=(last-pos.avg)*pos.qty;
+    }));
+    p.unrealizedPnl=+unreal.toFixed(2);
+    const riskFills=age<=30&&executionFresh?processRiskExits(state,{[symbol]:price}):[];
     p.execution.lastTick=seq;p.execution.lastTickAt=receivedAt;
     p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible!==false,virtualOnly:true});
     if(p.journal.length>500)p.journal=p.journal.slice(0,500);
