@@ -498,6 +498,14 @@ async function doSearch(q){
   const results=Array.isArray(d.results)?d.results:[];
   const added=ingestSearchEvidence(d);
   const provider=d.provider||'web';
+  let marketMatch=null;
+  if(/^[A-Za-z]{1,6}(?:[.-][A-Za-z]{1,4})?$/.test(q)){
+    try{
+      const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(q.toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+      const md=await mr.json();
+      if(md?.ok&&md?.report)marketMatch=md.report;
+    }catch{}
+  }
   const live=d.live===true;
   const freshness=live?'LIVE WEB FETCH':'FALLBACK / DELAYED';
   const top=results[0];
@@ -507,7 +515,9 @@ async function doSearch(q){
     return '<article class="searchResultCard"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span><span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a><span class="muted">Added to Evidence Ledger</span></div></div></article>';
   }).join('');
   const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div></div>':'';
-  box.innerHTML=summary+(rows||'<div class="notice">No results returned. Try a broader query or use the external search link below.</div>');
+  const marketCard=marketMatch?'<div class="searchAnswer" style="border-color:#9fd6bf;background:linear-gradient(135deg,#f2fff9,#fff)"><div><span class="eyebrow">MARKET MATCH</span><h3>'+esc(marketMatch.name||marketMatch.ticker||q.toUpperCase())+' · '+esc(marketMatch.ticker||q.toUpperCase())+'</h3><p class="muted">Verified FinPilot market record. Latest price: <b>₹'+Number(marketMatch.price||0).toLocaleString('en-IN')+'</b> · RSI '+Number(marketMatch.rsi||0).toFixed(1)+' · risk '+Number(marketMatch.riskScore||0)+'/100.</p></div><button class="btn primary" type="button">⚡ Analyze this asset</button></div>':'';
+  box.innerHTML=marketCard+summary+(rows||'<div class="notice">No results returned. Try a broader query or use the external search link below.</div>');
+  if(marketMatch){const mb=box.querySelector('.searchAnswer button');if(mb)mb.onclick=()=>startOneClickAnalysis(marketMatch.ticker||q);}
   if(!results.length){
     const ext=typeof d.externalUrl==='string'?esc(d.externalUrl):'#';
     box.insertAdjacentHTML('beforeend','<div class="notice" style="margin-top:10px">Provider: '+esc(provider)+' · Live: '+(live?'Yes':'No')+' <a class="btn primary" href="'+ext+'" target="_blank" rel="noopener noreferrer">Open current results ↗</a></div>');
