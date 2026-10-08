@@ -474,9 +474,39 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Stooq · API key',live:false};
  });
  let last='No configured global market provider';
- for(const fn of providers){try{return await fn()}catch(e){last=e?.message||last}}
+ for(let i=0;i<providers.length;i++){const id=['twelvedata','finnhub','alphavantage','stooq'][i];try{return await trackedProvider(id,providers[i])}catch(e){last=e?.message||last}}
  throw new Error(last);
 }
+const MARKET_PROVIDER_HEALTH=new Map();
+function providerHealth(id,patch={}){
+ const prev=MARKET_PROVIDER_HEALTH.get(id)||{id,requests:0,success:0,failures:0,lastSuccess:null,lastFailure:null,lastError:null,cooldownUntil:0};
+ const next={...prev,...patch};
+ MARKET_PROVIDER_HEALTH.set(id,next); return next;
+}
+function recordProviderResult(id,ok,error=null){
+ const p=MARKET_PROVIDER_HEALTH.get(id)||{id,requests:0,success:0,failures:0,lastSuccess:null,lastFailure:null,lastError:null,cooldownUntil:0};
+ const now=Date.now();
+ if(ok){p.requests++;p.success++;p.lastSuccess=new Date(now).toISOString();p.lastError=null;p.cooldownUntil=0;}
+ else{p.requests++;p.failures++;p.lastFailure=new Date(now).toISOString();p.lastError=String(error||'PROVIDER_FAILED').slice(0,300);
+   if(/429|rate.?limit|too many/i.test(p.lastError))p.cooldownUntil=now+60000;
+ }
+ MARKET_PROVIDER_HEALTH.set(id,p);
+ return p;
+}
+function providerHealthSnapshot(){
+ const now=Date.now();
+ return [...MARKET_PROVIDER_HEALTH.values()].map(p=>({...p,cooldownActive:p.cooldownUntil>now,cooldownMs:Math.max(0,p.cooldownUntil-now),successRate:p.requests?Math.round(p.success/p.requests*100):null}));
+}
+function marketProvenance(symbol,provider,live,freshness='unknown'){
+ return {symbol,provider,live:Boolean(live),freshness,observedAt:new Date().toISOString(),provenance:'FinPilot market-data mesh'};
+}
+async function trackedProvider(id,fn){
+ const p=MARKET_PROVIDER_HEALTH.get(id);
+ if(p?.cooldownUntil>Date.now())throw new Error(id.toUpperCase()+'_COOLDOWN');
+ try{const out=await fn();recordProviderResult(id,true);return out;}
+ catch(e){recordProviderResult(id,false,e?.message);throw e;}
+}
+
 function globalProviderStatus(){
  return {providers:[
   {id:'yahoo',configured:true,role:'primary/fallback',coverage:'Yahoo-listed global symbols and world indices',mode:'unofficial'},
@@ -1105,6 +1135,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
+if(req.method==='GET'&&u.pathname==='/api/market-provider-health')return send(res,200,{ok:true,providers:providerHealthSnapshot(),timestamp:new Date().toISOString()});
   if(req.method==='GET'&&u.pathname==='/api/market-picks')return marketPicks(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/options-math')return optionsMath(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/chain-analytics')return chainAnalytics(req,res,u);
