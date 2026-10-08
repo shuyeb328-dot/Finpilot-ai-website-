@@ -590,4 +590,19 @@ const server=http.createServer(async(req,res)=>{
  }catch(e){send(res,500,{ok:false,error:e.message})}
 });
 server.on('error',(e)=>{console.error(`FinPilot Web server error: ${e.message}`);process.exitCode=1;});
+async function runFinPilotSmoke50(){
+ const queries=['best stock today','TCS analysis','RELIANCE analysis','INFY stock','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','TATASTEEL','SUNPHARMA','TRENT','TECHM','HCLTECH','INDIGO','JUBLFOOD','PAYTM','IRFC','BHARTIARTL','ADANIPORTS','BAJFINANCE','HINDALCO','WIPRO','MARUTI','AXISBANK','KOTAKBANK','GAIL','HINDZINC','Nifty 50','best intraday stock','stock for 1000 rupees','low risk stock','momentum stock','breakout stock','IT stocks','bank stocks','FMCG stocks','energy stocks','auto stocks','pharma stocks','defensive stock','swing trade stock','today trading','best stock India','top NSE stock','chart TCS','chart RELIANCE','chart SBIN','best stock for trading today'];
+ let pass=0,fail=0,providerCounts={};
+ const started=Date.now();
+ for(let i=0;i<queries.length;i+=5){
+  const batch=queries.slice(i,i+5);
+  const rows=await Promise.all(batch.map(async q=>{try{const d=await searchWeb(q,{count:3});return {q,ok:true,provider:d?.provider||'unknown',count:Array.isArray(d?.results)?d.results.length:0}}catch(e){return {q,ok:false,error:e?.code||e?.message||'error'}}}));
+  for(const r of rows){if(r.ok){pass++;providerCounts[r.provider]=(providerCounts[r.provider]||0)+1}else fail++;}
+ }
+ const tickers=['TCS','RELIANCE','INFY','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','HINDALCO'];
+ const charts=[];
+ for(const t of tickers){try{const x=await liveEquity(t);charts.push({ticker:t,ok:true,candles:x.candles?.length||0,price:x.price})}catch(e){charts.push({ticker:t,ok:false,error:e?.message||'error'})}}
+ console.log('[smoke-50]',JSON.stringify({queries:queries.length,pass,fail,providers:providerCounts,charts,elapsedMs:Date.now()-started}));
+}
 server.listen(PORT,HOST,()=>{console.log(`FinPilot Web running on http://${HOST}:${PORT}`); console.log('[frontend-syntax]',JSON.stringify(frontendSyntax()));});
+setTimeout(()=>runFinPilotSmoke50().catch(e=>console.error('[smoke-50-fatal]',e?.message||e)),5000);
