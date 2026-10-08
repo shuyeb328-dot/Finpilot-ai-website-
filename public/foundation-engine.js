@@ -93,7 +93,7 @@
     if(document.getElementById('foundation-status'))return;
     const r=getReport();
     const el=document.createElement('div');el.id='foundation-status';
-    el.style.cssText='position:fixed;left:10px;bottom:10px;z-index:70;font:10px system-ui;color:#667085;background:rgba(255,255,255,.9);border:1px solid #e5e7eb;border-radius:999px;padding:5px 8px;backdrop-filter:blur(8px)';
+    el.className='foundationStatusBadge';
     el.textContent='Foundation '+r.winner.id+' · '+r.winner.score+'/100 · '+r.candidateCount+' tested';
     document.body.appendChild(el);
   }
