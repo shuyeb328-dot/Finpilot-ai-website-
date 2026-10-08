@@ -237,6 +237,16 @@
     box.insertAdjacentHTML('afterbegin',html);
   }
 
+  function liveWebSignal(){
+    const d=window.__lastSearch||{};
+    const rows=Array.isArray(d.results)?d.results:[];
+    const text=rows.map(x=>String((x?.title||'')+' '+(x?.snippet||''))).join(' ').toLowerCase();
+    const positive=(text.match(/surge|rise|gain|bullish|growth|upgrade|profit|strong|positive/g)||[]).length;
+    const negative=(text.match(/fall|drop|loss|bearish|downgrade|debt|risk|warning|weak|negative/g)||[]).length;
+    const stance=positive>negative+1?'Positive':negative>positive+1?'Cautious':'Mixed';
+    return {provider:d.provider||'web',live:d.live===true,count:rows.length,positive,negative,stance,freshness:d.live===true?'LIVE':'FALLBACK',query:d.query||'',results:rows.slice(0,10)};
+  }
+
   function ensureRawSearch(){
     if(typeof rawDoSearch==='function')return rawDoSearch;
     if(typeof window.doSearch==='function'){
