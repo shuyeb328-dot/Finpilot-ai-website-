@@ -87,13 +87,49 @@
     return {available:candles.length>1,candles,price:Number(market.price),sma20:s20,sma50:s50,support,resistance,target,stop,rsi:Number(market.rsi),trend,ticker:market.ticker||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf};
   }
   function chartSvg(a){
-    if(!a?.available)return '<div class="notice">Chart unavailable because the live price series was not returned. FinPilot will not invent candles.</div>';
+    if(!a?.available){
+      const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\\.NS$/,'');
+      if(!ticker)return '<div class="notice">No verified ticker was resolved, so FinPilot will not invent a chart.</div>';
+      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>Independent chart fallback:</b> FinPilot could not receive its own candle series for this request. The chart below is the official TradingView widget so the page still shows market data without fabricating candles. TradingView stock data can be delayed.</div><div class="tv-chart" data-tv-symbol="NSE:'+escLocal(ticker)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">TradingView chart · verify quote freshness before acting.</div></div>';
+    }
     const rows=a.candles,w=760,h=260,pad=28,vals=rows.flatMap(x=>[x.low,x.high]).concat([a.sma20,a.sma50,a.support,a.resistance]).filter(Number.isFinite);
     let lo=Math.min(...vals),hi=Math.max(...vals);if(!(hi>lo)){lo-=1;hi+=1;}
     const x=i=>pad+(w-2*pad)*(i/Math.max(1,rows.length-1)),y=v=>h-pad-(h-2*pad)*((v-lo)/(hi-lo));
     const path=rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(r.close).toFixed(1)).join(' ');
     const line=(v,dash)=>Number.isFinite(v)?'<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+y(v).toFixed(1)+'" y2="'+y(v).toFixed(1)+'" stroke="'+(dash?'#94a3b8':'#cbd5e1')+'" stroke-width="1" stroke-dasharray="'+(dash?'5 4':'2 3')+'"/><text x="'+(w-pad-2)+'" y="'+(y(v)-4).toFixed(1)+'" text-anchor="end" fill="#64748b" font-size="11">'+escLocal(Number(v).toFixed(2))+'</text>':'';
-    return '<div style="overflow:auto"><svg viewBox="0 0 '+w+' '+h+'" style="width:100%;min-width:620px;height:260px;background:#f8fafc;border-radius:10px" aria-label="Live technical price chart">'+line(a.support,true)+line(a.resistance,true)+'<path d="'+path+'" fill="none" stroke="#315efb" stroke-width="3"/>'+line(a.sma20,false)+line(a.sma50,false)+'</svg></div>';
+    return '<div style="overflow:auto"><svg viewBox="0 0 '+w+' '+h+'" style="width:100%;min-width:620px;height:260px;background:#f8fafc;border-radius:10px" aria-label="Verified live technical price chart">'+line(a.support,true)+line(a.resistance,true)+'<path d="'+path+'" fill="none" stroke="#315efb" stroke-width="3"/>'+line(a.sma20,false)+line(a.sma50,false)+'</svg></div>';
+  }
+  function mountTradingViewFallbacks(){
+    document.querySelectorAll('.tv-chart[data-tv-symbol]').forEach(el=>{
+      if(el.dataset.mounted==='1')return;
+      const symbol=el.dataset.tvSymbol;
+      el.dataset.mounted='1';
+      el.innerHTML='<div class="tradingview-widget-container" style="height:360px;width:100%;border-radius:10px;overflow:hidden;background:#fff"><div class="tradingview-widget-container__widget" style="height:328px;width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
+      const script=document.createElement('script');
+      script.type='text/javascript';script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';script.async=true;
+      script.textContent=JSON.stringify({autosize:true,symbol,interval:'60',timezone:'exchange',theme:'light',style:'1',locale:'en',allow_symbol_change:true,calendar:false,withdateranges:true,hide_side_toolbar:true,hide_top_toolbar:false,hide_volume:false,save_image:false,support_host:'https://www.tradingview.com'});
+      el.firstElementChild.appendChild(script);
+    });
+  }
+  function publishEquitySnapshot(market){
+    if(!market||!Number.isFinite(Number(market.price)))return;
+    const host=document.querySelector('#dashboard .content')||document.querySelector('#dashboard')||document.querySelector('.content');
+    if(!host)return;
+    let box=document.getElementById('live-equity-snapshot');
+    if(!box){
+      box=document.createElement('section');box.id='live-equity-snapshot';box.className='card';
+      box.style.cssText='margin-bottom:14px;background:linear-gradient(145deg,#071426,#0e2340);color:#edf5ff;border-color:#1d4674';
+      host.prepend(box);
+    }
+    const p=Number(market.price),ch=Number(market.changePct),hi=Number(market.dayHigh),lo=Number(market.dayLow),rsi=Number(market.rsi);
+    const cls=ch>=0?'#2de0a5':'#ff7b8b';
+    box.innerHTML='<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap"><div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#91a7c5;font-weight:800">LATEST VERIFIED EQUITY DATA</div><h3 style="margin:5px 0 3px">'+escLocal(market.name||market.ticker)+' · '+escLocal(market.ticker||'')+'</h3><div style="font-size:11px;color:#91a7c5">NSE · '+escLocal(market.provider||'market adapter')+'</div></div><span class="pill low">DATA RECEIVED</span></div><div class="grid four" style="margin-top:12px;grid-template-columns:repeat(4,minmax(0,1fr))"><div><span style="color:#91a7c5;font-size:11px">PRICE</span><div style="font-size:24px;font-weight:800">₹'+p.toLocaleString('en-IN',{maximumFractionDigits:2})+'</div><div style="color:'+cls+';font-weight:800">'+(ch>=0?'+':'')+ch.toFixed(2)+'%</div></div><div><span style="color:#91a7c5;font-size:11px">DAY HIGH</span><div style="font-size:19px;font-weight:750;margin-top:5px">₹'+(Number.isFinite(hi)?hi.toLocaleString('en-IN',{maximumFractionDigits:2}):'—')+'</div></div><div><span style="color:#91a7c5;font-size:11px">DAY LOW</span><div style="font-size:19px;font-weight:750;margin-top:5px">₹'+(Number.isFinite(lo)?lo.toLocaleString('en-IN',{maximumFractionDigits:2}):'—')+'</div></div><div><span style="color:#91a7c5;font-size:11px">RSI</span><div style="font-size:19px;font-weight:750;margin-top:5px">'+(Number.isFinite(rsi)?rsi.toFixed(1):'—')+'</div></div></div><div style="margin-top:10px;color:#a9b8cc;font-size:10px">Updated '+escLocal(market.asOf||'now')+' · recent/delayed market data · verify broker/exchange quote before acting.</div>';
+    state.lastMarketReport={ticker:market.ticker,name:market.name,price:p,changePct:ch,dayHigh:hi,dayLow:lo,rsi,provider:market.provider,asOf:market.asOf};
+    save();
+  }
+  function injectMarketChartStyles(){
+    if(document.getElementById('fp-market-chart-styles'))return;
+    const s=document.createElement('style');s.id='fp-market-chart-styles';s.textContent='.tv-chart{min-height:360px;border-radius:10px;overflow:hidden;background:#fff}.tradingview-widget-container{font-family:Inter,system-ui,sans-serif}@media(max-width:640px){#live-equity-snapshot .grid.four{grid-template-columns:1fr 1fr!important}.tv-chart{min-height:330px}}';document.head.appendChild(s);
   }
   function renderOneClickPanel(q,report){
     const box=document.getElementById('searchResults');
@@ -252,15 +288,17 @@
       try{
         const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
         if(symbol){
-          const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1',{cache:'no-store'});
+          const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
           const md=await mr.json();
           if(md?.ok&&md?.report)marketReport=md.report;
+          else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
         }
       }catch(e){searchWarning=searchWarning||'Chart data unavailable';}
       decision.marketReport=marketReport;
       decision.chartAnalysis=buildChartAnalysis(marketReport,money,candidate);
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
+      if(marketReport){publishEquitySnapshot(marketReport);setTimeout(mountTradingViewFallbacks,60);}
       const progress=document.getElementById('oneClickProgress');if(progress)progress.remove();
       toast((searchWarning?'Market scan used · ':'')+'1-click full analysis complete · all decision layers updated');
     }catch(e){
@@ -345,4 +383,5 @@
       if(rawDoSearch)clearInterval(fpInstallTimer);
     }catch(e){}
   },500);
+  injectMarketChartStyles();
 })();
