@@ -35,7 +35,7 @@
     const liquidity=clamp(50+(reserve-3)*8+(surplus>0?12:-20));
     const debtScore=clamp(75-debt*70);
     const market=clamp(55+(web?.stance==='Positive'?15:web?.stance==='Cautious'?-12:0));
-    const confidence=clamp(66+(liquidity>60?7:0)+(debtScore>65?5:0)-Math.max(0,risk-55)*.18);
+    let confidence=clamp(66+(liquidity>60?7:0)+(debtScore>65?5:0)-Math.max(0,risk-55)*.18);try{const dl=window.FinPilotDeepLearning?.snapshot?.();const row=dl?.agents?.find(x=>x.agent===name);if(row?.accuracy!=null)confidence=clamp(confidence+(row.accuracy-60)*.12)}catch{}
     const domain={CFO:liquidity,Debt:debtScore,Goals:clamp(50+surplus/Math.max(1,state.income||1)*80),Risk:100-risk,Investment:market,Markets:market,Tax:70,Security:78,Business:market,Assets:65}[name]||60;
     return {name,mission:p.mission,domainScore:Number(domain.toFixed(1)),risk:Number(clamp(risk).toFixed(1)),confidence:Number(confidence.toFixed(1)),reserveMonths:Number(reserve.toFixed(2)),surplus:Number(surplus.toFixed(0)),timestamp:new Date().toISOString()};
   }
