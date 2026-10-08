@@ -226,14 +226,32 @@ const INDIA_EQUITIES={
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
 };
 function yahooSymbol(t){const k=String(t||'').trim().toUpperCase();return INDIA_EQUITIES[k]||(/^[A-Z0-9._-]+$/.test(k)?(k.endsWith('.NS')?k:`${k}.NS`):null);}
+async function fetchYahooChart(symbol,range='5d',interval='1h'){
+ const hosts=['query1.finance.yahoo.com','query2.finance.yahoo.com'];
+ let last='provider unavailable';
+ for(const host of hosts){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
+  try{
+   const url=`https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
+   const r=await fetch(url,{headers:{'User-Agent':'FinPilot/8.1 market-data-adapter','Accept':'application/json'},signal:controller.signal});
+   if(!r.ok){last=`HTTP ${r.status}`;continue}
+   const payload=await r.json(),result=payload?.chart?.result?.[0];
+   if(result?.timestamp?.length)return result;
+   last='empty chart result';
+  }catch(e){last=e?.name==='AbortError'?'timeout':String(e?.message||e)}
+  finally{clearTimeout(timer)}
+ }
+ throw new Error(last);
+}
 async function liveEquity(ticker){
  const symbol=yahooSymbol(ticker); if(!symbol)throw new Error('Unsupported equity symbol.');
- const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1h&includePrePost=false`;
  const started=Date.now();
- const r=await fetch(url,{headers:{'User-Agent':'FinPilot/7.1 market-data-adapter'}});
- if(!r.ok)throw new Error(`Equity provider HTTP ${r.status}`);
- const payload=await r.json(),result=payload?.chart?.result?.[0];
- if(!result)throw new Error('Equity provider returned no chart data.');
+ let result,sourceRange='5d/1h';
+ try{result=await fetchYahooChart(symbol,'5d','1h')}
+ catch(e){
+  try{result=await fetchYahooChart(symbol,'1mo','1d');sourceRange='1mo/1d'}
+  catch(e2){throw new Error(`Equity chart unavailable: ${e2.message}`)}
+ }
  const meta=result.meta||{},q=result.indicators?.quote?.[0]||{};
  const closes=(q.close||[]).map(Number).filter(Number.isFinite),highs=(q.high||[]).map(Number).filter(Number.isFinite),lows=(q.low||[]).map(Number).filter(Number.isFinite),vols=(q.volume||[]).map(Number).filter(Number.isFinite);
  const price=Number(meta.regularMarketPrice??closes.at(-1)); if(!Number.isFinite(price))throw new Error('Equity price unavailable.');
@@ -243,7 +261,9 @@ async function liveEquity(ticker){
  const rr=rsi(closes), recentHigh=Math.max(...highs.slice(-24)),recentLow=Math.min(...lows.slice(-24));
  const momentum=(Number.isFinite(s20)&&s20?((price/s20)-1)*100:0);
  const score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
- const candles=(result.timestamp||[]).map((ts,i)=>({time:new Date(Number(ts)*1000).toISOString(),open:Number(q.open?.[i]),high:Number(q.high?.[i]),low:Number(q.low?.[i]),close:Number(q.close?.[i]),volume:Number(q.volume?.[i])})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite)); return {ticker:String(ticker).toUpperCase().replace('.NS',''),symbol,market:'INDIA_EQUITY',exchange:'NSE',name:String(meta.longName||meta.shortName||ticker),currency:String(meta.currency||'INR'),price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,candles,live:true,provider:'Yahoo Finance chart adapter (unofficial; recent/delayed data may apply)',providerLatencyMs:Date.now()-started,asOf:new Date().toISOString(),dataDisclaimer:'Recent market data for analysis only; verify the broker/exchange quote before acting.'};
+ const candles=(result.timestamp||[]).map((ts,i)=>({time:new Date(Number(ts)*1000).toISOString(),open:Number(q.open?.[i]),high:Number(q.high?.[i]),low:Number(q.low?.[i]),close:Number(q.close?.[i]),volume:Number(q.volume?.[i])})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+ if(candles.length<2)throw new Error('Equity provider returned insufficient candles.');
+ return {ticker:String(ticker).toUpperCase().replace('.NS',''),symbol,market:'INDIA_EQUITY',exchange:'NSE',name:String(meta.longName||meta.shortName||ticker),currency:String(meta.currency||'INR'),price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,candles,live:true,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,asOf:new Date().toISOString(),dataDisclaimer:'Recent market data for analysis only; verify the broker/exchange quote before acting.'};
 }
 async function marketPicks(req,res,u){
  const limit=Math.min(10,Math.max(3,Number(u.searchParams.get('limit')||5)));
