@@ -345,6 +345,7 @@ async function liveCrypto(t, interval='1h', multi=true){
     throw new Error('CRYPTO_MARKET_UNAVAILABLE: Binance='+binanceError.message+'; Kraken='+krakenError.message+'; Coinbase='+coinbaseError.message);
    }
   }
+ }
  const reports=unique.map((x,i)=>cryptoTimeframe(series[i],ticker,x));
  const main=reports.find(x=>x.interval===tf)||reports[0];
  const bullish=reports.filter(x=>x.direction==='BULLISH').length, bearish=reports.filter(x=>x.direction==='BEARISH').length;
