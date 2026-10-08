@@ -6,6 +6,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
@@ -1172,6 +1173,7 @@ function routeEvent(event){
  if(event.type==='SECURITY_ALERT')matches=AGENT_CATALOG.filter(a=>['security','compliance','cfo','ceo'].includes(a.id));
  if(event.type==='DATA_QUALITY_ALERT')matches=AGENT_CATALOG.filter(a=>['research','compliance','risk'].includes(a.id));
  if(event.type==='RESEARCH_UPDATE')matches=AGENT_CATALOG.filter(a=>['research','risk','quant','compliance','ceo'].includes(a.id));
+ if(event.type==='AUTONOMOUS_RESEARCH_UPDATE')matches=AGENT_CATALOG.filter(a=>['research','risk','quant','compliance','ceo'].includes(a.id));
  if(event.type==='USER_DECISION')matches=AGENT_CATALOG.filter(a=>['cfo','risk','compliance','ceo'].includes(a.id));
  for(const a of matches){const live=AGENT_POOL.get(a.id);if(live)live.wakeups++;EVENT_BUS.routed++;scheduleAgent(a.id,event);}
 }
@@ -1190,7 +1192,8 @@ async function drainScheduler(){
 }
 async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return;a.runs++;a.lastRun=new Date().toISOString();a.health='RUNNING';EVENT_BUS.wakeups++;
  const p=job.trigger.payload||{};let result='MONITOR',evidenceScore=0;
- if(job.trigger.type==='RESEARCH_UPDATE'){const z=p.analysis||EXA_ANALYSIS;evidenceScore=Number(z.confidence||0);
+ if(job.trigger.type==='AUTONOMOUS_RESEARCH_UPDATE'){const q=Number(p.qualityScore||0);evidenceScore=q;if(job.agentId==='research')result=q>=70?'LEARNING_CANDIDATE_REVIEW':'EVIDENCE_REVIEW';else if(job.agentId==='risk')result=q<65?'LEARNING_RISK_FLAG':'LEARNING_RISK_REVIEW';else if(job.agentId==='quant')result=q>=70?'LESEARCH_READY':'DATA_REJECT';else if(job.agentId==='compliance')result=q>=70?'SOURCE_CHECK_PASS':'SOURCE_CHECK_REQUIRED';else if(job.agentId==='ceo')result=q>=80?'LEARNING_SYNTHESIS_READY':'LEARNING_SYNTHESIS_BLOCKED';
+ } else if(job.trigger.type==='RESEARCH_UPDATE'){const z=p.analysis||EXA_ANALYSIS;evidenceScore=Number(z.confidence||0);
    if(job.agentId==='research')result=evidenceScore>=70?'EVIDENCE_VERIFIED':'EVIDENCE_REVIEW';
    else if(job.agentId==='risk')result=evidenceScore<60||z.contradictions>Math.max(2,EXA_CACHE.length*.2)?'RISK_ESCALATE':'RISK_REVIEW';
    else if(job.agentId==='quant')result=evidenceScore>=65?'QUANT_REVIEW':'DATA_REJECT';
@@ -1258,11 +1261,14 @@ async function exaIntelligence(req,res,u){
 function exaStatus(req,res){return send(res,200,{ok:true,configured:Boolean(process.env.EXA_API_KEY),running:EXA_RUNNING,lastRun:EXA_LAST_RUN,refreshMs:EXA_REFRESH_MS,count:EXA_CACHE.length});}
 setInterval(()=>{if(process.env.EXA_API_KEY&&Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)runExaIntelligence('global finance market data AI risk regulation').catch(()=>{});},60000);
 
+const AUTONOMOUS_LEARNING_INIT=initAutonomousLearning({searchWeb,emitEvent,audit,getSchedulerState:()=>({running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,queue:SCHEDULER.queue})});
+audit('AUTONOMOUS_LEARNING_INIT',{version:AUTONOMOUS_LEARNING_INIT.version,enabled:AUTONOMOUS_LEARNING_INIT.enabled,intervalMs:AUTONOMOUS_LEARNING_INIT.intervalMs});
+
 function eventStatus(req,res){return send(res,200,{ok:true,version:'5.2',events:EVENT_BUS.events.slice(0,30),routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups,dropped:EVENT_BUS.dropped,queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed});}
 function agentFleetStatus(req,res){return send(res,200,{ok:true,version:'6.0',agents:[...AGENT_POOL.values()],scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,completed:SCHEDULER.completed,failed:SCHEDULER.failed},routing:'event-driven selective wakeups'});}
 function dataHealth(req,res){return send(res,200,{ok:true,version:'5.4',...DATA_HEALTH,resilience:RESILIENCE});}
 function policyStatus(req,res){return send(res,200,{ok:true,version:'6.1',policy:POLICY,autonomy:{level:AUTONOMY.level,mode:AUTONOMY.mode},protected:['money movement','credential access','compliance mutation','CFO veto','execution guard']});}
-function autonomyStatus(req,res){return send(res,200,{ok:true,version:'7.0',autonomy:AUTONOMY,policyBlocks:AUTONOMY.policyBlocks,eventBus:{events:EVENT_BUS.events.length,routed:EVENT_BUS.routed,wakeups:EVENT_BUS.wakeups,coalesced:EVENT_BUS.coalesced},scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed},dataHealth:DATA_HEALTH.qualityScore,auditRecords:AUDIT.length});}
+function autonomyStatus(req,res){return send(res,200,{ok:true,version:'7.1',autonomy:AUTONOMY,policyBlocks:AUTONOMY.policyBlocks,eventBus:{events:EVENT_BUS.events.length,routed:EVENT_BUS.routed,wakeups:EVENT_BUS.wakeups,coalesced:EVENT_BUS.coalesced},scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed},dataHealth:DATA_HEALTH.qualityScore,auditRecords:AUDIT.length,autonomousLearning:autonomousLearningStatus()});}
 function commandCycle(req,res){
  const x=req._parsedBody||{};AUTONOMY.cycles++;AUTONOMY.lastCycle=new Date().toISOString();
  const event=emitEvent(x.type||'USER_DECISION',x,100);audit('COMMAND_CYCLE',{event:event.id,type:event.type});
@@ -1278,7 +1284,7 @@ function optimizeOS(req,res){
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
 function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
-function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.0',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
+function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.1',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
 
 const server=http.createServer(async(req,res)=>{
  const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
@@ -1291,6 +1297,10 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
+  if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
+  if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/enable'){await body(req);const x=req._parsedBody||{};return send(res,200,{ok:true,...autonomousLearningEnable(x.enabled!==false)});}
   if(req.method==='GET'&&u.pathname==='/api/event-bus')return eventStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/agent-fleet-status')return agentFleetStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/data-health')return dataHealth(req,res);
