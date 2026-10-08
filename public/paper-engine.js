@@ -64,13 +64,13 @@
     const o={id:uid('order'),agentId,symbol,side,qty,requestedPrice:price,fillPrice:+fill.toFixed(6),value:+fillValue.toFixed(2),fees:+c.fee.toFixed(2),slippage:+slip.toFixed(2),realizedPnl:+realized.toFixed(2),reason:reason||'Paper decision',orderType:opts.orderType||'MARKET',status:'FILLED',time:now(),virtualOnly:true};
     p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER'});a.decisions++;p.updatedAt=now();return o;
   }
-  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null){
+  function placeOrder(state,agentId,symbol,side,qty,orderType,price,stop,target,reason,timeInForce='GTC',expiresAt=null,trailingPercent=0){
     if(String(orderType).toUpperCase()==='MARKET')return paperOrder(state,agentId,symbol,side,qty,price,reason,{orderType:'MARKET'});
     const p=ensure(state);const a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
     const tif=String(timeInForce||'GTC').toUpperCase();
     if(!['GTC','DAY','IOC','FOK'].includes(tif))throw new Error('Unsupported paper time-in-force');
     const exp=expiresAt?Number(expiresAt):(tif==='DAY'?Date.now()+24*60*60*1000:null);
-    const oq=Math.floor(num(qty));if(oq<1)throw new Error('Order quantity must be positive');const ot=String(orderType).toUpperCase();if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');if(ot==='TRAILING_STOP'&&!num(arguments[9]))throw new Error('Trailing percent required');const trailingPercent=ot==='TRAILING_STOP'?Math.max(0.01,num(arguments[9])):0; const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent,trailHigh:null,trailLow:null,reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq};
+    const oq=Math.floor(num(qty));if(oq<1)throw new Error('Order quantity must be positive');const ot=String(orderType).toUpperCase();if(!['MARKET','LIMIT','STOP','STOP_LIMIT','TRAILING_STOP'].includes(ot))throw new Error('Unsupported paper order type');if((ot==='LIMIT'||ot==='STOP_LIMIT')&&!num(price))throw new Error('Limit price required');if((ot==='STOP'||ot==='STOP_LIMIT')&&!num(stop))throw new Error('Stop price required');if(ot==='TRAILING_STOP'&&!num(trailingPercent))throw new Error('Trailing percent required');const trailingPct=ot==='TRAILING_STOP'?Math.max(0.01,num(trailingPercent)):0; const o={id:uid('order'),agentId,symbol,side:String(side).toUpperCase(),qty:oq,orderType:ot,limitPrice:num(price),stopPrice:num(stop),targetPrice:num(target),trailingPercent:trailingPct,trailHigh:null,trailLow:null,reason:reason||'Paper order',status:'OPEN',time:now(),timeInForce:tif,expiresAt:exp,virtualOnly:true,filledQty:0,remainingQty:oq};
     p.openOrders.unshift(o);p.orders.unshift(o);p.journal.unshift({...o,type:'PAPER_ORDER_PLACED'});p.updatedAt=now();return o;
   }
   function expirePaperOrders(state,at=Date.now()){
@@ -169,6 +169,8 @@
     if(et==='MARKET') activateBracketChildren(state,entry,qty);
     return entry;
   }
+  function placeTrailingStop(state,agentId,symbol,side,qty,trailingPercent,reason){return placeOrder(state,agentId,symbol,side,qty,'TRAILING_STOP',0,null,null,reason||'Trailing stop','GTC',null,trailingPercent)}
+  function placeOco(state,agentId,symbol,side,qty,limitPrice,stopPrice,reason){const group=uid('oco');const tp=placeOrder(state,agentId,symbol,side,qty,'LIMIT',limitPrice,null,null,reason||'OCO take profit','GTC',null);tp.bracketRole='TARGET';tp.bracketGroup=group;const sl=placeOrder(state,agentId,symbol,side,qty,'STOP',0,stopPrice,null,reason||'OCO stop','GTC',null);sl.bracketRole='STOP';sl.bracketGroup=group;return{group,orders:[tp,sl]}}
   function cancelOrder(state,orderId){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
     if(!o)throw new Error('Open paper order not found');
