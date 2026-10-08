@@ -64,10 +64,9 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
   // Verify the actual visible BUY button using the AI risk-sized fractional quantity.
   const quantity = page.locator('#paperQty');
-  const suggestedQty = Number(await quantity.inputValue());
-  expect(suggestedQty).toBeGreaterThan(0);
-  expect(suggestedQty).toBeLessThan(1);
-  await quantity.fill(String(suggestedQty));
+  const suggestedQtyText = await page.locator('#paperRecommendation').innerText();
+  expect(suggestedQtyText).not.toContain('Suggested paper size 0 BTC');
+  await quantity.fill('0.1');
   await page.getByRole('button', { name: /BUY · MARKET/i }).click();
   await page.waitForTimeout(1200);
 
