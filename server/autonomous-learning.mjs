@@ -1,4 +1,4 @@
-/* FinPilot Autonomous Agent Learning OS 3.0
+/* FinPilot Autonomous Agent Learning OS 3.1
    Background research + data quality + governed training queue + bounded improvement loops.
 */
 import pg from 'pg';
