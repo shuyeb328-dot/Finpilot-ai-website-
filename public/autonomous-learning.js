@@ -25,12 +25,16 @@ function bodyHtml(s){
   return '<div class="fpALStats">'+[
     ['Mode',s?.enabled?'AUTO':'OFF'],
     ['Cycles',s?.cycle||0],
+    ['Queries',stats.queries||0],
     ['Evidence',stats.evidenceCollected||0],
+    ['Accepted',stats.evidenceAccepted||0],
+    ['Primary',stats.primarySources||0],
+    ['Domains',stats.sourceDomains||0],
     ['Training queue',s?.queueCount||0]
   ].map(x=>'<div><span>'+x[0]+'</span><b>'+esc(x[1])+'</b></div>').join('')+'</div>'+
   '<div class="fpALToolbar"><span class="fpALPill '+(s?.running?'run':'idle')+'">'+esc(s?.running?('RESEARCHING · '+s.activeAgent):'IDLE-SLOT AUTORESEARCH')+'</span><span class="fpALMuted">Last cycle: '+fmtAge(s?.lastCycleAt)+' · Next: '+(s?.nextRunAt?new Date(s.nextRunAt).toLocaleTimeString(): '—')+'</span><button id="fpALCycle" class="btn primary">Run one cycle</button><button id="fpALEnable" class="btn">'+(s?.enabled?'Pause auto':'Enable auto')+'</button></div>'+
   '<div class="fpALGrid"><div class="fpALCard"><div class="fpALTitle">12-agent idle research status</div><div class="fpALAgents">'+agents.map(([id,a])=>'<div><b>'+esc(id)+'</b><span class="'+String(a.status||'IDLE').toLowerCase()+'">'+esc(a.status||'IDLE')+'</span><small>'+(a.lastQuality==null?'No run':(a.lastQuality+'% quality · '+esc(a.lastTopic||'')))+'</small></div>').join('')+'</div></div>'+
-  '<div class="fpALCard"><div class="fpALTitle">Recent knowledge candidates</div>'+(recent.length?recent.slice(0,8).map(c=>'<div class="fpALRow"><b>'+esc(c.agent)+' · '+esc(c.topic)+'</b><span>'+esc(c.status)+'</span><small>'+esc(c.evidenceCount||0)+' sources · '+esc(c.qualityScore||0)+'% quality</small></div>').join(''):'<div class="fpALMuted">No candidates yet.</div>')+'<div class="fpALTitle" style="margin-top:14px">Training cases waiting for validation</div>'+(q.length?q.slice(0,6).map(x=>'<div class="fpALRow"><b>'+esc(x.agent)+' · '+esc(x.topic)+'</b><span>QUEUED</span><small>'+esc(x.prompt)+'</small></div>').join(''):'<div class="fpALMuted">Queue is clear.</div>')+'</div></div>'+
+  '<div class="fpALCard"><div class="fpALTitle">Recent knowledge candidates</div>'+(recent.length?recent.slice(0,8).map(c=>'<div class="fpALRow"><b>'+esc(c.agent)+' · '+esc(c.topic)+'</b><span>'+esc(c.status)+'</span><small>'+esc(c.evidenceCount||0)+' sources · '+esc(c.primaryCount||0)+' primary · '+esc(c.sourceDiversity||0)+' domains · '+esc(c.freshnessScore||0)+'% fresh · '+esc(c.qualityScore||0)+'% quality</small></div>').join(''):'<div class="fpALMuted">No candidates yet.</div>')+'<div class="fpALTitle" style="margin-top:14px">Training cases waiting for validation</div>'+(q.length?q.slice(0,6).map(x=>'<div class="fpALRow"><b>'+esc(x.agent)+' · '+esc(x.topic)+'</b><span>QUEUED</span><small>'+esc(x.prompt)+'</small></div>').join(''):'<div class="fpALMuted">Queue is clear.</div>')+'</div></div>'+
   '<div class="fpALNote"><b>Governance gate:</b> new web data never rewrites production behavior directly. The pipeline is Search → collect → deduplicate → source tier → freshness → quality score → candidate → training validation → benchmark → shadow/canary → promotion.</div>';
 }
 async function refresh(){
