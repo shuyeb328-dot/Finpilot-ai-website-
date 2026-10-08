@@ -539,19 +539,40 @@ async function finpilotLaunch(q){
  if(!q){toast("Enter a stock, ETF, crypto, or question first");return}
  const box=document.getElementById("searchResults");
  const old=document.getElementById("fpDirectRun"); if(old)old.remove();
- if(box)box.insertAdjacentHTML("afterbegin",'<div id="fpDirectRun" class="notice"><b>FinPilot analysis started</b><br>Searching web + market data + agent council…</div>');
+ if(box)box.insertAdjacentHTML("afterbegin",'<div id="fpDirectRun" class="notice"><b>FinPilot analysis started</b><br>Connecting to market data + web evidence + decision engine…</div>');
+ const waitForEngine=()=>new Promise(resolve=>{
+   if(typeof window.runFullStockAnalysis==="function")return resolve(window.runFullStockAnalysis);
+   let n=0;
+   const timer=setInterval(()=>{
+     n++;
+     if(typeof window.runFullStockAnalysis==="function"){clearInterval(timer);resolve(window.runFullStockAnalysis);return}
+     if(n>=16){clearInterval(timer);resolve(null)}
+   },250);
+ });
  try{
-  const engine=window.runFullStockAnalysis;
-  if(typeof engine==="function"){
-    await Promise.race([
-      Promise.resolve(engine(q)),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("Analysis timed out after 45 seconds. The market data provider may be slow.")),45000))
-    ]);
-    const progress=document.getElementById("oneClickProgress");
-    if(progress)progress.scrollIntoView({behavior:"smooth",block:"center"});
-    return;
-  }
-  throw new Error("Analysis engine is still loading. Please wait 2 seconds and tap again.");
+   const engine=await waitForEngine();
+   if(typeof engine==="function"){
+     await Promise.race([
+       Promise.resolve(engine(q)),
+       new Promise((_,reject)=>setTimeout(()=>reject(new Error("Analysis timed out after 45 seconds. The market data provider may be slow.")),45000))
+     ]);
+     const progress=document.getElementById("oneClickProgress");
+     if(progress)progress.scrollIntoView({behavior:"smooth",block:"center"});
+     return;
+   }
+
+   // Guaranteed mobile fallback: even if the large analysis bundle failed to initialize,
+   // return verified web + market data instead of showing a dead button.
+   const [sr,mr]=await Promise.all([
+     fetch("/api/search?q="+encodeURIComponent(q)+"&count=10",{cache:"no-store"}).then(r=>r.json()),
+     fetch("/api/stock-report?ticker="+encodeURIComponent(q.toUpperCase())+"&interval=1h&multi=1",{cache:"no-store"}).then(r=>r.json()).catch(()=>({}))
+   ]);
+   const m=mr?.report||{};
+   const sources=Array.isArray(sr?.results)?sr.results:[];
+   const price=Number(m.price);
+   const verified=Number.isFinite(price)&&price>0;
+   if(box)box.innerHTML='<div class="card oneClickFallback"><div class="eyebrow">FINPILOT DIRECT INTELLIGENCE</div><h3>'+esc(q)+' — verified fallback analysis</h3><div class="grid three"><div><span class="muted">Market price</span><div class="metric">'+(verified?'₹'+price.toLocaleString('en-IN',{maximumFractionDigits:2}):'Unavailable')+'</div></div><div><span class="muted">RSI</span><div class="metric">'+(Number.isFinite(Number(m.rsi))?Number(m.rsi).toFixed(1):'—')+'</div></div><div><span class="muted">Web evidence</span><div class="metric">'+sources.length+'</div></div></div><p class="muted">The full analysis bundle did not initialize on this mobile session, so FinPilot returned verified data rather than inventing a decision. Refreshing the page can retry the full agent council.</p></div>'+box.innerHTML;
+   toast("Direct verified analysis returned");
  }catch(e){
   const msg=String(e?.message||e||"Unknown error");
   if(box)box.insertAdjacentHTML("afterbegin",'<div class="notice highNotice"><b>FinPilot analysis error</b><br>'+esc(msg)+'</div>');
