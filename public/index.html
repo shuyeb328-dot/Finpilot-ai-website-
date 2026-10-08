@@ -68,6 +68,62 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;bac
 .portfolioLiveGrid{display:grid;gap:8px}.portfolioLiveRow{display:grid;grid-template-columns:1.1fr 1fr .8fr auto 1.8fr;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #edf0f4}.portfolioLiveRow:last-child{border-bottom:0}
 .searchResultsPro{min-height:40px}.searchResultsPro:empty{display:none}.searchLoading{display:flex;gap:12px;align-items:center;padding:18px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}.loaderRing{width:22px;height:22px;border:3px solid #dfe5ee;border-top-color:var(--accent);border-radius:50%;animation:fpSpin .8s linear infinite}@keyframes fpSpin{to{transform:rotate(360deg)}}
 @media(max-width:720px){.portfolioLiveRow{grid-template-columns:1fr 1fr}.portfolioLiveRow small{grid-column:1/-1}}
+</style><style id="obsidianUiConsistency">
+/* FinPilot Obsidian UI consistency: eliminate accidental light/white surfaces. */
+[data-theme="obsidian"]{
+  color-scheme:dark;
+}
+[data-theme="obsidian"] .btn{background:var(--surface-2)!important;color:var(--text)!important;border-color:var(--line)!important}
+[data-theme="obsidian"] .btn.primary{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+[data-theme="obsidian"] .btn.good{background:var(--green-soft)!important;color:var(--green)!important;border-color:#1f5a4a!important}
+[data-theme="obsidian"] .btn.warn{background:var(--amber-soft)!important;color:var(--amber)!important;border-color:#6b5320!important}
+[data-theme="obsidian"] .btn.danger{background:var(--red-soft)!important;color:var(--red)!important;border-color:#6b2937!important}
+[data-theme="obsidian"] .pill,
+[data-theme="obsidian"] .tag,
+[data-theme="obsidian"] .sourceBadge{
+  background:var(--surface-3)!important;color:var(--text)!important;border-color:var(--line)!important;
+}
+[data-theme="obsidian"] .pill.low{background:var(--green-soft)!important;color:var(--green)!important;border-color:#1f5a4a!important}
+[data-theme="obsidian"] .pill.med{background:var(--amber-soft)!important;color:var(--amber)!important;border-color:#6b5320!important}
+[data-theme="obsidian"] .pill.high{background:var(--red-soft)!important;color:var(--red)!important;border-color:#6b2937!important}
+[data-theme="obsidian"] .notice,
+[data-theme="obsidian"] .decision,
+[data-theme="obsidian"] .approvalBox,
+[data-theme="obsidian"] .agentFactory,
+[data-theme="obsidian"] .searchLoading,
+[data-theme="obsidian"] .tv-fallback-wrap{
+  background:var(--surface-2)!important;color:var(--text)!important;border-color:var(--line)!important;
+}
+[data-theme="obsidian"] .decision{border-color:var(--line)!important}
+[data-theme="obsidian"] .form input,
+[data-theme="obsidian"] .form select,
+[data-theme="obsidian"] .form textarea,
+[data-theme="obsidian"] input,
+[data-theme="obsidian"] select,
+[data-theme="obsidian"] textarea{
+  background:var(--surface-2)!important;color:var(--text)!important;border-color:var(--line)!important;
+}
+[data-theme="obsidian"] .form input::placeholder,
+[data-theme="obsidian"] input::placeholder,
+[data-theme="obsidian"] textarea::placeholder{color:var(--muted)!important}
+[data-theme="obsidian"] .barcol{background:#1d4b7a!important}
+[data-theme="obsidian"] .modalBox{background:var(--surface)!important;color:var(--text)!important;border-color:var(--line)!important}
+[data-theme="obsidian"] .searchResultCard{background:linear-gradient(145deg,#0b1a2a,#091522)!important}
+[data-theme="obsidian"] .searchResultCard .sourceBadge{background:#10264a!important;color:#8eb6ff!important;border-color:#23416e!important}
+[data-theme="obsidian"] .searchAnswer,
+[data-theme="obsidian"] .searchStickyAction{color:var(--text)!important}
+[data-theme="obsidian"] #fpPowerOneClick{background:var(--surface)!important}
+[data-theme="obsidian"] #fpPowerOneClick .card{background:var(--surface-2)!important;color:var(--text)!important}
+[data-theme="obsidian"] #fpPowerOneClick .notice{background:var(--surface-2)!important}
+[data-theme="obsidian"] .toast{background:#071426!important;color:#edf5ff!important;border:1px solid var(--line)}
+[data-theme="obsidian"] .top{background:rgba(2,10,22,.92)!important}
+[data-theme="obsidian"] .side{background:#020b18!important}
+[data-theme="obsidian"] .status{background:var(--surface-2)!important;color:var(--muted)!important}
+</style><style id="finpilotOverlayTheme">
+.finpilotAiTierCard{position:fixed;right:14px;bottom:14px;z-index:80;max-width:330px;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);color:var(--text);box-shadow:0 12px 32px rgba(0,0,0,.28);backdrop-filter:blur(10px);font-size:12px;line-height:1.45}
+.aiTierTitle{font-size:13px}.aiTierMuted{margin-top:5px;color:var(--muted)}.aiTierBar{height:5px;background:var(--surface-3);border-radius:99px;margin:8px 0;overflow:hidden}.aiTierBar>div{height:5px;background:var(--accent);border-radius:99px}.aiTierUpgrade{margin-top:7px;color:var(--accent);font-weight:700}
+.foundationStatusBadge{position:fixed;left:10px;bottom:10px;z-index:70;font:10px system-ui;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 8px;backdrop-filter:blur(8px)}
+@media(max-width:720px){.finpilotAiTierCard{right:10px;bottom:10px;max-width:260px;font-size:10px}.foundationStatusBadge{left:8px;bottom:8px;font-size:9px}}
 </style></head><body><div class="app"><aside class="side"><div class="brand"><div class="logo">FP</div><div><b>FinPilot AI</b><small>Financial command center</small></div></div><nav class="nav" id="nav"></nav><div class="sideBottom"><div class="status">Engine <strong id="engineStatus">ONLINE</strong><br><span id="engineDetail">Offline brain ready</span></div></div></aside><main class="main"><header class="top"><div class="topIdentity"><span class="topPulse"></span><div><b>FinPilot</b><small>AI financial intelligence</small></div></div><div class="topActions"><button class="btn" onclick="openModal('quickModal')">+ Quick</button><button class="btn" onclick="openThemePicker()">◈ <span id="themeButtonLabel">Dark theme</span></button><button class="btn" onclick="runAgent()">Run Agent</button></div></header><section class="content"><div id="complianceBanner"></div>
 <div id="intelligence" class="view"></div>
 <div id="dataos" class="view"></div>
