@@ -537,20 +537,34 @@ function webSearch(){const q=document.getElementById('globalSearch').value.trim(
 async function finpilotLaunch(q){
  q=String(q||"").trim();
  if(!q){toast("Enter a stock, ETF, crypto, or company first");return}
- if(typeof window.runFullStockAnalysis==="function")return window.runFullStockAnalysis(q);
- const src="/one-click-analysis.js?v=20261008-12";
- let tag=document.getElementById("finpilotOneClickReload");
- if(!tag){
-   tag=document.createElement("script");tag.id="finpilotOneClickReload";tag.src=src;tag.async=false;
-   tag.onload=()=>{if(typeof window.runFullStockAnalysis==="function")window.runFullStockAnalysis(q);};
-   tag.onerror=()=>finpilotDirectOneClick(q);
-   document.head.appendChild(tag);
+ const buttons=[document.getElementById("searchHeroRunAll"),document.getElementById("searchOneClick"),document.getElementById("oneClickTop")].filter(Boolean);
+ const original=new Map(buttons.map(b=>[b,b.innerHTML]));
+ buttons.forEach(b=>{b.disabled=true;b.dataset.fpRunning="1";b.innerHTML='⏳ <span class="fpSpin" aria-hidden="true"></span> FinPilot is running…';b.style.opacity=".78";b.style.cursor="wait"});
+ let status=document.getElementById("fpRunStatus");
+ if(!status){status=document.createElement("div");status.id="fpRunStatus";status.style.cssText="position:fixed;top:74px;left:12px;right:12px;z-index:99998;background:#081525;border:1px solid #2d8cff;border-radius:12px;padding:11px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35);color:#fff;font-size:13px;text-align:center";document.body.appendChild(status)}
+ status.innerHTML='<b>⏳ FinPilot 1-Click is running</b><br><span style="opacity:.78">Connecting to live evidence, market data, chart and decision agents…</span>';
+ const finish=()=>{buttons.forEach(b=>{b.disabled=false;b.dataset.fpRunning="";b.innerHTML=original.get(b)||'⚡ 1-Click Full Analysis';b.style.opacity="";b.style.cursor=""});setTimeout(()=>{const x=document.getElementById("fpRunStatus");if(x)x.remove()},1200)};
+ try{
+   if(typeof window.runFullStockAnalysis==="function"){status.innerHTML='<b>⏳ FinPilot is analyzing '+String(q).replace(/</g,"&lt;")+'</b><br><span style="opacity:.78">Live search → market series → agents → CEO/CFO/Judge</span>';await window.runFullStockAnalysis(q);finish();return}
+   const src="/one-click-analysis.js?v=20261008-12";
+   let tag=document.getElementById("finpilotOneClickReload");
+   if(!tag){
+     tag=document.createElement("script");tag.id="finpilotOneClickReload";tag.src=src;tag.async=false;
+     tag.onload=()=>{if(typeof window.runFullStockAnalysis==="function")window.runFullStockAnalysis(q);};
+     tag.onerror=()=>finpilotDirectOneClick(q);
+     document.head.appendChild(tag);
+   }
+   for(let i=0;i<25;i++){
+     if(typeof window.runFullStockAnalysis==="function"){status.innerHTML='<b>⏳ Analysis engine loaded — starting '+String(q).replace(/</g,"&lt;")+'…</b>';await window.runFullStockAnalysis(q);finish();return}
+     await new Promise(r=>setTimeout(r,100));
+   }
+   status.innerHTML='<b>⏳ Using direct live-market recovery…</b><br><span style="opacity:.78">The full engine took too long to initialize; FinPilot will still show the verified market result.</span>';
+   await finpilotDirectOneClick(q);finish();
+ }catch(err){
+   status.innerHTML='<b>⚠️ Analysis stopped safely</b><br><span style="opacity:.78">'+String(err?.message||"Unknown error").replace(/</g,"&lt;")+'</span>';
+   toast("Analysis stopped safely");
+   setTimeout(finish,2500);
  }
- for(let i=0;i<25;i++){
-   if(typeof window.runFullStockAnalysis==="function")return window.runFullStockAnalysis(q);
-   await new Promise(r=>setTimeout(r,100));
- }
- return finpilotDirectOneClick(q);
 }
 async function finpilotDirectOneClick(q){
  q=String(q||"").trim().toUpperCase();
