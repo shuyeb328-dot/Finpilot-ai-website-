@@ -437,6 +437,23 @@ async function fetchYahooChart(symbol,range='5d',interval='1h'){
  }
  throw new Error(last);
 }
+async function fetchYahooWorldIndexPage(){
+ const cached=EQUITY_MARKET_CACHE.get('WORLD_INDEX_PAGE');
+ if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+ try{
+  const r=await fetch('https://finance.yahoo.com/markets/world-indices/',{headers:{'Accept':'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'},signal:controller.signal});
+  if(!r.ok)throw new Error('Yahoo world indices HTTP '+r.status);
+  const html=await r.text(),out=new Map();
+  const clean=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,\"'\").replace(/&quot;/g,'\"').replace(/\\s+/g,' ').trim();
+  for(const row of html.match(/<tr[^>]*>[\\s\\S]*?<\\/tr>/gi)||[]){
+   const cells=[...row.matchAll(/<t[dh][^>]*>([\\s\\S]*?)<\\/t[dh]>/gi)].map(m=>clean(m[1]));
+   if(cells.length>=3&&/^\\^?[A-Z0-9][A-Z0-9_.=-]*$/.test(cells[0])){const price=Number(cells[2].replace(/,/g,''));if(Number.isFinite(price))out.set(cells[0],{symbol:cells[0],name:cells[1],price,changePct:0,live:false,provider:'Yahoo Finance World Indices page · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'world-indices page / may be delayed'});}
+  }
+  if(!out.size)throw new Error('Yahoo world indices table unavailable');
+  EQUITY_MARKET_CACHE.set('WORLD_INDEX_PAGE',{at:Date.now(),result:out});return out;
+ }finally{clearTimeout(timer)}
+}
 async function fetchYahooPageQuote(symbol){
  const cached=EQUITY_MARKET_CACHE.get('PAGE:'+symbol);
  if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
@@ -501,6 +518,12 @@ async function liveEquity(ticker){
     EQUITY_MARKET_CACHE.set('NSEINDEX:'+clean,{at:Date.now(),result:row}); return row;
    }catch(yErr){throw new Error(`Index data unavailable: NSE=${indexErr.message}; Yahoo=${yErr.message}`)}
   }
+ }
+ if(!INDIA_INDICES[clean]&&GLOBAL_INDEXES.some(x=>x.symbol===symbol)){
+  try{
+   const world=await fetchYahooWorldIndexPage(),row=world.get(symbol);
+   if(row){const result={ticker:clean,symbol,market:'GLOBAL_INDEX',exchange:'Yahoo Finance',name:row.name,currency:'',price:row.price,previous:row.price,changePct:row.changePct,dayHigh:row.price,dayLow:row.price,live:false,provider:row.provider,asOf:row.asOf,dataFreshness:row.dataFreshness,dataDisclaimer:'World index page data may be delayed; verify the exchange or licensed market-data feed before acting.'};EQUITY_MARKET_CACHE.set(symbol,{at:Date.now(),result});return result;}
+  }catch{}
  }
  let result,sourceRange='5d/1h';
  try{result=await fetchYahooChart(symbol,'5d','1h')}
