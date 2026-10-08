@@ -192,4 +192,38 @@ function fresh(){
   assert.equal(state.paperTrading.orders.filter(x=>x.id===a1.id).length,1);
 }
 
+
+/* Execution 3.0 regression coverage: lifecycle, stale quote guard, replace/cancel, reduce-only */
+{
+  const {state,a}=fresh();
+  const meta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString(),seq:'exec3-1'};
+  const o=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'execution 3','GTC',null,0,{enforceRisk:true,marketMeta:meta});
+  assert.equal(o.status,'OPEN');
+  core.processOpenOrders(state,{BTC:79900},meta);
+  assert.equal(o.status,'FILLED');
+  assert.equal(o.filledQty,0.1);
+  const exit=core.placeOrder(state,'a1','BTC','SELL',0.1,'LIMIT',81000,null,null,'execution 3 exit');
+  core.amendOrder(state,exit.id,{qty:0.05,limitPrice:80500});
+  assert.equal(exit.status,'OPEN');
+  assert.equal(exit.qty,0.05);
+  assert.equal(exit.amendments,1);
+  const replaced=core.replaceOrder(state,exit.id,{limitPrice:80600});
+  assert.equal(replaced.limitPrice,80600);
+  core.cancelOrder(state,exit.id);
+  assert.equal(exit.status,'CANCELLED');
+  assert.equal(state.paperTrading.openOrders.length,0);
+}
+{
+  const {state}=fresh();
+  const stale={verified:true,available:true,providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString(),seq:'exec3-stale'};
+  core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'entry');
+  const o=core.placeOrder(state,'a1','BTC','SELL',0.1,'LIMIT',79000,null,null,'stale');
+  core.processOpenOrders(state,{BTC:79000},stale);
+  assert.equal(o.status,'OPEN');
+  assert.throws(()=>core.paperOrder(state,'a1','BTC','BUY',0.01,80000,'invalid reduce',{reduceOnly:true}),/Reduce-only BUY/);
+  const rec=core.reconcileOrders(state);
+  assert.equal(rec.openOrders,1);
+  assert.equal(rec.partial,0);
+}
+
 console.log('Paper engine execution tests passed');
