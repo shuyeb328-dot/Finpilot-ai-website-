@@ -281,7 +281,7 @@ function debtView(){return document.getElementById('debt').innerHTML=header('Lia
 function whatifView(){return document.getElementById('whatif').innerHTML=header('Simulation lab','What-If Lab','Stress-test decisions before committing money.',`<span class="pill low">DETERMINISTIC ENGINE · OFFLINE READY</span>`)+`<div class="grid two"><div class="card"><div class="sectionTitle"><h3>Scenario builder</h3><span class="subtle">No API key required</span></div><form class="form" onsubmit="simulate(event)"><label>Scenario<select id="simType"><option>Job loss</option><option>Large purchase</option><option>Investment contribution</option><option>Debt payoff</option><option>Income drop</option><option>Expense increase</option><option>Goal acceleration</option></select></label><label>Amount / monthly impact<input id="simAmt" type="number" min="0" step="100" value="25000"></label><label>Duration (months)<input id="simMonths" type="number" min="1" max="120" value="6"></label><button class="btn primary">Run scenario</button></form><div style="height:14px"></div><div class="notice"><b>Decision rule</b><br>FinPilot compares liquidity, runway, net worth, debt pressure and goal momentum. It does not execute transactions.</div></div><div class="card" id="simResult"><h3>Scenario result</h3><div class="notice">Choose a scenario to calculate best-case, expected and downside effects on your financial position.</div></div></div><div style="height:14px"></div><div class="grid three"><div class="card"><h3>Current baseline</h3><div class="metric">${money(netWorth())}</div><div class="muted">Net worth</div><div class="row"><span>Free cash</span><b>${money(state.income-state.spending)}</b></div><div class="row"><span>Cash runway</span><b>${(state.cash/Math.max(1,state.spending)).toFixed(1)} mo</b></div></div><div class="card"><h3>Recent simulations</h3><div class="list">${(state.simulationHistory||[]).slice(0,5).map(x=>`<div class="row"><div><b>${x.type}</b><div class="muted">${x.risk} · ${x.time}</div></div><span>${money(x.scenarioCash)}</span></div>`).join('')||'<div class="notice">No scenarios run yet.</div>'}</div></div><div class="card"><h3>Engine status</h3><div class="metric green">READY</div><div class="muted">Local math engine</div><div class="row"><span>AI dependency</span><span class="pill low">NONE</span></div><div class="row"><span>Approval</span><span class="pill med">REQUIRED FOR ACTION</span></div></div></div>`}
 function searchView(){
  return document.getElementById('search').innerHTML=
- header('Global intelligence','Internet Search','Search the web, compare evidence, and send the selected query through FinPilot’s full decision stack.',`<div class="action"><button class="btn primary" onclick="webSearch()">Search current query</button><button id="searchHeroRunAll" class="btn good" onclick="startOneClickAnalysis(document.getElementById('searchQuery')?.value||'')">⚡ 1-Click Full Analysis</button></div>`)+
+ header('Global intelligence','Internet Search','Search the web, compare evidence, and send the selected query through FinPilot’s full decision stack.',`<div class="action"><button class="btn primary" onclick="webSearch()">Search current query</button><button id="searchHeroRunAll" class="btn good" onclick="finpilotLaunch(document.getElementById('searchQuery')?.value||'')">⚡ 1-Click Full Analysis</button></div>`)+
  `<div class="searchCommand card">
    <div class="searchCommandTop">
      <div><span class="eyebrow">FINPILOT SEARCH INTELLIGENCE</span><h2>Search once. Understand faster.</h2><p class="muted">Live web evidence → source quality → Financial Brain → agent fleet → CEO/CFO/Judge.</p></div>
@@ -534,7 +534,30 @@ async function doSearch(q){
 }
 function recordSearchEvidence(){const added=ingestSearchEvidence(window.__lastSearch);if(added){toast(`${added} search source(s) added to Evidence Ledger`);render('evidence')}else toast('No new search evidence to record')}
 function webSearch(){const q=document.getElementById('globalSearch').value.trim();if(!q)return;show('search');document.getElementById('searchQuery').value=q;doSearch(q)}
-async function finpilotLaunch(q){q=String(q||"").trim();if(!q){toast("Enter a stock, ETF, crypto, or question first");return}const box=document.getElementById("searchResults");if(box)box.insertAdjacentHTML("afterbegin",'<div id="fpDirectRun" class="notice"><b>FinPilot direct analysis</b><br>Searching web and market data…</div>');try{if(typeof window.runFullStockAnalysis==="function"){await window.runFullStockAnalysis(q);return}const r=await fetch("/api/search?q="+encodeURIComponent(q)+"&count=10",{cache:"no-store"});const d=await r.json();const market=await fetch("/api/stock-report?ticker="+encodeURIComponent(q.toUpperCase())+"&interval=1h&multi=1",{cache:"no-store"});const m=await market.json();if(box)box.innerHTML='<div class="notice"><b>Direct result: '+esc(q)+'</b><br>Web sources: '+(d.results?.length||0)+'<br>Market price: ₹'+(m.report?.price||"Unavailable")+'<br>Provider: '+esc(m.report?.provider||"Unavailable")+'<br><br>Open the web sources above and use the verified market record for analysis.</div>'+box.innerHTML}catch(e){if(box)box.insertAdjacentHTML("afterbegin",'<div class="notice highNotice"><b>Analysis error</b><br>'+esc(e.message||e)+'</div>')}}
+async function finpilotLaunch(q){
+ q=String(q||"").trim();
+ if(!q){toast("Enter a stock, ETF, crypto, or question first");return}
+ const box=document.getElementById("searchResults");
+ const old=document.getElementById("fpDirectRun"); if(old)old.remove();
+ if(box)box.insertAdjacentHTML("afterbegin",'<div id="fpDirectRun" class="notice"><b>FinPilot analysis started</b><br>Searching web + market data + agent council…</div>');
+ try{
+  const engine=window.runFullStockAnalysis;
+  if(typeof engine==="function"){
+    await Promise.race([
+      Promise.resolve(engine(q)),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("Analysis timed out after 45 seconds. The market data provider may be slow.")),45000))
+    ]);
+    const progress=document.getElementById("oneClickProgress");
+    if(progress)progress.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
+  }
+  throw new Error("Analysis engine is still loading. Please wait 2 seconds and tap again.");
+ }catch(e){
+  const msg=String(e?.message||e||"Unknown error");
+  if(box)box.insertAdjacentHTML("afterbegin",'<div class="notice highNotice"><b>FinPilot analysis error</b><br>'+esc(msg)+'</div>');
+  toast("FinPilot analysis error — "+msg);
+ }
+}
 function exportJSON(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='finpilot-backup.json';a.click();URL.revokeObjectURL(a.href);toast('Backup exported')}
 function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{state={...defaultState,...JSON.parse(r.result)};save();show('dashboard');toast('Backup restored')}catch{toast('Invalid backup')}};r.readAsText(f)}
 function resetData(){if(confirm('Reset all local FinPilot data?')){localStorage.removeItem('finpilot_web_v1800');localStorage.removeItem('finpilot_web_v2300');localStorage.removeItem('finpilot_web_v2500');state=structuredClone(defaultState);state.schemaVersion=2700;state.simulationHistory=[];state.outcomes=[];state.learning={accuracy:null,confidenceAdjustment:0,agentScores:{},repeatedMistakes:[]};show('dashboard');toast('Local data reset')}}
