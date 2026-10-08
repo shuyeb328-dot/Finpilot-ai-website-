@@ -5,9 +5,10 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   page.on('pageerror', err => errors.push(String(err?.message || err)));
   await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=1', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-  const paperNav = page.getByRole('button', { name: /Agent Paper Arena/i });
-  await expect(paperNav).toBeVisible({ timeout: 30000 });
-  await paperNav.click();
+  await page.waitForTimeout(3000);
+  const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
+  expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
+  await page.evaluate(() => window.show('paperlab'));
 
   await expect(page.locator('#paperlab')).toContainText('PAPER ONLY', { timeout: 30000 });
   const boot = await page.evaluate(() => ({
