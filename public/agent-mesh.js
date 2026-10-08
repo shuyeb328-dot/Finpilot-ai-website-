@@ -8,7 +8,7 @@ const FEATURES=[
 'Decision replay','Confidence bands','Evidence freshness','Evidence diversity','Source reliability','Model disagreement heatmap','Human approval routing','High-impact action gate','Paper-mode isolation','Continuous agent learning queue'
 ];
 const AGENTS=[
-['CEO','Final synthesis','Decision'],['CFO','Capital & liquidity','Finance'],['Risk','Downside & veto','Risk'],['Judge','Conflict resolution','Governance'],['Market','Market intelligence','Markets'],['Portfolio','Holdings analysis','Investments'],['Budget','Spending control','Money'],['Goals','Goal planning','Planning'],['Debt','Debt strategy','Liabilities'],['Research','Evidence research','Research']
+['CEO','Final synthesis','Decision'],['CFO','Capital & liquidity','Finance'],['Risk','Downside & veto','Risk'],['Judge','Conflict resolution','Governance'],['Market','Market intelligence','Markets'],['Portfolio','Holdings analysis','Investments'],['Budget','Spending control','Money'],['Goals','Goal planning','Planning'],['Debt','Debt strategy','Liabilities'],['Research','Evidence research','Research'],['Tax','Tax and governance','Compliance'],['RedTeam','Adversarial challenge','Model Risk']
 ];
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ensure(){state.agentMesh=state.agentMesh||{runs:0,lastRun:null,agents:{},queue:[],decisions:[],learning:[]};return state.agentMesh}
