@@ -21,7 +21,7 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>{
  const origin=res.req?.headers?.origin; const allowed=process.env.ALLOWED_ORIGIN||'';
  const cors=origin&&allowed&&origin===allowed?origin:undefined;
- const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'7.0',
+ const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'8.2',
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",...headers};
  if(process.env.NODE_ENV==='production')h['Strict-Transport-Security']='max-age=31536000; includeSubDomains';
@@ -296,7 +296,11 @@ async function liveEquity(ticker){
  const score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
  const candles=(result.timestamp||[]).map((ts,i)=>({time:new Date(Number(ts)*1000).toISOString(),open:Number(q.open?.[i]),high:Number(q.high?.[i]),low:Number(q.low?.[i]),close:Number(q.close?.[i]),volume:Number(q.volume?.[i])})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
  if(candles.length<2)throw new Error('Equity provider returned insufficient candles.');
- return {ticker:String(ticker).toUpperCase().replace('.NS',''),symbol,market:'INDIA_EQUITY',exchange:'NSE',name:String(meta.longName||meta.shortName||ticker),currency:String(meta.currency||'INR'),price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,candles,live:true,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,asOf:new Date().toISOString(),dataDisclaimer:'Recent market data for analysis only; verify the broker/exchange quote before acting.'};
+ const atrV=atr(candles.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*0.01,Math.abs(recentHigh-recentLow)/4);
+ const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED';
+ const riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
+ const support=recentLow,resistance=recentHigh;
+ return {ticker:String(ticker).toUpperCase().replace('.NS',''),symbol,market:'INDIA_EQUITY',exchange:'NSE',name:String(meta.longName||meta.shortName||ticker),currency:String(meta.currency||'INR'),price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atrV,support,resistance,direction,riskScore,candles,live:true,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,asOf:new Date().toISOString(),dataDisclaimer:'Recent market data for analysis only; verify the broker/exchange quote before acting.'};
 }
 async function marketPicks(req,res,u){
  const limit=Math.min(10,Math.max(3,Number(u.searchParams.get('limit')||5)));
@@ -415,31 +419,54 @@ async function chainAnalytics(req,res,u){const ticker=(u.searchParams.get('ticke
 function roundTableDecision(req,res,u){const bull=Number(u.searchParams.get('bull')||0),bear=Number(u.searchParams.get('bear')||0),risk=Number(u.searchParams.get('risk')||50),confidence=Number(u.searchParams.get('confidence')||0);const votes={bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:risk>=65?'REJECT':'ALLOW',cfo:risk>=55?'CAPITAL PROTECT':'CAPITAL AVAILABLE'};let ceo='WAIT';if(confidence>=70&&bull>=65&&risk<45)ceo='LONG BIAS';else if(confidence>=70&&bear>=65&&risk<45)ceo='SHORT BIAS';return send(res,200,{ok:true,engine:'round-table-v3800',votes,ceoDecision:ceo,reason:ceo==='WAIT'?'Evidence is not strong enough to overcome uncertainty or risk.':'Consensus threshold met with risk controls.',humanApprovalRequired:true})}
 function riskGuard(req,res,u){const leverage=Number(u.searchParams.get('leverage')||1),riskPct=Number(u.searchParams.get('riskPct')||1),liquidity=Number(u.searchParams.get('liquidity')||100),confidence=Number(u.searchParams.get('confidence')||0);const flags=[];if(leverage>3)flags.push('HIGH_LEVERAGE');if(riskPct>2)flags.push('RISK_BUDGET_EXCEEDED');if(liquidity<60)flags.push('LOW_LIQUIDITY');if(confidence<65)flags.push('LOW_CONFIDENCE');const blocked=flags.length>0;return send(res,200,{ok:true,engine:'derivatives-risk-v3900',blocked,flags,limits:{maxSuggestedLeverage:3,maxRiskPct:2,minLiquidityScore:60,minConfidence:65},approval:blocked?'CFO REJECT':'CFO REVIEW',note:'Risk guard is a control layer; it does not predict returns.'})}
 async function investmentPlan(req,res,u){
- const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase(), capital=Math.max(0,Number(u.searchParams.get('capital')||1000)), riskPct=Math.min(2,Math.max(.1,Number(u.searchParams.get('riskPct')||1)));
+ const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase();
+ const capital=Math.max(0,Number(u.searchParams.get('capital')||1000));
+ const riskPct=Math.min(2,Math.max(.1,Number(u.searchParams.get('riskPct')||1)));
  if(!ticker||capital<=0)return send(res,400,{ok:false,error:'ticker and positive capital are required'});
  try{
   const report=CRYPTO_ASSETS[ticker]?await liveCrypto(ticker,'1h',true):await liveEquity(ticker);
-  const entry=Number(u.searchParams.get('entry')||report.price), atrV=Number(report.atr||Math.abs(entry-(report.recentLow||entry))*.5||entry*.02);
-  const support=Number(report.support||report.recentLow||entry-atrV), resistance=Number(report.resistance||report.recentHigh||entry+atrV*2);
-  const dir=String(report.direction||'MIXED').toUpperCase(), direction=dir==='BEARISH'?'SHORT':dir==='BULLISH'?'LONG':'WAIT';
+  let research=EXA_ANALYSIS;
+  if(process.env.EXA_API_KEY&&(!EXA_LAST_RUN||Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)){
+    const rr=await runExaIntelligence(`${ticker} stock latest earnings news regulation risk market outlook`);
+    if(rr.ok)research=EXA_ANALYSIS;
+  }
+  const entry=Number(u.searchParams.get('entry')||report.price);
+  const atrV=Number(report.atr||Math.max(entry*.01,Math.abs((report.recentHigh||entry)-(report.recentLow||entry))/4));
+  const support=Number(report.support||report.recentLow||entry-atrV),resistance=Number(report.resistance||report.recentHigh||entry+atrV*2);
+  const dir=String(report.multiTimeframe?.consensus||report.direction||'MIXED').toUpperCase();
+  if(dir==='MIXED'&&!u.searchParams.get('entry')&&!u.searchParams.get('stop')&&!u.searchParams.get('target')){
+   return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8200',ticker,market:report.market,name:report.name||ticker,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
+    marketSnapshot:{price:report.price,changePct:report.changePct,rsi:report.rsi,volumeRatio:report.volumeRatio,direction:report.direction||dir,riskScore:Number(report.riskScore||70)},
+    setup:{direction:'WAIT',entry,stop:null,target:null,support,resistance,atr:atrV},
+    capitalPlan:{capital,riskBudgetPct:riskPct,maxRisk:capital*riskPct/100,maxLoss:0,quantity:0,invested:0,unusedCapital:capital,expectedProfit:0,profitPct:0,riskReward:null},
+    probability:{bullish:50,bearish:50,confidence:Math.max(0,Number(research.confidence||0)-10),modelType:'scenario score; not probability of profit'},
+    roundTable:{marketAgent:dir,bullAgent:'WAIT',bearAgent:'WAIT',riskAgent:'REVIEW',cfo:'CAPITAL PROTECT',ceo:'WAIT / VERIFY',evidenceConfidence:Number(research.confidence||0)},
+    evidence:{confidence:Number(research.confidence||0),qualityScore:Number(research.qualityScore||0),freshnessScore:Number(research.freshnessScore||0),sourceDiversity:Number(research.sourceDiversity||0),primarySourceCount:Number(research.primarySourceCount||0),contradictions:Number(research.contradictions||0),sources:(research.verifiedEvidence||[]).slice(0,8)},
+    controls:{stopLossEnforcedByPlan:false,approvalRequired:true,canAutoExecute:false},
+    warning:'No directional edge is established by the live technical model. FinPilot will not manufacture a trade setup.'});
+  }
+  const direction=dir==='BEARISH'?'SHORT':dir==='BULLISH'?'LONG':(Number(u.searchParams.get('target')||0)>entry?'LONG':'SHORT');
   const stop=Number(u.searchParams.get('stop')||(direction==='SHORT'?Math.min(entry+atrV,entry*1.03):Math.max(support,entry-atrV)));
   const target=Number(u.searchParams.get('target')||(direction==='SHORT'?Math.max(entry-atrV*2,entry*.94):Math.max(resistance,entry+atrV*2)));
-  const long=target>entry;
+  const long=direction==='LONG';
   if((long&&stop>=entry)||(long&&target<=entry)||(!long&&stop<=entry)||(!long&&target>=entry))return send(res,422,{ok:false,error:'Invalid live trade geometry',report});
   const stopDistance=Math.abs(entry-stop),targetDistance=Math.abs(target-entry),rr=targetDistance/Math.max(1e-9,stopDistance),maxRisk=capital*riskPct/100;
   const qty=Math.max(0,Math.min(Math.floor(maxRisk/stopDistance),Math.floor(capital/entry))),invested=qty*entry,maxLoss=qty*stopDistance,grossProfit=qty*targetDistance;
-  const technicalRisk=Number(report.riskScore||70),baseBull=dir==='BULLISH'?65:dir==='BEARISH'?35:50;
-  const bull=coreClamp(Math.round(baseBull+Math.min(15,Math.max(-10,(rr-1)*7))-(technicalRisk>70?8:technicalRisk>55?3:0)),5,95),bear=100-bull;
-  const confidence=coreClamp(Math.round(50+Math.abs(bull-50)*.8+(report.live?10:0)-(technicalRisk>75?10:0)),0,95);
-  const riskScore=coreClamp(Math.round(technicalRisk+(riskPct>1?5:0)+(rr<1.5?10:0)+(qty===0?10:0)),0,100);
+  const technicalRisk=Number(report.riskScore||70),evidencePenalty=Number(research.confidence||0)<60?8:0;
+  const baseBull=dir==='BULLISH'?65:dir==='BEARISH'?35:50;
+  const bull=coreClamp(Math.round(baseBull+Math.min(15,Math.max(-10,(rr-1)*7))-(technicalRisk>70?8:technicalRisk>55?3:0)-evidencePenalty),5,95);
+  const bear=100-bull;
+  const confidence=coreClamp(Math.round(50+Math.abs(bull-50)*.8+(report.live?10:0)+(Number(research.confidence||0)*.15)-(technicalRisk>75?10:0)),0,95);
+  const riskScore=coreClamp(Math.round(technicalRisk+(riskPct>1?5:0)+(rr<1.5?10:0)+(qty===0?10:0)+(Number(research.contradictions||0)>3?8:0)),0,100);
   const cfo=riskScore>=65||qty<1?'REJECT / PROTECT':riskScore>=45?'REDUCE SIZE / REVIEW':'CAPITAL AVAILABLE';
-  const ceo=confidence>=70&&rr>=2&&riskScore<45?(long?'LONG BIAS':'SHORT BIAS'):'WAIT / VERIFY';
-  return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8100',ticker,market:report.market,name:report.name||ticker,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
-   marketSnapshot:{price:report.price,changePct:report.changePct,rsi:report.rsi,volumeRatio:report.volumeRatio,direction:report.direction,riskScore:technicalRisk},
-   setup:{direction:long?'LONG':'SHORT',entry,stop,target,support,resistance,atr:report.atr||atrV},
+  const ceo=confidence>=70&&rr>=2&&riskScore<45&&Number(research.confidence||0)>=65?(long?'LONG BIAS':'SHORT BIAS'):'WAIT / VERIFY';
+  return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8200',ticker,market:report.market,name:report.name||ticker,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
+   marketSnapshot:{price:report.price,changePct:report.changePct,rsi:report.rsi,volumeRatio:report.volumeRatio,direction:report.direction||dir,riskScore:technicalRisk},
+   setup:{direction:long?'LONG':'SHORT',entry,stop,target,support,resistance,atr:atrV},
    capitalPlan:{capital,riskBudgetPct:riskPct,maxRisk,maxLoss,quantity:qty,invested,unusedCapital:capital-invested,expectedProfit:grossProfit,profitPct:invested?grossProfit/invested*100:0,riskReward:Math.round(rr*100)/100},
    probability:{bullish:bull,bearish:bear,confidence,modelType:'scenario score; not probability of profit'},
-   roundTable:{marketAgent:report.direction||'MIXED',bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:riskScore>=65?'REJECT':'REVIEW',cfo,ceo},
+   roundTable:{marketAgent:report.direction||dir,bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:riskScore>=65?'REJECT':'REVIEW',cfo,ceo,evidenceConfidence:Number(research.confidence||0)},
+   evidence:{confidence:Number(research.confidence||0),qualityScore:Number(research.qualityScore||0),freshnessScore:Number(research.freshnessScore||0),sourceDiversity:Number(research.sourceDiversity||0),primarySourceCount:Number(research.primarySourceCount||0),contradictions:Number(research.contradictions||0),sources:(research.verifiedEvidence||[]).slice(0,8)},
    controls:{stopLossEnforcedByPlan:true,approvalRequired:true,canAutoExecute:false},
    warning:'Live/recent market data can be delayed; fees, slippage, taxes, gaps and liquidity can change realized results. Decision support only.'});
  }catch(err){return send(res,502,{ok:false,error:'LIVE_MARKET_ANALYSIS_UNAVAILABLE',message:String(err?.message||err)})}
