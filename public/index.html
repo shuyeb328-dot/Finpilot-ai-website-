@@ -281,7 +281,7 @@ function debtView(){return document.getElementById('debt').innerHTML=header('Lia
 function whatifView(){return document.getElementById('whatif').innerHTML=header('Simulation lab','What-If Lab','Stress-test decisions before committing money.',`<span class="pill low">DETERMINISTIC ENGINE · OFFLINE READY</span>`)+`<div class="grid two"><div class="card"><div class="sectionTitle"><h3>Scenario builder</h3><span class="subtle">No API key required</span></div><form class="form" onsubmit="simulate(event)"><label>Scenario<select id="simType"><option>Job loss</option><option>Large purchase</option><option>Investment contribution</option><option>Debt payoff</option><option>Income drop</option><option>Expense increase</option><option>Goal acceleration</option></select></label><label>Amount / monthly impact<input id="simAmt" type="number" min="0" step="100" value="25000"></label><label>Duration (months)<input id="simMonths" type="number" min="1" max="120" value="6"></label><button class="btn primary">Run scenario</button></form><div style="height:14px"></div><div class="notice"><b>Decision rule</b><br>FinPilot compares liquidity, runway, net worth, debt pressure and goal momentum. It does not execute transactions.</div></div><div class="card" id="simResult"><h3>Scenario result</h3><div class="notice">Choose a scenario to calculate best-case, expected and downside effects on your financial position.</div></div></div><div style="height:14px"></div><div class="grid three"><div class="card"><h3>Current baseline</h3><div class="metric">${money(netWorth())}</div><div class="muted">Net worth</div><div class="row"><span>Free cash</span><b>${money(state.income-state.spending)}</b></div><div class="row"><span>Cash runway</span><b>${(state.cash/Math.max(1,state.spending)).toFixed(1)} mo</b></div></div><div class="card"><h3>Recent simulations</h3><div class="list">${(state.simulationHistory||[]).slice(0,5).map(x=>`<div class="row"><div><b>${x.type}</b><div class="muted">${x.risk} · ${x.time}</div></div><span>${money(x.scenarioCash)}</span></div>`).join('')||'<div class="notice">No scenarios run yet.</div>'}</div></div><div class="card"><h3>Engine status</h3><div class="metric green">READY</div><div class="muted">Local math engine</div><div class="row"><span>AI dependency</span><span class="pill low">NONE</span></div><div class="row"><span>Approval</span><span class="pill med">REQUIRED FOR ACTION</span></div></div></div>`}
 function searchView(){
  return document.getElementById('search').innerHTML=
- header('Global intelligence','Internet Search','Search the web, compare evidence, and send the selected query through FinPilot’s full decision stack.',`<div class="action"><button class="btn primary" onclick="webSearch()">Search current query</button><button id="searchHeroRunAll" class="btn good" onclick="runFullStockAnalysis(document.getElementById('searchQuery')?.value||'')">⚡ 1-Click Full Analysis</button></div>`)+
+ header('Global intelligence','Internet Search','Search the web, compare evidence, and send the selected query through FinPilot’s full decision stack.',`<div class="action"><button class="btn primary" onclick="webSearch()">Search current query</button><button id="searchHeroRunAll" class="btn good" onclick="startOneClickAnalysis(document.getElementById('searchQuery')?.value||'')">⚡ 1-Click Full Analysis</button></div>`)+
  `<div class="searchCommand card">
    <div class="searchCommandTop">
      <div><span class="eyebrow">FINPILOT SEARCH INTELLIGENCE</span><h2>Search once. Understand faster.</h2><p class="muted">Live web evidence → source quality → Financial Brain → agent fleet → CEO/CFO/Judge.</p></div>
@@ -289,7 +289,7 @@ function searchView(){
    </div>
    <div class="searchBarPro"><span class="searchGlyph">⌕</span><input id="searchQuery" placeholder="Search a stock, company, macro event, crypto, market or finance question" onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch(this.value)}"><button class="btn primary" onclick="doSearch(document.getElementById('searchQuery').value)">Search</button></div>
    <div class="searchQuick"><button class="btn" onclick="document.getElementById('searchQuery').value='RBI latest updates';doSearch('RBI latest updates')">RBI</button><button class="btn" onclick="document.getElementById('searchQuery').value='India stock market today';doSearch('India stock market today')">Markets</button><button class="btn" onclick="document.getElementById('searchQuery').value='Nifty 50 today';doSearch('Nifty 50 today')">Nifty</button><button class="btn" onclick="document.getElementById('searchQuery').value='best stock today India';doSearch('best stock today India')">Stocks</button><button class="btn" onclick="document.getElementById('searchQuery').value='Bitcoin today';doSearch('Bitcoin today')">Crypto</button></div>
-   <div class="searchActions"><button id="searchOneClick" class="btn primary" onclick="runFullStockAnalysis(document.getElementById('searchQuery').value)">⚡ Run complete intelligence</button><span class="muted">No trade is placed. Results remain decision support.</span></div>
+   <div class="searchActions"><button id="searchOneClick" class="btn primary" onclick="startOneClickAnalysis(document.getElementById('searchQuery').value)">⚡ Run complete intelligence</button><span class="muted">No trade is placed. Results remain decision support.</span></div>
    <div id="searchResults" class="searchResultsPro"></div>
  </div>`
 }
@@ -465,6 +465,18 @@ function runScenario(type,amt,months){const base={cash:state.cash,income:state.i
 function simulate(e){e.preventDefault();const type=simType.value,amt=Math.max(0,Number(simAmt.value)),months=Math.max(1,Number(simMonths.value));const r=runScenario(type,amt,months);state.simulationHistory=[r,...(state.simulationHistory||[])].slice(0,20);state.evidence.unshift(evidenceItem('Simulation',`${type}: projected cash ${money(r.scenarioCash)}, runway ${r.runway.toFixed(1)} months, risk ${r.risk}.`,95));state.memory.push({title:`Simulation: ${type}`,text:`${r.risk} risk; cash change ${money(r.deltaCash)}; net worth change ${money(r.deltaNW)}.`,time:r.time});save();const cls=r.risk==='CRITICAL'?'red':r.risk==='ELEVATED'?'yellow':'green';document.getElementById('simResult').innerHTML=`<div class="sectionTitle"><h3>${r.type}</h3><span class="pill ${r.risk==='CRITICAL'?'high':r.risk==='ELEVATED'?'med':'low'}">${r.risk}</span></div><div class="metric ${cls}">${money(r.scenarioCash)}</div><p class="muted">Projected cash after ${r.months} months · ${money(r.deltaCash)} versus baseline.</p><div class="grid two" style="margin-top:12px"><div><div class="row"><span>Cash runway</span><b>${r.runway.toFixed(1)} mo</b></div><div class="row"><span>Net worth impact</span><b class="${r.deltaNW<0?'red':'green'}">${money(r.deltaNW)}</b></div><div class="row"><span>Free cash / month</span><b>${money(r.freeCash)}</b></div></div><div><div class="row"><span>Downside cash</span><b>${money(r.downsideCash)}</b></div><div class="row"><span>Upside cash</span><b>${money(r.upsideCash)}</b></div><div class="row"><span>Goal coverage</span><b>${(r.goalCoverage*100).toFixed(0)}%</b></div></div></div><div style="height:10px"></div><div class="notice"><b>Engine conclusion:</b> ${r.risk==='CRITICAL'?'Do not proceed without strengthening liquidity or reducing the shock.':r.risk==='ELEVATED'?'Proceed only with an explicit trade-off and approval.':'Scenario remains within current liquidity tolerance.'}</div>`;toast('Scenario calculated and recorded')}
 
 function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function startOneClickAnalysis(q){
+ q=String(q||'').trim();
+ if(!q){toast('Enter a query first');return;}
+ if(typeof window.runFullStockAnalysis==='function')return window.runFullStockAnalysis(q);
+ toast('FinPilot analysis engine is loading…');
+ let tries=0;
+ const timer=setInterval(()=>{
+  tries++;
+  if(typeof window.runFullStockAnalysis==='function'){clearInterval(timer);window.runFullStockAnalysis(q);}
+  else if(tries>=30){clearInterval(timer);toast('Analysis engine did not load. Refresh once and try again.');}
+ },200);
+}
 function ingestSearchEvidence(d){
  if(!d||!Array.isArray(d.results)||!d.results.length)return 0;
  const existing=new Set((state.evidence||[]).map(e=>e.url).filter(Boolean)); let added=0;
@@ -502,10 +514,8 @@ async function doSearch(q){
   }
   if(added)toast(added+' live source(s) added to Financial Brain');
   // Keep the one-click action visible after every search render.
-  if(typeof window.runFullStockAnalysis==='function'){
-    const launch=document.createElement('div');launch.className='searchStickyAction';launch.innerHTML='<div><b>Ready for decision-grade analysis?</b><span>Run evidence + agents + CEO/CFO/Judge in one click.</span></div><button class="btn primary" type="button">⚡ 1-Click Full Analysis</button>';
-    launch.querySelector('button').onclick=()=>window.runFullStockAnalysis(q);box.prepend(launch);
-  }
+  const launch=document.createElement('div');launch.className='searchStickyAction';launch.innerHTML='<div><b>Ready for decision-grade analysis?</b><span>Run evidence + agents + CEO/CFO/Judge in one click.</span></div><button class="btn primary" type="button">⚡ 1-Click Full Analysis</button>';
+  launch.querySelector('button').onclick=()=>startOneClickAnalysis(q);box.prepend(launch);
  }catch(e){
   box.innerHTML='<div class="notice highNotice"><b>Search error</b><br>'+esc(e?.message||'Gateway unavailable')+'</div>';
  }finally{
