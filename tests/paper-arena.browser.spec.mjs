@@ -7,7 +7,7 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await page.addInitScript(() => { window.addEventListener('error', e => { (window.__finErrors ||= []).push({message:e.message, filename:e.filename, line:e.lineno, col:e.colno}); }); });
   page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
   page.on('pageerror', err => errors.push(String(err?.stack || err?.message || err)));
-  await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=2', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=3', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   await page.waitForTimeout(3000);
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
