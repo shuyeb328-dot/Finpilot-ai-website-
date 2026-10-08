@@ -22,7 +22,7 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>{
  const origin=res.req?.headers?.origin; const allowed=process.env.ALLOWED_ORIGIN||'';
  const cors=origin&&allowed&&origin===allowed?origin:undefined;
- const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'8.2',
+ const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'8.5',
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",...headers};
  if(process.env.NODE_ENV==='production')h['Strict-Transport-Security']='max-age=31536000; includeSubDomains';
@@ -442,6 +442,26 @@ async function fetchGlobalProviderQuote(symbol){
   if(rows.length<2)throw new Error('AlphaVantage insufficient candles');
   return {rows,provider:'Alpha Vantage · API key',live:false};
  });
+ const ms=process.env.MARKETSTACK_API_KEY;
+ if(ms)providers.push(async()=>{
+  const u='https://api.marketstack.com/v1/eod?access_key='+encodeURIComponent(ms)+'&symbols='+encodeURIComponent(symbol)+'&limit=30';
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.5'},signal:AbortSignal.timeout(9000)});
+  const d=await r.json();
+  if(!r.ok||d.error||!Array.isArray(d.data)||d.data.length<2)throw new Error(d?.error?.message||'Marketstack unavailable');
+  const rows=d.data.slice().reverse().map(x=>({time:new Date(x.date).toISOString(),open:Number(x.open),high:Number(x.high),low:Number(x.low),close:Number(x.close),volume:Number(x.volume||0)})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+  if(rows.length<2)throw new Error('Marketstack insufficient candles');
+  return {rows,provider:'Marketstack · free-tier/API key',live:false};
+ });
+ const fmp=process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY;
+ if(fmp)providers.push(async()=>{
+  const u='https://financialmodelingprep.com/api/v3/historical-price-full/'+encodeURIComponent(symbol)+'?timeseries=30&apikey='+encodeURIComponent(fmp);
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.5'},signal:AbortSignal.timeout(9000)});
+  const d=await r.json();
+  if(!r.ok||!Array.isArray(d.historical)||d.historical.length<2)throw new Error(d?.Error||'FMP unavailable');
+  const rows=d.historical.slice().reverse().map(x=>({time:new Date(x.date+'T00:00:00Z').toISOString(),open:Number(x.open),high:Number(x.dayHigh),low:Number(x.dayLow),close:Number(x.close),volume:Number(x.volume||0)})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+  if(rows.length<2)throw new Error('FMP insufficient candles');
+  return {rows,provider:'Financial Modeling Prep · free-tier/API key',live:false};
+ });
  const sq=process.env.STOOQ_API_KEY;
  if(sq)providers.push(async()=>{
   const stooqSymbol=String(symbol).toLowerCase();
@@ -464,7 +484,9 @@ function globalProviderStatus(){
   {id:'twelvedata',configured:Boolean(process.env.TWELVEDATA_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities/ETFs',mode:'licensed API key'},
   {id:'finnhub',configured:Boolean(process.env.FINNHUB_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'licensed API key'},
   {id:'alphavantage',configured:Boolean(process.env.ALPHAVANTAGE_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'API key'},
-  {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'}
+  {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'},
+  {id:'marketstack',configured:Boolean(process.env.MARKETSTACK_API_KEY),role:'global EOD fallback',coverage:'Worldwide exchange/ticker metadata and EOD data',mode:'free tier/API key'},
+  {id:'fmp',configured:Boolean(process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY),role:'US/global fallback',coverage:'Market data plus fundamentals where plan permits',mode:'free tier/API key'}
  ],policy:'Only configured providers are queried. Missing providers are reported, never simulated.'};
 }
 
