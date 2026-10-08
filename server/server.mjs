@@ -439,8 +439,8 @@ const EQUITY_MARKET_CACHE=new Map();
 const YAHOO_LAST_GOOD=new Map();
 const YAHOO_COOLDOWN=new Map();
 const YAHOO_INFLIGHT=new Map();
-const MARKET_CACHE_MS=Math.max(1000,Number(process.env.FINPILOT_MARKET_CACHE_MS||5000));
-const YAHOO_COOLDOWN_MS=Math.max(5000,Number(process.env.FINPILOT_YAHOO_COOLDOWN_MS||30000));
+const MARKET_CACHE_MS=Math.max(5000,Number(process.env.FINPILOT_MARKET_CACHE_MS||15000));
+const YAHOO_COOLDOWN_MS=Math.max(15000,Number(process.env.FINPILOT_YAHOO_COOLDOWN_MS||60000));
 const EXECUTION_FRESHNESS_MS=Math.max(15000,Number(process.env.FINPILOT_EXECUTION_FRESHNESS_MS||90000));
 
 async function fetchNseIndex(indexKey){
