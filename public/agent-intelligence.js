@@ -4,16 +4,18 @@
 (function(){
   const clamp=(n,a=0,b=100)=>Math.max(a,Math.min(b,Number(n)||0));
   const profiles={
-    CFO:{mission:'Liquidity, cash flow, capital allocation',weight:{liquidity:1.35,risk:1.15}},
-    Debt:{mission:'Debt cost, payoff order and refinancing risk',weight:{debt:1.4,risk:1.2}},
-    Goals:{mission:'Goal probability, funding path and time horizon',weight:{goals:1.35,liquidity:1}},
-    Risk:{mission:'Downside, concentration, resilience and failure modes',weight:{risk:1.5,liquidity:1.1}},
-    Investment:{mission:'Valuation, quality, diversification and expected return',weight:{market:1.3,risk:1.25}},
-    Markets:{mission:'Macro, rates, liquidity and market regime',weight:{market:1.4,risk:1.15}},
-    Tax:{mission:'Tax drag, compliance and governance',weight:{tax:1.45,risk:1.05}},
-    Security:{mission:'Fraud, privacy, account and operational security',weight:{security:1.5,risk:1.3}},
-    Business:{mission:'Business quality, strategy, deals and execution',weight:{business:1.35,risk:1.1}},
-    Assets:{mission:'Real estate, tangible assets and balance-sheet durability',weight:{assets:1.3,risk:1.1}}
+    CFO:{mission:'Liquidity, cash flow, capital allocation',weight:{liquidity:1.35,risk:1.15},requiredEvidence:['cash flow','runway','capital needs'],sourcePolicy:'Primary financial records first',failureMode:'Liquidity blind spot'},
+    Debt:{mission:'Debt cost, payoff order and refinancing risk',weight:{debt:1.4,risk:1.2},requiredEvidence:['APR','balance','term','refinancing'],sourcePolicy:'Loan statements and lender documents',failureMode:'Interest-cost underestimation'},
+    Goals:{mission:'Goal probability, funding path and time horizon',weight:{goals:1.35,liquidity:1},requiredEvidence:['target','deadline','contribution rate'],sourcePolicy:'User goals plus cash-flow evidence',failureMode:'Overcommitting capital'},
+    Risk:{mission:'Downside, concentration, resilience and failure modes',weight:{risk:1.5,liquidity:1.1},requiredEvidence:['exposure','drawdown','liquidity','stress case'],sourcePolicy:'Independent evidence plus portfolio state',failureMode:'Hidden concentration or tail risk'},
+    Investment:{mission:'Valuation, quality, diversification and expected return',weight:{market:1.3,risk:1.25},requiredEvidence:['price','valuation','quality','scenario'],sourcePolicy:'Market data + primary company evidence',failureMode:'Thesis without sufficient evidence'},
+    Markets:{mission:'Macro, rates, liquidity and market regime',weight:{market:1.4,risk:1.15},requiredEvidence:['price','trend','macro','volatility'],sourcePolicy:'Fresh market and macro sources',failureMode:'Stale regime assumptions'},
+    Tax:{mission:'Tax drag, compliance and governance',weight:{tax:1.45,risk:1.05},requiredEvidence:['jurisdiction','instrument','holding period'],sourcePolicy:'Official tax/regulatory sources only',failureMode:'Wrong tax treatment'},
+    Security:{mission:'Fraud, privacy, account and operational security',weight:{security:1.5,risk:1.3},requiredEvidence:['permissions','provider','recent access','anomalies'],sourcePolicy:'Security telemetry and official advisories',failureMode:'Unauthorized access or data leakage'},
+    Business:{mission:'Business quality, strategy, deals and execution',weight:{business:1.35,risk:1.1},requiredEvidence:['revenue','cash flow','competitive position','deal terms'],sourcePolicy:'Company filings and primary announcements',failureMode:'Narrative bias'},
+    Assets:{mission:'Real estate, tangible assets and balance-sheet durability',weight:{assets:1.3,risk:1.1},requiredEvidence:['fair value','liquidity','maintenance','liability'],sourcePolicy:'Asset records and market comparables',failureMode:'Illiquidity or stale valuation'},
+    Research:{mission:'Primary-source evidence, contradiction testing and source diversity',weight:{market:1.25,risk:1.05},requiredEvidence:['primary source','date','independent corroboration'],sourcePolicy:'Primary documents before secondary commentary',failureMode:'Evidence contamination'},
+    RedTeam:{mission:'Adversarial challenge, model risk and failure hunting',weight:{risk:1.6},requiredEvidence:['counterexample','contradiction','stress case'],sourcePolicy:'Independent and opposing evidence',failureMode:'Groupthink / confirmation bias'}
   };
   const ensure=(state)=>{
     state.agentReasoning=Array.isArray(state.agentReasoning)?state.agentReasoning:[];
@@ -32,12 +34,16 @@
     const debt=Number(state.liabilities||0)/Math.max(1,Number(state.income||0)*12);
     let risk=28+(reserve<3?28:reserve<6?12:0)+(debt>.5?22:debt>.25?10:0);
     if(web?.stance==='Cautious')risk+=12;
+    const evidenceCount=Array.isArray(state.evidence)?state.evidence.length:0;
+    const evidenceFreshness=state.lastEvidenceSync&&typeof sourceAge==='function'?(sourceAge(state.lastEvidenceSync)==='Fresh'?100:sourceAge(state.lastEvidenceSync)==='Aging'?70:35):Math.min(100,evidenceCount*8);
+    if(evidenceFreshness<40)risk+=10;
     const liquidity=clamp(50+(reserve-3)*8+(surplus>0?12:-20));
     const debtScore=clamp(75-debt*70);
     const market=clamp(55+(web?.stance==='Positive'?15:web?.stance==='Cautious'?-12:0));
     let confidence=clamp(66+(liquidity>60?7:0)+(debtScore>65?5:0)-Math.max(0,risk-55)*.18);try{const dl=window.FinPilotDeepLearning?.snapshot?.();const row=dl?.agents?.find(x=>x.agent===name);if(row?.accuracy!=null)confidence=clamp(confidence+(row.accuracy-60)*.12)}catch{}
-    const domain={CFO:liquidity,Debt:debtScore,Goals:clamp(50+surplus/Math.max(1,state.income||1)*80),Risk:100-risk,Investment:market,Markets:market,Tax:70,Security:78,Business:market,Assets:65}[name]||60;
-    return {name,mission:p.mission,domainScore:Number(domain.toFixed(1)),risk:Number(clamp(risk).toFixed(1)),confidence:Number(confidence.toFixed(1)),reserveMonths:Number(reserve.toFixed(2)),surplus:Number(surplus.toFixed(0)),timestamp:new Date().toISOString()};
+    const domain={CFO:liquidity,Debt:debtScore,Goals:clamp(50+surplus/Math.max(1,state.income||1)*80),Risk:100-risk,Investment:market,Markets:market,Tax:70,Security:78,Business:market,Assets:65,Research:clamp(58+evidenceFreshness*.32),RedTeam:clamp(70-risk*.35)}[name]||60;
+    const calibration=state.learning?.agentScores?.[name]?.accuracy;
+    return {name,mission:p.mission,domainScore:Number(domain.toFixed(1)),risk:Number(clamp(risk).toFixed(1)),confidence:Number(confidence.toFixed(1)),reserveMonths:Number(reserve.toFixed(2)),surplus:Number(surplus.toFixed(0)),evidenceFreshness:Number(evidenceFreshness.toFixed(1)),calibration:calibration==null?null:Number(calibration),requiredEvidence:p.requiredEvidence||[],sourcePolicy:p.sourcePolicy||'Evidence first',failureMode:p.failureMode||'General model risk',timestamp:new Date().toISOString()};
   }
   function enrich(state,name,pipeline,web){
     ensure(state);
@@ -51,7 +57,7 @@
       recommendation:x.recommendation||'Verify primary evidence and keep execution approval-gated.',
       confidence:Number(x.confidence||s.confidence),risk:x.risk|| (s.risk>=70?'HIGH':s.risk>=45?'MEDIUM':'LOW'),
       decision:x.decision||'VERIFY',approvalRequired:true,mission:p.mission,domainScore:s.domainScore,reserveMonths:s.reserveMonths,
-      surplus:s.surplus,qualityFlags:[],learningNote:'New run becomes part of the auditable learning ledger.'};
+      surplus:s.surplus,qualityFlags:[],learningNote:'New run becomes part of the auditable learning ledger.',requiredEvidence:p.requiredEvidence||[],sourcePolicy:p.sourcePolicy||'Evidence first',failureMode:p.failureMode||'General model risk',approvalRule:'High-impact actions remain human-approved.',evidenceFreshness:s.evidenceFreshness,calibration:s.calibration};
   }
   function record(state,reasoning){
     ensure(state); state.agentReasoning.unshift(reasoning);state.agentReasoning=state.agentReasoning.slice(0,250);
