@@ -61,12 +61,37 @@ function freshness(row){
   if(d<=90)return {score:30,label:'STALE',ageDays:+d.toFixed(2)};
   return {score:10,label:'OLD',ageDays:+d.toFixed(2)};
 }
+function authorityScore(row){
+  const t=tier(row);
+  if(t==='PRIMARY')return 100;
+  if(t==='HIGH_QUALITY_SECONDARY')return 82;
+  return 55;
+}
+function evidenceDepthScore(row){
+  const txt=clean((row.title||'')+' '+(row.snippet||''),1000);
+  if(txt.length>=700)return 100;
+  if(txt.length>=450)return 92;
+  if(txt.length>=250)return 82;
+  if(txt.length>=120)return 70;
+  if(txt.length>=60)return 58;
+  return 45;
+}
 function quality(row){
-  const ts=tier(row)==='PRIMARY'?100:tier(row)==='HIGH_QUALITY_SECONDARY'?80:60;
+  // Authority must dominate freshness so a slightly older regulator filing
+  // can outrank a fresh but weak secondary article.
+  const authority=authorityScore(row);
   const fs=freshness(row).score;
+  const depth=evidenceDepthScore(row);
   const txt=clean((row.title||'')+' '+(row.snippet||''),800);
   const useful=txt.length>=80?100:txt.length>=40?75:45;
-  return Math.round(ts*.45+fs*.35+useful*.2);
+  return Math.round(authority*.55+fs*.20+useful*.15+depth*.10);
+}
+export function scoreEvidence(row){
+  const f=freshness(row);
+  const authority=authorityScore(row);
+  const depth=evidenceDepthScore(row);
+  const qualityScore=quality(row);
+  return {authorityScore:authority,freshnessScore:f.score,freshnessLabel:f.label,evidenceDepthScore:depth,qualityScore};
 }
 const fp=row=>hostOf(row.url)+'|'+clean(row.title,180).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 
@@ -76,7 +101,7 @@ function normalize(rows,profile,query){
     if(!raw?.url||!/^https?:\/\//i.test(raw.url))continue;
     const row={title:clean(raw.title,220),url:raw.url,snippet:clean(raw.snippet||raw.description||'',900),source:clean(raw.source||hostOf(raw.url),100),publishedAt:raw.publishedAt||raw.publishedDate||null};
     const fingerprint=fp(row);if(!fingerprint||seen.has(fingerprint))continue;seen.add(fingerprint);
-    out.push({...row,fingerprint,domain:hostOf(row.url),sourceTier:tier(row),freshness:freshness(row),qualityScore:quality(row),agent:profile.id,topic:profile.topics[state.cycle%profile.topics.length],query,collectedAt:now()});
+    out.push({...row,fingerprint,domain:hostOf(row.url),sourceTier:tier(row),authorityScore:authorityScore(row),freshness:freshness(row),evidenceDepthScore:evidenceDepthScore(row),qualityScore:quality(row),agent:profile.id,topic:profile.topics[state.cycle%profile.topics.length],query,collectedAt:now()});
   }
   return out.sort((a,b)=>b.qualityScore-a.qualityScore);
 }
@@ -132,18 +157,30 @@ async function persistCandidate(c){
 
 
 function liveAgentScore(rows){
-  if(!rows.length)return {score:0,qualityScore:0,primaryRate:0,diversity:0,freshnessScore:0,evidence:0,contradiction:0};
+  if(!rows.length)return {score:0,qualityScore:0,primaryRate:0,authorityScore:0,diversity:0,freshnessScore:0,evidenceDepthScore:0,evidence:0,contradiction:0};
   const qualityScore=Math.round(rows.reduce((n,x)=>n+x.qualityScore,0)/rows.length);
+  const authorityAvg=Math.round(rows.reduce((n,x)=>n+Number(x.authorityScore??authorityScore(x)),0)/rows.length);
   const primaryRate=Math.round(rows.filter(x=>x.sourceTier==='PRIMARY').length/rows.length*100);
   const diversity=new Set(rows.map(x=>x.domain).filter(Boolean)).size;
   const diversityScore=Math.min(100,diversity*12.5);
   const freshnessScore=Math.round(rows.reduce((n,x)=>n+x.freshness.score,0)/rows.length);
+  const evidenceDepthScore=Math.round(rows.reduce((n,x)=>n+Number(x.evidenceDepthScore??evidenceDepthScore(x)),0)/rows.length);
   const text=rows.map(x=>(x.title+' '+x.snippet).toLowerCase()).join(' ');
   const pos=(text.match(/growth|gain|increase|upgrade|bullish|outperform|record/g)||[]).length;
   const neg=(text.match(/loss|decline|downgrade|bearish|risk|warning|lawsuit|fraud/g)||[]).length;
   const contradiction=Math.abs(pos-neg)>=3?1:0;
-  const score=Math.max(0,Math.min(100,Math.round(qualityScore*.35+primaryRate*.25+diversityScore*.15+freshnessScore*.15+Math.min(100,rows.length*5)*.10-(contradiction?8:0))));
-  return {score,qualityScore,primaryRate,diversity,diversityScore,freshnessScore,evidence:rows.length,contradiction};
+  // Quality already blends authority + freshness; the explicit authority and
+  // depth terms make the benchmark robust against fresh low-authority noise.
+  const score=Math.max(0,Math.min(100,Math.round(
+    qualityScore*.55+
+    authorityAvg*.15+
+    diversityScore*.10+
+    freshnessScore*.05+
+    evidenceDepthScore*.10+
+    Math.min(100,rows.length*5)*.05-
+    (contradiction?8:0)
+  )));
+  return {score,qualityScore,primaryRate,authorityScore:authorityAvg,diversity,diversityScore,freshnessScore,evidenceDepthScore,evidence:rows.length,contradiction};
 }
 async function persistLiveBenchmarkRows(runId,rows){
   const pool=await db();if(!pool)return;
@@ -214,14 +251,14 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
           const rows=normalize(merged,profile,iq[0]);
           const extra=liveAgentScore(rows);
           const delta=extra.score-base.score;
-          const improvementGate=extra.score>=70&&delta>=3&&extra.contradiction===0;
+          const improvementGate=extra.score>=70&&delta>=3&&extra.authorityScore>=65&&extra.freshnessScore>=55&&extra.contradiction===0;
           const candidate={
             id:'live-improve-'+Date.now().toString(36)+'-'+profile.id+'-r'+round,
             fingerprint:'LIVE_IMPROVEMENT|'+profile.id+'|r'+round+'|'+Date.now().toString(36),
             agent:profile.id,topic:base.topic,query:iq.join(' | '),
             status:improvementGate?'PENDING_TRAINING_VALIDATION':'NEEDS_MORE_EVIDENCE',
             qualityScore:extra.qualityScore,evidenceCount:extra.evidence,primaryCount:Math.round(extra.primaryRate/100*extra.evidence),
-            sourceDiversity:extra.diversity,freshnessScore:extra.freshnessScore,contradictionSignals:extra.contradiction,
+            sourceDiversity:extra.diversity,freshnessScore:extra.freshnessScore,authorityScore:extra.authorityScore,evidenceDepthScore:extra.evidenceDepthScore,contradictionSignals:extra.contradiction,
             baselineScore:base.score,improvedScore:extra.score,delta,round,
             learningObjective:'Improve '+profile.id+' on '+gap+' using targeted fresh evidence.',
             successCondition:'Outperform baseline evidence benchmark without weakening safety, freshness or source discipline.',
@@ -236,7 +273,7 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
               sourceCandidate:candidate.id,status:'QUEUED',createdAt:now()};
             state.trainingCases.unshift(tc);state.trainingCases=state.trainingCases.slice(0,250);state.queue.unshift({...tc,priority:profile.priority+10});state.queue=state.queue.slice(0,250);state.stats.trainingCases++;
           }
-          const entry={round,agent:profile.id,before:base.score,after:extra.score,delta,status:candidate.status,gap,evidence:extra.evidence,primaryRate:extra.primaryRate,diversity:extra.diversity,freshnessScore:extra.freshnessScore};
+          const entry={round,agent:profile.id,before:base.score,after:extra.score,delta,status:candidate.status,gap,evidence:extra.evidence,primaryRate:extra.primaryRate,authorityScore:extra.authorityScore,diversity:extra.diversity,freshnessScore:extra.freshnessScore,evidenceDepthScore:extra.evidenceDepthScore};
           improvements.push(entry);
           roundCompleted++;
           totalDelta+=delta;
@@ -262,7 +299,7 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
       history:[{at:now(),rounds:completedRounds,tests:improvements.length,successfulAgents:successful,averageDelta:avgDelta,agents:improvements.slice(0,12)},...(state.learningLoop?.history||[])].slice(0,20)};
   }
   state.liveTest={running:false,lastRunAt:now(),lastError:results.some(x=>x.status==='ERROR')?'ONE_OR_MORE_AGENT_TESTS_FAILED':null,tests:results.length,averageScore:avg,
-    rankings:results.map(x=>({agent:x.agent,score:x.score,rank:x.rank,status:x.status,delta:x.delta,evidence:x.evidence,primaryRate:x.primaryRate,diversity:x.diversity,freshnessScore:x.freshnessScore})),
+    rankings:results.map(x=>({agent:x.agent,score:x.score,rank:x.rank,status:x.status,delta:x.delta,evidence:x.evidence,primaryRate:x.primaryRate,authorityScore:x.authorityScore,diversity:x.diversity,freshnessScore:x.freshnessScore,evidenceDepthScore:x.evidenceDepthScore})),
     agents:Object.fromEntries(results.map(x=>[x.agent,x])),improvement};
   await persistLiveBenchmarkRows(runId,results);
   audit?.('AUTONOMOUS_AGENT_LIVE_COMPARISON',{runId,tests:results.length,averageScore:avg,winner:results[0]?.agent||null,weakest:results.at(-1)?.agent||null});
@@ -312,12 +349,14 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     state.stats.primarySources+=primary;
     state.stats.sourceDomains+=diversity;
     state.stats.contradictionFlags+=contradiction;
-    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&freshnessScore>=60&&contradiction===0;
+    const authorityAvg=rows.length?Math.round(rows.reduce((n,x)=>n+x.authorityScore,0)/rows.length):0;
+    const depthAvg=rows.length?Math.round(rows.reduce((n,x)=>n+x.evidenceDepthScore,0)/rows.length):0;
+    const validated=rows.length>=6&&primary>=1&&diversity>=3&&avg>=70&&authorityAvg>=65&&freshnessScore>=60&&depthAvg>=60&&contradiction===0;
     const candidate={
       id:'lc-'+Date.now().toString(36),
       fingerprint:profile.id+'|'+topic+'|'+rows.map(x=>x.fingerprint).sort().join('|').slice(0,900),
       agent:profile.id,topic,query,status:validated?'PENDING_TRAINING_VALIDATION':'NEEDS_MORE_EVIDENCE',
-      qualityScore:avg,evidenceCount:rows.length,primaryCount:primary,sourceDiversity:diversity,freshnessScore,contradictionSignals:contradiction,queryCount:querySet.length,providers:[...new Set(results.map(x=>x?.provider).filter(Boolean))],source:'multi-query-research',
+      qualityScore:avg,evidenceCount:rows.length,primaryCount:primary,sourceDiversity:diversity,freshnessScore,authorityScore:authorityAvg,evidenceDepthScore:depthAvg,contradictionSignals:contradiction,queryCount:querySet.length,providers:[...new Set(results.map(x=>x?.provider).filter(Boolean))],source:'multi-query-research',
       evidence:rows.slice(0,12).map(x=>({title:x.title,url:x.url,sourceTier:x.sourceTier,qualityScore:x.qualityScore,publishedAt:x.publishedAt,queryLabel:x.queryLabel||null})),
       learningObjective:'Upgrade '+profile.id+' knowledge on '+topic+' using verified, fresh evidence.',
       successCondition:'Pass multi-query source-quality, freshness, diversity, contradiction and benchmark gates before promotion.',
