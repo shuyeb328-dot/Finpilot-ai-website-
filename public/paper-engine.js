@@ -70,8 +70,25 @@
       if(o.orderType==='STOP')trigger=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;
       if(o.orderType==='STOP_LIMIT'){const triggered=o.side==='BUY'?price>=o.stopPrice:price<=o.stopPrice;const withinLimit=o.side==='BUY'?price<=o.limitPrice:price>=o.limitPrice;trigger=triggered&&withinLimit;}
       if(!trigger)return true;
-      try{const f=paperOrder(state,o.agentId,o.symbol,o.side,o.qty,price,o.reason,{orderType:o.orderType});o.status='FILLED';o.filledAt=now();fills.push(f);return false}catch(e){o.status='REJECTED';o.error=e.message;return false}
+      try{
+        const ratio=Math.max(0.25,Math.min(1,Number(o.fillRatio||1)));
+        const fillQty=Math.max(1,Math.min(o.qty,Math.floor(o.qty*ratio)));
+        const f=paperOrder(state,o.agentId,o.symbol,o.side,fillQty,price,o.reason,{orderType:o.orderType});
+        o.filledQty=(o.filledQty||0)+fillQty;o.remainingQty=Math.max(0,o.qty-o.filledQty);o.lastFillAt=now();fills.push(f);
+        if(o.remainingQty===0){o.status='FILLED';o.filledAt=now();return false}
+        o.status='PARTIALLY_FILLED';return true;
+      }catch(e){o.status='REJECTED';o.error=e.message;return false}
     });return fills;
+  }
+  function amendOrder(state,orderId,changes={}){
+    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
+    if(!o)throw new Error('Open paper order not found');
+    if(o.status==='CANCELLED'||o.status==='FILLED')throw new Error('Order is not amendable');
+    if(changes.qty!=null){const q=Math.floor(num(changes.qty));if(q<1||q<(o.filledQty||0))throw new Error('Invalid amended quantity');o.qty=q}
+    if(changes.limitPrice!=null)o.limitPrice=num(changes.limitPrice);
+    if(changes.stopPrice!=null)o.stopPrice=num(changes.stopPrice);
+    o.amendedAt=now();o.amendments=(o.amendments||0)+1;
+    p.journal.unshift({...o,type:'PAPER_ORDER_AMENDED'});p.updatedAt=now();return o;
   }
   function cancelOrder(state,orderId){
     const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
@@ -124,5 +141,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,cancelOrder,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,amendOrder,cancelOrder,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
