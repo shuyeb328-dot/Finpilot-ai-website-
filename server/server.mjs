@@ -840,7 +840,8 @@ function riskGuard(req,res,u){const leverage=Number(u.searchParams.get('leverage
 async function investmentPlan(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const requestedCurrency=String(u.searchParams.get('currency')||'').toUpperCase();
- const marketCurrency=(CRYPTO_ASSETS[ticker]||String(ticker).includes('.NS')||String(ticker).includes('.BO')||['NIFTY','BANKNIFTY','FINNIFTY','SENSEX'].includes(ticker))?'INR':'USD';
+ const isIndiaAsset=!CRYPTO_ASSETS[ticker]&&(String(ticker).includes('.NS')||String(ticker).includes('.BO')||['NIFTY','BANKNIFTY','FINNIFTY','SENSEX'].includes(ticker));
+ const marketCurrency=isIndiaAsset?'INR':'USD';
  const currency=requestedCurrency==='INR'||requestedCurrency==='USD'?requestedCurrency:marketCurrency;
  const capital=Math.max(0,Number(u.searchParams.get('capital')||1000));
  const riskPct=Math.min(2,Math.max(.1,Number(u.searchParams.get('riskPct')||1)));
