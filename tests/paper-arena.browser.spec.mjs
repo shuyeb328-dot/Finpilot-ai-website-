@@ -7,7 +7,19 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
 
   await page.waitForTimeout(3000);
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
-  console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, diagnostics}));
+  const scriptDiagnostics = await page.evaluate(async () => {
+    const out = [];
+    for (const s of [...document.scripts]) {
+      if (!s.src) continue;
+      try {
+        const src = await (await fetch(s.src, {cache:'no-store'})).text();
+        try { new Function(src); out.push({src:s.src, syntax:'ok'}); }
+        catch (e) { out.push({src:s.src, syntax:String(e?.message||e), sample:src.slice(0,180)}); }
+      } catch (e) { out.push({src:s.src, fetch:String(e?.message||e)}); }
+    }
+    return out;
+  });
+  console.log('PAPER_BOOT_DIAGNOSTICS', JSON.stringify({errors, diagnostics, scriptDiagnostics}));
   expect(diagnostics.show, 'FinPilot show() must initialize; page errors: '+errors.join(' | ')+'; nav: '+diagnostics.nav).toBe('function');
   expect(await page.evaluate(() => Boolean(window.FinPilotBridge)), 'FinPilot bridge missing; page errors: '+errors.join(' | ')).toBe(true);
   await page.evaluate(() => window.show('paperlab'));
