@@ -269,6 +269,7 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     const querySet=[
       query,
       topic+' official filing regulator government primary source latest site:sec.gov',
+      topic+' official regulator filing latest site:sebi.gov.in',
       topic+' independent market analysis evidence latest',
       topic+' bearish risk warning contradiction fraud failure case latest'
     ];
