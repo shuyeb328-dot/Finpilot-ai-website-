@@ -73,6 +73,13 @@
       try{const f=paperOrder(state,o.agentId,o.symbol,o.side,o.qty,price,o.reason,{orderType:o.orderType});o.status='FILLED';o.filledAt=now();fills.push(f);return false}catch(e){o.status='REJECTED';o.error=e.message;return false}
     });return fills;
   }
+  function cancelOrder(state,orderId){
+    const p=ensure(state),o=p.openOrders.find(x=>x.id===orderId);
+    if(!o)throw new Error('Open paper order not found');
+    o.status='CANCELLED';o.cancelledAt=now();p.openOrders=p.openOrders.filter(x=>x.id!==orderId);
+    const ledger=p.orders.find(x=>x.id===orderId);if(ledger)Object.assign(ledger,{status:'CANCELLED',cancelledAt:o.cancelledAt});
+    p.journal.unshift({...o,type:'PAPER_ORDER_CANCELLED'});p.updatedAt=now();return o;
+  }
   function attachRisk(position,stop,target){position.stop=num(stop)||null;position.target=num(target)||null;return position}
   function processRiskExits(state,prices){
     const p=ensure(state),px=prices||p.marketSnapshot||{},fills=[];
@@ -117,5 +124,5 @@
     const top=Object.entries(concentration).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([symbol,value])=>({symbol,value:+value.toFixed(2),weight:+(value/eq*100).toFixed(1)}));
     return{...s,exposurePct:+(s.exposure/eq*100).toFixed(1),top,virtualOnly:true,limits:{maxSingleSymbolPct:20,maxTotalExposurePct:80}};
   }
-  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
+  window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,paperOrder,placeOrder,processOpenOrders,processRiskExits,cancelOrder,attachRisk,roundTable,markToMarket,leaderboard,accountSummary,riskReport};
 })();
