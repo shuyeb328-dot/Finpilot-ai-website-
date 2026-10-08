@@ -37,7 +37,7 @@ const clean=(v,n=500)=>String(v??'').replace(/\s+/g,' ').trim().slice(0,n);
 const hostOf=url=>{try{return new URL(url).hostname.replace(/^www\./i,'')}catch{return ''}};
 function tier(row){
   const h=(hostOf(row.url)+' '+clean(row.title,160)).toLowerCase();
-  if(/sec\.gov|sebi\.gov|rbi\.org|nseindia|bseindia|gov\.in|\.gov\.|investor relations|ir\./i.test(h))return 'PRIMARY';
+  if(/sec\.gov|sebi\.gov|rbi\.org|nseindia|bseindia|mca\.gov\.in|finra\.org|cftc\.gov|fca\.org\.uk|esma\.europa\.eu|federalreserve\.gov|treasury\.gov|gov\.in|\.gov\.|investor relations|ir\./i.test(h))return 'PRIMARY';
   if(/reuters|bloomberg|wsj|ft\.com|financialtimes|cnbc|economist|moneycontrol|livemint/i.test(h))return 'HIGH_QUALITY_SECONDARY';
   return 'SECONDARY';
 }
