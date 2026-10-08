@@ -412,6 +412,62 @@ async function fetchNseIndex(indexKey){
  finally{clearTimeout(timer)}
 }
 
+async function fetchGlobalProviderQuote(symbol){
+ const providers=[];
+ const td=process.env.TWELVEDATA_API_KEY;
+ if(td)providers.push(async()=>{
+  const u='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(symbol)+'&interval=1day&outputsize=30&apikey='+encodeURIComponent(td);
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(8000)});const d=await r.json();
+  if(!r.ok||d.status==='error'||!Array.isArray(d.values)||!d.values.length)throw new Error('TwelveData unavailable');
+  const rows=d.values.slice().reverse().map(x=>({time:new Date(x.datetime).toISOString(),open:Number(x.open),high:Number(x.high),low:Number(x.low),close:Number(x.close),volume:Number(x.volume||0)})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+  if(rows.length<2)throw new Error('TwelveData insufficient candles');
+  return {rows,provider:'Twelve Data · licensed API key',live:false};
+ });
+ const fh=process.env.FINNHUB_API_KEY;
+ if(fh)providers.push(async()=>{
+  const to=Math.floor(Date.now()/1000),from=to-120*86400;
+  const u='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(symbol)+'&resolution=D&from='+from+'&to='+to+'&token='+encodeURIComponent(fh);
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(8000)});const d=await r.json();
+  if(!r.ok||d.s!=='ok'||!Array.isArray(d.c)||d.c.length<2)throw new Error('Finnhub unavailable');
+  const rows=d.c.map((close,i)=>({time:new Date(Number(d.t?.[i]||0)*1000).toISOString(),open:Number(d.o?.[i]),high:Number(d.h?.[i]),low:Number(d.l?.[i]),close:Number(close),volume:Number(d.v?.[i]||0)})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+  if(rows.length<2)throw new Error('Finnhub insufficient candles');
+  return {rows,provider:'Finnhub · licensed API key',live:false};
+ });
+ const av=process.env.ALPHAVANTAGE_API_KEY;
+ if(av)providers.push(async()=>{
+  const u='https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol='+encodeURIComponent(symbol)+'&outputsize=compact&apikey='+encodeURIComponent(av);
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(9000)});const d=await r.json();
+  const series=d['Time Series (Daily)'];if(!r.ok||!series)throw new Error(String(d.Note||d.Information||'AlphaVantage unavailable'));
+  const rows=Object.entries(series).map(([date,x])=>({time:new Date(date+'T00:00:00Z').toISOString(),open:Number(x['1. open']),high:Number(x['2. high']),low:Number(x['3. low']),close:Number(x['4. close']),volume:Number(x['5. volume']||0)})).sort((a,b)=>a.time.localeCompare(b.time));
+  if(rows.length<2)throw new Error('AlphaVantage insufficient candles');
+  return {rows,provider:'Alpha Vantage · API key',live:false};
+ });
+ const sq=process.env.STOOQ_API_KEY;
+ if(sq)providers.push(async()=>{
+  const stooqSymbol=String(symbol).toLowerCase();
+  const u='https://stooq.com/q/d/l/?s='+encodeURIComponent(stooqSymbol)+'&i=d&apikey='+encodeURIComponent(sq);
+  const r=await fetch(u,{headers:{'Accept':'text/csv','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(9000)});const txt=await r.text();
+  if(!r.ok||/^N\/D|Exceeded|<html/i.test(txt))throw new Error('Stooq unavailable');
+  const lines=txt.trim().split(/\r?\n/);if(lines.length<3)throw new Error('Stooq insufficient candles');
+  const head=lines.shift().split(',').map(x=>x.trim().toLowerCase()),rows=lines.map(line=>{const v=line.split(',');const o=Object.fromEntries(head.map((k,i)=>[k,v[i]]));return {time:new Date(o.date+'T00:00:00Z').toISOString(),open:Number(o.open),high:Number(o.high),low:Number(o.low),close:Number(o.close),volume:Number(o.volume||0)}}).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
+  if(rows.length<2)throw new Error('Stooq insufficient candles');
+  return {rows,provider:'Stooq · API key',live:false};
+ });
+ let last='No configured global market provider';
+ for(const fn of providers){try{return await fn()}catch(e){last=e?.message||last}}
+ throw new Error(last);
+}
+function globalProviderStatus(){
+ return {providers:[
+  {id:'yahoo',configured:true,role:'primary/fallback',coverage:'Yahoo-listed global symbols and world indices',mode:'unofficial'},
+  {id:'nse',configured:true,role:'exchange fallback',coverage:'NIFTY/BANKNIFTY/FINNIFTY/SENSEX',mode:'exchange page'},
+  {id:'twelvedata',configured:Boolean(process.env.TWELVEDATA_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities/ETFs',mode:'licensed API key'},
+  {id:'finnhub',configured:Boolean(process.env.FINNHUB_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'licensed API key'},
+  {id:'alphavantage',configured:Boolean(process.env.ALPHAVANTAGE_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'API key'},
+  {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'}
+ ],policy:'Only configured providers are queried. Missing providers are reported, never simulated.'};
+}
+
 async function fetchYahooChart(symbol,range='5d',interval='1h'){
  const cached=EQUITY_MARKET_CACHE.get(symbol);
  if(cached?.result&&Date.now()-cached.at<MARKET_CACHE_MS)return cached.result;
@@ -539,8 +595,16 @@ async function liveEquity(ticker){
   catch(e2){
    try{return await fetchYahooPageQuote(symbol)}
    catch(pageErr){
-    try{return await fetchTejEod(clean)}
-    catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; YahooPage=${pageErr.message}; TejHQ=${e3.message}`)}
+    try{
+     const gp=await fetchGlobalProviderQuote(symbol);
+     const rows=gp.rows,closes=rows.map(x=>x.close),highs=rows.map(x=>x.high),lows=rows.map(x=>x.low),vols=rows.map(x=>x.volume);
+     const price=closes.at(-1),prev=closes.at(-2)??price,s20=sma(closes,20),s50=sma(closes,50),rr=rsi(closes),recentHigh=Math.max(...highs.slice(-20)),recentLow=Math.min(...lows.slice(-20)),changePct=prev?((price-prev)/prev)*100:0,momentum=s20?((price/s20)-1)*100:0,avgVol=vols.length?sma(vols,Math.min(20,vols.length)):null,volume=vols.at(-1)??null,volumeRatio=avgVol&&avgVol>0?volume/avgVol:null,score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
+     const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED',riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
+     return {ticker:String(ticker).toUpperCase(),symbol,market:'GLOBAL_EQUITY',exchange:'GLOBAL',name:symbol,currency:'',price,previous:prev,changePct,dayHigh:highs.at(-1),dayLow:lows.at(-1),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atr(rows.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*.01,Math.abs(recentHigh-recentLow)/4),support:recentLow,resistance:recentHigh,direction,riskScore,candles:rows,live:false,provider:gp.provider,asOf:new Date().toISOString(),dataFreshness:'daily / may be delayed',dataDisclaimer:'Global provider fallback; verify the exchange or licensed broker quote before acting.'};
+    }catch(globalErr){
+     try{return await fetchTejEod(clean)}
+     catch(e3){throw new Error(`Equity chart unavailable: Yahoo=${e2.message}; YahooPage=${pageErr.message}; GlobalProviders=${globalErr.message}; TejHQ=${e3.message}`)}
+    }
    }
   }
  }
@@ -1006,6 +1070,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-universe')return marketUniverse(req,res);
   if(req.method==='GET'&&u.pathname==='/api/global-market-test')return globalMarketTest(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/market-provider-status')return send(res,200,{ok:true,...globalProviderStatus()});
   if(req.method==='GET'&&u.pathname==='/api/market-picks')return marketPicks(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/options-math')return optionsMath(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/chain-analytics')return chainAnalytics(req,res,u);
