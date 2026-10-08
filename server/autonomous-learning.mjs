@@ -192,7 +192,8 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
         if(!profile)continue;
         const gap=base.primaryRate<40?'primary-source coverage':base.freshnessScore<60?'freshness':base.diversity<12?'source diversity':'evidence quality and contradiction checking';
         const iq=[
-          base.topic+' '+profile.querySuffix+' official primary source regulator filing latest',
+          base.topic+' '+profile.querySuffix+' official primary source regulator filing latest site:sec.gov',
+          base.topic+' '+profile.querySuffix+' official regulator evidence latest site:sebi.gov.in',
           base.topic+' '+profile.querySuffix+' independent evidence contradiction risk latest',
           base.topic+' '+gap+' finance evidence latest'
         ];
