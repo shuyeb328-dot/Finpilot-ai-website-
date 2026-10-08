@@ -1,5 +1,5 @@
-/* FinPilot Autonomous Agent Learning OS 2.0
-   Background research + data quality + governed training queue.
+/* FinPilot Autonomous Agent Learning OS 3.0
+   Background research + data quality + governed training queue + bounded improvement loops.
 */
 import pg from 'pg';
 const {Pool}=pg;
@@ -24,11 +24,11 @@ const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS
 const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
 
 const state={
-  version:'2.0',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
+  version:'3.0',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
   running:false,cycle:0,cursor:0,activeAgent:null,lastCycleAt:null,lastSuccessAt:null,lastError:null,nextRunAt:null,
   stats:{cycles:0,queries:0,evidenceCollected:0,evidenceAccepted:0,candidates:0,trainingCases:0,duplicates:0,failed:0,primarySources:0,sourceDomains:0,contradictionFlags:0},
   agents:Object.fromEntries(AUTONOMOUS_AGENT_PROFILES.map(a=>[a.id,{status:'IDLE',jobs:0,lastResearchAt:null,lastTopic:null,lastQuality:null,lastCandidate:null}])),
-  queue:[],candidates:[],trainingCases:[],evidence:[],liveTest:{running:false,lastRunAt:null,lastError:null,tests:0,averageScore:null,rankings:[],agents:{},improvement:{tests:0,completed:0,averageDelta:null,agents:[]}}
+  queue:[],candidates:[],trainingCases:[],evidence:[],liveTest:{running:false,lastRunAt:null,lastError:null,tests:0,averageScore:null,rankings:[],agents:{},improvement:{tests:0,completed:0,averageDelta:null,rounds:0,agents:[]}},learningLoop:{running:false,lastRunAt:null,rounds:0,maxRounds:2,totalAgents:0,successfulAgents:0,averageDelta:null,history:[]}
 };
 
 let timer=null,dbPool=null,schemaReady=false;
@@ -141,7 +141,7 @@ async function persistLiveBenchmarkRows(runId,rows){
     [runId,r.agent,r.topic,r.score,r.rank,r.status,r]
   )}catch{}
 }
-export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveWeak=true}={}){
+export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveWeak=true,improvementRounds=2,improvementAgentCount=4}={}){
   if(state.liveTest.running)return {ok:true,status:'RUNNING',liveTest:state.liveTest};
   if(typeof searchWeb!=='function')return {ok:false,status:'ERROR',error:'SEARCH_ENGINE_UNAVAILABLE'};
   state.liveTest.running=true;state.liveTest.lastError=null;
@@ -173,53 +173,81 @@ export async function runLiveAgentComparison({searchWeb,emitEvent,audit,improveW
   results.sort((a,b)=>b.score-a.score);
   results.forEach((r,i)=>{r.rank=i+1;r.delta=state.liveTest.agents[r.agent]?.score==null?null:r.score-state.liveTest.agents[r.agent].score});
   const avg=results.length?Math.round(results.reduce((n,x)=>n+x.score,0)/results.length):0;
-  let improvement={tests:0,completed:0,averageDelta:null,agents:[]};
+  let improvement={tests:0,completed:0,averageDelta:null,rounds:0,agents:[]};
   if(improveWeak){
-    const weak=results.slice(-4);
+    const maxRounds=Math.max(1,Math.min(3,Number(improvementRounds)||2));
+    const maxAgents=Math.max(1,Math.min(6,Number(improvementAgentCount)||4));
+    state.learningLoop={...state.learningLoop,running:true,maxRounds,totalAgents:0,successfulAgents:0,averageDelta:null};
+    let frontier=results.slice(-maxAgents).map(x=>({...x}));
     const improvements=[];
-    for(const base of weak){
-      const profile=profiles.find(p=>p.id===base.agent);
-      if(!profile)continue;
-      const gap=base.primaryRate<40?'primary-source coverage':base.freshnessScore<60?'freshness':base.diversity<12?'source diversity':'evidence quality and contradiction checking';
-      const iq=[
-        base.topic+' '+profile.querySuffix+' official primary source regulator filing latest',
-        base.topic+' '+profile.querySuffix+' independent evidence contradiction risk latest',
-        base.topic+' '+gap+' finance evidence latest'
-      ];
-      try{
-        const rr=await Promise.all(iq.map(q=>searchWeb(q,{count:maxResults}).catch(e=>({provider:'error',results:[],error:e.message}))));
-        const merged=[];for(let i=0;i<rr.length;i++)for(const item of (rr[i]?.results||[]))merged.push({...item,queryLabel:iq[i]});
-        const rows=normalize(merged,profile,iq[0]);
-        const extra=liveAgentScore(rows);
-        const delta=extra.score-base.score;
-        const candidate={
-          id:'live-improve-'+Date.now().toString(36)+'-'+profile.id,
-          fingerprint:'LIVE_IMPROVEMENT|'+profile.id+'|'+Date.now().toString(36),
-          agent:profile.id,topic:base.topic,query:iq.join(' | '),
-          status:extra.score>=70?'PENDING_TRAINING_VALIDATION':'NEEDS_MORE_EVIDENCE',
-          qualityScore:extra.qualityScore,evidenceCount:extra.evidence,primaryCount:Math.round(extra.primaryRate/100*extra.evidence),
-          sourceDiversity:extra.diversity,freshnessScore:extra.freshnessScore,contradictionSignals:extra.contradiction,
-          learningObjective:'Improve '+profile.id+' on '+gap+' using targeted fresh evidence.',
-          successCondition:'Outperform baseline evidence benchmark without weakening safety or source discipline.',
-          createdAt:now()
-        };
-        const freshRows=rows.filter(r=>!state.evidence.some(e=>e.fingerprint===r.fingerprint));
-        state.evidence.unshift(...freshRows);state.evidence=state.evidence.slice(0,1000);await persistEvidence(freshRows);
-        state.candidates.unshift(candidate);state.candidates=state.candidates.slice(0,250);state.stats.candidates++;
-        if(candidate.status==='PENDING_TRAINING_VALIDATION'){
-          const tc={id:'tc-live-'+Date.now().toString(36)+'-'+profile.id,agent:profile.id,topic:base.topic,
-            prompt:'Targeted improvement case: '+gap+'. Compare baseline evidence quality against the targeted research, identify what changed, and state what the agent must learn without directly changing production behavior.',
-            sourceCandidate:candidate.id,status:'QUEUED',createdAt:now()};
-          state.trainingCases.unshift(tc);state.trainingCases=state.trainingCases.slice(0,250);state.queue.unshift({...tc,priority:profile.priority+10});state.queue=state.queue.slice(0,250);state.stats.trainingCases++;
+    let totalDelta=0;
+    let successful=0;
+    let completedRounds=0;
+    for(let round=1;round<=maxRounds;round++){
+      if(!frontier.length)break;
+      let roundCompleted=0;
+      const nextFrontier=[];
+      for(const base of frontier){
+        const profile=profiles.find(p=>p.id===base.agent);
+        if(!profile)continue;
+        const gap=base.primaryRate<40?'primary-source coverage':base.freshnessScore<60?'freshness':base.diversity<12?'source diversity':'evidence quality and contradiction checking';
+        const iq=[
+          base.topic+' '+profile.querySuffix+' official primary source regulator filing latest',
+          base.topic+' '+profile.querySuffix+' independent evidence contradiction risk latest',
+          base.topic+' '+gap+' finance evidence latest'
+        ];
+        try{
+          const rr=await Promise.all(iq.map(q=>searchWeb(q,{count:maxResults}).catch(e=>({provider:'error',results:[],error:e.message}))));
+          const merged=[];for(let i=0;i<rr.length;i++)for(const item of (rr[i]?.results||[]))merged.push({...item,queryLabel:iq[i]});
+          const rows=normalize(merged,profile,iq[0]);
+          const extra=liveAgentScore(rows);
+          const delta=extra.score-base.score;
+          const improvementGate=extra.score>=70&&delta>=3&&extra.contradiction===0;
+          const candidate={
+            id:'live-improve-'+Date.now().toString(36)+'-'+profile.id+'-r'+round,
+            fingerprint:'LIVE_IMPROVEMENT|'+profile.id+'|r'+round+'|'+Date.now().toString(36),
+            agent:profile.id,topic:base.topic,query:iq.join(' | '),
+            status:improvementGate?'PENDING_TRAINING_VALIDATION':'NEEDS_MORE_EVIDENCE',
+            qualityScore:extra.qualityScore,evidenceCount:extra.evidence,primaryCount:Math.round(extra.primaryRate/100*extra.evidence),
+            sourceDiversity:extra.diversity,freshnessScore:extra.freshnessScore,contradictionSignals:extra.contradiction,
+            baselineScore:base.score,improvedScore:extra.score,delta,round,
+            learningObjective:'Improve '+profile.id+' on '+gap+' using targeted fresh evidence.',
+            successCondition:'Outperform baseline evidence benchmark without weakening safety, freshness or source discipline.',
+            createdAt:now()
+          };
+          const freshRows=rows.filter(r=>!state.evidence.some(e=>e.fingerprint===r.fingerprint));
+          state.evidence.unshift(...freshRows);state.evidence=state.evidence.slice(0,1000);await persistEvidence(freshRows);
+          state.candidates.unshift(candidate);state.candidates=state.candidates.slice(0,250);state.stats.candidates++;
+          if(candidate.status==='PENDING_TRAINING_VALIDATION'){
+            const tc={id:'tc-live-'+Date.now().toString(36)+'-'+profile.id+'-r'+round,agent:profile.id,topic:base.topic,
+              prompt:'Targeted improvement case: '+gap+'. Compare baseline score '+base.score+' to improved score '+extra.score+'. Identify what changed, what remains uncertain, and what the agent must learn without directly changing production behavior.',
+              sourceCandidate:candidate.id,status:'QUEUED',createdAt:now()};
+            state.trainingCases.unshift(tc);state.trainingCases=state.trainingCases.slice(0,250);state.queue.unshift({...tc,priority:profile.priority+10});state.queue=state.queue.slice(0,250);state.stats.trainingCases++;
+          }
+          const entry={round,agent:profile.id,before:base.score,after:extra.score,delta,status:candidate.status,gap,evidence:extra.evidence,primaryRate:extra.primaryRate,diversity:extra.diversity,freshnessScore:extra.freshnessScore};
+          improvements.push(entry);
+          roundCompleted++;
+          totalDelta+=delta;
+          if(delta>1){
+            successful++;
+            nextFrontier.push({...base,...extra,score:extra.score,delta});
+          }
+        }catch(e){
+          improvements.push({round,agent:profile.id,before:base.score,after:base.score,delta:0,status:'ERROR',gap,error:e.message});
         }
-        improvements.push({agent:profile.id,before:base.score,after:extra.score,delta,status:candidate.status,gap,evidence:extra.evidence,primaryRate:extra.primaryRate,diversity:extra.diversity,freshnessScore:extra.freshnessScore});
-      }catch(e){
-        improvements.push({agent:profile.id,before:base.score,after:base.score,delta:0,status:'ERROR',gap,error:e.message});
       }
+      completedRounds++;
+      frontier=nextFrontier;
+      if(roundCompleted===0||nextFrontier.length===0)break;
+      const roundRows=improvements.filter(x=>x.round===round);
+      const roundAvg=roundRows.length?roundRows.reduce((n,x)=>n+x.delta,0)/roundRows.length:0;
+      if(roundAvg<=1)break;
     }
     const completed=improvements.filter(x=>x.status!=='ERROR');
     const avgDelta=completed.length?Math.round(completed.reduce((n,x)=>n+x.delta,0)/completed.length):null;
-    improvement={tests:improvements.length,completed:completed.length,averageDelta:avgDelta,agents:improvements};
+    improvement={tests:improvements.length,completed:completed.length,averageDelta:avgDelta,rounds:completedRounds,agents:improvements};
+    state.learningLoop={running:false,lastRunAt:now(),rounds:completedRounds,maxRounds,totalAgents:improvements.length,successfulAgents:successful,averageDelta:avgDelta,
+      history:[{at:now(),rounds:completedRounds,tests:improvements.length,successfulAgents:successful,averageDelta:avgDelta,agents:improvements.slice(0,12)},...(state.learningLoop?.history||[])].slice(0,20)};
   }
   state.liveTest={running:false,lastRunAt:now(),lastError:results.some(x=>x.status==='ERROR')?'ONE_OR_MORE_AGENT_TESTS_FAILED':null,tests:results.length,averageScore:avg,
     rankings:results.map(x=>({agent:x.agent,score:x.score,rank:x.rank,status:x.status,delta:x.delta,evidence:x.evidence,primaryRate:x.primaryRate,diversity:x.diversity,freshnessScore:x.freshnessScore})),
@@ -310,7 +338,7 @@ export function status(){
     activeAgent:state.activeAgent,lastCycleAt:state.lastCycleAt,lastSuccessAt:state.lastSuccessAt,lastError:state.lastError,nextRunAt:state.nextRunAt,
     stats:{...state.stats},agents:Object.fromEntries(Object.entries(state.agents).map(([k,v])=>[k,{...v}])),
     queueCount:state.queue.length,candidateCount:state.candidates.length,evidenceCount:state.evidence.length,trainingCaseCount:state.trainingCases.length,
-    recentCandidates:state.candidates.slice(0,12),recentTrainingCases:state.trainingCases.slice(0,12),recentEvidence:state.evidence.slice(0,12)};
+    recentCandidates:state.candidates.slice(0,12),recentTrainingCases:state.trainingCases.slice(0,12),recentEvidence:state.evidence.slice(0,12),learningLoop:{...state.learningLoop,history:state.learningLoop.history?.slice(0,10)||[]}};
 }
 export function queue(limit=40){return state.queue.slice(0,Math.max(1,Math.min(100,Number(limit)||40)))}
 export function enable(value){
