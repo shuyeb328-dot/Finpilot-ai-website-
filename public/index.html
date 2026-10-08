@@ -159,8 +159,8 @@ state={...structuredClone(defaultState),...state,agentScores:state.agentScores&&
 
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(Number(n)||0);
 const save=()=>localStorage.setItem('finpilot_web_v2300',JSON.stringify(state));
-window.FinPilotBridge={state,AGENTS,save,money,esc,toast,header,render};
 const toast=m=>{const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)};
+window.FinPilotBridge={state,AGENTS,save,money,esc,toast,header,render};
 const netWorth=()=>state.cash+state.investments+state.otherAssets-state.liabilities;
 const health=()=>Math.max(0,Math.min(100,Math.round(45+(state.income?Math.max(0,Math.min(25,(state.income-state.spending)/state.income*40)):0)+Math.min(15,state.emergency/20000)+Math.min(15,state.investments/1000000))));
 const scoreClass=s=>s>=75?'low':s>=50?'med':'high';
