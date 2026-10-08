@@ -839,6 +839,9 @@ function roundTableDecision(req,res,u){const bull=Number(u.searchParams.get('bul
 function riskGuard(req,res,u){const leverage=Number(u.searchParams.get('leverage')||1),riskPct=Number(u.searchParams.get('riskPct')||1),liquidity=Number(u.searchParams.get('liquidity')||100),confidence=Number(u.searchParams.get('confidence')||0);const flags=[];if(leverage>3)flags.push('HIGH_LEVERAGE');if(riskPct>2)flags.push('RISK_BUDGET_EXCEEDED');if(liquidity<60)flags.push('LOW_LIQUIDITY');if(confidence<65)flags.push('LOW_CONFIDENCE');const blocked=flags.length>0;return send(res,200,{ok:true,engine:'derivatives-risk-v3900',blocked,flags,limits:{maxSuggestedLeverage:3,maxRiskPct:2,minLiquidityScore:60,minConfidence:65},approval:blocked?'CFO REJECT':'CFO REVIEW',note:'Risk guard is a control layer; it does not predict returns.'})}
 async function investmentPlan(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'').trim().toUpperCase();
+ const requestedCurrency=String(u.searchParams.get('currency')||'').toUpperCase();
+ const marketCurrency=(CRYPTO_ASSETS[ticker]||String(ticker).includes('.NS')||String(ticker).includes('.BO')||['NIFTY','BANKNIFTY','FINNIFTY','SENSEX'].includes(ticker))?'INR':'USD';
+ const currency=requestedCurrency==='INR'||requestedCurrency==='USD'?requestedCurrency:marketCurrency;
  const capital=Math.max(0,Number(u.searchParams.get('capital')||1000));
  const riskPct=Math.min(2,Math.max(.1,Number(u.searchParams.get('riskPct')||1)));
  if(!ticker||capital<=0)return send(res,400,{ok:false,error:'ticker and positive capital are required'});
@@ -854,7 +857,7 @@ async function investmentPlan(req,res,u){
   const support=Number(report.support||report.recentLow||entry-atrV),resistance=Number(report.resistance||report.recentHigh||entry+atrV*2);
   const dir=String(report.multiTimeframe?.consensus||report.direction||'MIXED').toUpperCase();
   if(dir==='MIXED'&&!u.searchParams.get('entry')&&!u.searchParams.get('stop')&&!u.searchParams.get('target')){
-   return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8200',ticker,market:report.market,name:report.name||ticker,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
+   return send(res,200,{ok:true,engine:'live-governed-investment-plan-v8200',ticker,market:report.market,name:report.name||ticker,currency,live:report.live===true,asOf:report.asOf||new Date().toISOString(),provider:report.provider||'live adapter',
     marketSnapshot:{price:report.price,changePct:report.changePct,rsi:report.rsi,volumeRatio:report.volumeRatio,direction:report.direction||dir,riskScore:Number(report.riskScore||70)},
     setup:{direction:'WAIT',entry,stop:null,target:null,support,resistance,atr:atrV},
     capitalPlan:{capital,riskBudgetPct:riskPct,maxRisk:capital*riskPct/100,maxLoss:0,quantity:0,invested:0,unusedCapital:capital,expectedProfit:0,profitPct:0,riskReward:null},
