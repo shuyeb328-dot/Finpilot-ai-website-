@@ -180,12 +180,14 @@ export async function runCycle({searchWeb,emitEvent,audit,getSchedulerState}={})
     }
     state.lastCycleAt=now();state.lastSuccessAt=state.lastCycleAt;state.stats.cycles++;
     const a=state.agents[profile.id];a.lastResearchAt=state.lastSuccessAt;a.lastTopic=topic;a.lastQuality=avg;a.lastCandidate=candidate.id;a.status='IDLE';
-    emitEvent?.('AUTONOMOUS_RESEARCH_UPDATE',{agent:profile.id,topic,provider:[...new Set(results.map(x=>x?.provider).filter(Boolean))].join(',')||'unknown',evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status},75);
-    audit?.('AUTONOMOUS_RESEARCH_COMPLETE',{agent:profile.id,topic,provider:[...new Set(results.map(x=>x?.provider).filter(Boolean))].join(',')||'unknown',evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status});
-    return {ok:true,status:'COMPLETED',agent:profile.id,topic,provider:result?.provider||'unknown',evidence:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status};
+    const providerSummary=[...new Set(results.map(x=>x?.provider).filter(Boolean))].join(',')||'unknown';
+    try{emitEvent?.('AUTONOMOUS_RESEARCH_UPDATE',{agent:profile.id,topic,provider:providerSummary,evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status},75)}catch(eventError){console.error('[AUTONOMOUS_RESEARCH_EVENT_ERROR]',eventError?.message||String(eventError))}
+    try{audit?.('AUTONOMOUS_RESEARCH_COMPLETE',{agent:profile.id,topic,provider:providerSummary,evidenceCount:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status})}catch(auditError){console.error('[AUTONOMOUS_RESEARCH_AUDIT_ERROR]',auditError?.message||String(auditError))}
+    return {ok:true,status:'COMPLETED',agent:profile.id,topic,provider:providerSummary,evidence:rows.length,accepted:fresh.length,qualityScore:avg,candidateStatus:candidate.status};
   }catch(e){
-    state.stats.failed++;state.lastError=e.message||String(e);state.agents[profile.id].status='IDLE';
-    audit?.('AUTONOMOUS_RESEARCH_ERROR',{agent:profile.id,topic,error:state.lastError});
+    state.stats.failed++;state.lastError=e?.message||String(e);state.agents[profile.id].status='IDLE';
+    try{audit?.('AUTONOMOUS_RESEARCH_ERROR',{agent:profile.id,topic,error:state.lastError,stack:String(e?.stack||'').split('\n').slice(0,4)})}catch{}
+    console.error('[AUTONOMOUS_RESEARCH_ERROR]',JSON.stringify({agent:profile.id,topic,error:state.lastError,stack:String(e?.stack||'').split('\n').slice(0,4)}));
     return {ok:false,status:'ERROR',agent:profile.id,topic,error:state.lastError};
   }finally{
     state.running=false;state.activeAgent=null;state.nextRunAt=new Date(Date.now()+state.intervalMs).toISOString();
