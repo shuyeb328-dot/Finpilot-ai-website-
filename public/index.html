@@ -541,6 +541,7 @@ async function finpilotLaunch(q){
  const original=new Map(buttons.map(b=>[b,b.innerHTML]));
  buttons.forEach(b=>{b.disabled=true;b.dataset.fpRunning="1";b.innerHTML='⏳ <span class="fpSpin" aria-hidden="true"></span> FinPilot is running…';b.style.opacity=".78";b.style.cursor="wait"});
  let status=document.getElementById("fpRunStatus");
+ if(!document.getElementById("fpRunStyle")){const st=document.createElement("style");st.id="fpRunStyle";st.textContent="@keyframes fpSpinAnim{to{transform:rotate(360deg)}}.fpSpin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-2px;margin-right:5px;animation:fpSpinAnim .75s linear infinite}";document.head.appendChild(st)}
  if(!status){status=document.createElement("div");status.id="fpRunStatus";status.style.cssText="position:fixed;top:74px;left:12px;right:12px;z-index:99998;background:#081525;border:1px solid #2d8cff;border-radius:12px;padding:11px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35);color:#fff;font-size:13px;text-align:center";document.body.appendChild(status)}
  status.innerHTML='<b>⏳ FinPilot 1-Click is running</b><br><span style="opacity:.78">Connecting to live evidence, market data, chart and decision agents…</span>';
  const finish=()=>{buttons.forEach(b=>{b.disabled=false;b.dataset.fpRunning="";b.innerHTML=original.get(b)||'⚡ 1-Click Full Analysis';b.style.opacity="";b.style.cursor=""});setTimeout(()=>{const x=document.getElementById("fpRunStatus");if(x)x.remove()},1200)};
@@ -550,7 +551,7 @@ async function finpilotLaunch(q){
    let tag=document.getElementById("finpilotOneClickReload");
    if(!tag){
      tag=document.createElement("script");tag.id="finpilotOneClickReload";tag.src=src;tag.async=false;
-     tag.onload=()=>{if(typeof window.runFullStockAnalysis==="function")window.runFullStockAnalysis(q);};
+     
      tag.onerror=()=>finpilotDirectOneClick(q);
      document.head.appendChild(tag);
    }
