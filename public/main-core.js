@@ -1,17 +1,25 @@
 /* FinPilot Main Core OS */
 (function(){
 'use strict';
-const VERSION='1.0.0';
-const MODULES=['State Integrity','Data Freshness','Evidence Gate','Risk Veto','Liquidity Guard','Goal Alignment','Debt Guard','Portfolio Guard','Agent Router','Fast Path','CEO Synthesis','CFO Capital Gate','Judge Reconciliation','Execution Readiness','Approval Gate','Paper Isolation','Audit Trail','Decision Replay','Learning Loop','Performance Telemetry'];
+const VERSION='2.0.0';
+const MODULES=['State Integrity','Data Freshness','Evidence Gate','Risk Veto','Liquidity Guard','Goal Alignment','Debt Guard','Portfolio Guard','Agent Router','Fast Path','CEO Synthesis','CFO Capital Gate','Judge Reconciliation','Execution Readiness','Approval Gate','Paper Isolation','Audit Trail','Decision Replay','Learning Loop','Performance Telemetry','Unified OS Router','Agent Governance','AI Calibration','Benchmark Gate','Model Evolution Gate','Provider Resilience','Execution Quality'];
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0}
 function core(){state.mainCore=state.mainCore||{version:VERSION,runs:0,lastRun:null,health:100,latency:0,readiness:0,verdict:'NOT RUN',gates:[],signals:[],packet:null,history:[],cache:{signature:'',hits:0,misses:0}};return state.mainCore}
 function signature(){return JSON.stringify([state.cash,state.income,state.spending,state.investments,state.liabilities,(state.transactions||[]).length,(state.evidence||[]).length,(state.goals||[]).length,(state.actions||[]).length])}
 function assess(){
  const t=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now(),c=core(),g=[],tx=Array.isArray(state.transactions)?state.transactions:[],ev=Array.isArray(state.evidence)?state.evidence:[],goals=Array.isArray(state.goals)?state.goals:[];
  const income=num(state.income),spend=num(state.spending),cash=num(state.cash),debt=num(state.liabilities),free=income-spend,runway=spend>0?cash/spend:99;
+ const dl=window.FinPilotDeepLearning?.snapshot?.()||{};
+ const mesh=window.FinPilotAgentIntelligence?.fleetMatrix?.(state,typeof liveWebSignal==='function'?liveWebSignal():null)||[];
+ const meshAvg=mesh.length?mesh.reduce((n,x)=>n+Number(x.confidence||0),0)/mesh.length:60;
+ const dataQuality=Number(state.dataOS?.quality||0);
+ const benchmark=window.FinPilotBenchmark?.getReport?.()||null;
+ const benchmarkScore=Number(benchmark?.summary?.avgScore||benchmark?.winner?.score||0);
+ const learningAccuracy=dl.averageAccuracy==null?60:Number(dl.averageAccuracy);
  if(runway<3)g.push('LIQUIDITY_VETO');if(free<0)g.push('CASHFLOW_VETO');if(income>0&&debt>income*12*.4)g.push('DEBT_GUARD');if(ev.length<2)g.push('EVIDENCE_GATE');if(tx.length<2)g.push('DATA_DEPTH_GATE');
  const freshness=ev.length?Math.min(100,40+ev.length*6):0,data=Math.min(100,tx.length*4+ev.length*3),liquidity=Math.min(100,runway>=6?100:runway*16.67),cashScore=Math.min(100,Math.max(0,free/Math.max(1,income)*100)),debtScore=Math.max(0,100-(income?debt/(income*12)*100:debt?100:0)),goalScore=goals.length?Math.round(goals.reduce((s,x)=>s+Math.min(1,num(x.saved)/Math.max(1,num(x.target))),0)/goals.length*100):50;
- const health=Math.round(liquidity*.3+cashScore*.2+debtScore*.15+data*.1+freshness*.1+goalScore*.15);const learned=window.FinPilotDeepLearning?.snapshot?.()||null;const learnedAccuracy=learned?.averageAccuracy==null?60:Number(learned.averageAccuracy);const learningBoost=Math.max(-8,Math.min(8,(learnedAccuracy-60)*.16));const confidence=Math.max(20,Math.min(97,Math.round(35+freshness*.25+data*.2+(g.length?0:22)+learningBoost))),readiness=Math.max(0,Math.min(100,Math.round(health*.5+confidence*.5-(g.length*12))));
+ const governance=clamp(meshAvg*.35+learningAccuracy*.2+(dataQuality||data)*.2+(benchmarkScore||60)*.25);
+ const health=Math.round(liquidity*.27+cashScore*.18+debtScore*.13+data*.08+freshness*.08+goalScore*.12+governance*.14);const learned=window.FinPilotDeepLearning?.snapshot?.()||null;const learnedAccuracy=learned?.averageAccuracy==null?60:Number(learned.averageAccuracy);const learningBoost=Math.max(-8,Math.min(8,(learnedAccuracy-60)*.16));const confidence=Math.max(20,Math.min(97,Math.round(35+freshness*.25+data*.2+(g.length?0:22)+learningBoost))),readiness=Math.max(0,Math.min(100,Math.round(health*.5+confidence*.5-(g.length*12))));
  const verdict=g.some(x=>x.includes('VETO'))?'HOLD / PROTECT':readiness>=75?'READY':readiness>=55?'REVIEW':'INSUFFICIENT DATA';
  const sig=signature();if(c.cache.signature===sig)c.cache.hits++;else c.cache.misses++;c.cache.signature=sig;
  c.runs++;c.lastRun=new Date().toISOString();c.health=health;c.latency=Math.max(0,Math.round(((typeof performance!=='undefined'&&performance.now)?performance.now():Date.now())-t));c.readiness=readiness;c.verdict=verdict;c.gates=g;c.signals=[['Liquidity',Math.round(liquidity)],['Cash Flow',Math.round(cashScore)],['Debt Safety',Math.round(debtScore)],['Data Depth',Math.round(data)],['Evidence',Math.round(freshness)],['Goals',goalScore],['Learning calibration',Math.round(learnedAccuracy)]];c.packet={version:VERSION,time:c.lastRun,verdict,confidence,readiness,gates:g,metrics:{cash,free,runway,debt,income,spend,learningAccuracy:learnedAccuracy}};c.history.unshift(c.packet);c.history=c.history.slice(0,50);save();return c
