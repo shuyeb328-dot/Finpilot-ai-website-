@@ -72,7 +72,7 @@ try{
   fetchCalls=0;
   process.env.SEARCH_ALLOW_PAID_FALLBACK='false';
   await assert.rejects(()=>searchWeb('FinPilot never spend by default test',{count:3}));
-  assert.equal(fetchCalls,1,'failed free RSS should not call a metered provider unless fallback is explicitly enabled');
+  assert.equal(fetchCalls,2,'failed free RSS should try both free providers without calling a metered provider');
 
   // Explicit provider mode may fall back to free RSS, but a billing error must not block that free fallback.
   emptyMode=false;
