@@ -9,7 +9,7 @@
 const VERSION='DLO-1.0';
 const KEY='finpilot_deep_learning_v1';
 const AGENTS=['CEO','CFO','Risk','Judge','Market','Portfolio','Budget','Goals','Debt','Research','Investment','Markets','Tax','Security','Business','Assets','RedTeam'];
-const FEATURES=['evidence','freshness','sentiment','market','risk','liquidity','disagreement','dataDepth'];
+const FEATURES=['evidence','freshness','sentiment','market','risk','liquidity','disagreement','dataDepth','marketDataQuality','marketMomentum'];
 const clamp=(n,a=0,b=100)=>Math.max(a,Math.min(b,Number.isFinite(Number(n))?Number(n):0));
 function load(){
   try{return JSON.parse(localStorage.getItem(KEY)||'null')||{version:VERSION,runs:0,events:[],outcomes:[],weights:{},agents:{}}}
@@ -22,7 +22,7 @@ function ensureAgent(s,name){
   FEATURES.forEach(f=>{if(!Number.isFinite(Number(a.weights[f])))a.weights[f]=1});
   return a;
 }
-function features(state,web){
+function features(state,web,marketSnapshot){
   const ev=Array.isArray(state?.evidence)?state.evidence.length:0;
   const tx=Array.isArray(state?.transactions)?state.transactions.length:0;
   const reserve=Number(state?.emergency||0)/Math.max(1,Number(state?.spending||0));
@@ -30,15 +30,26 @@ function features(state,web){
   const text=(Array.isArray(state?.evidence)?state.evidence.slice(0,12):[]).map(e=>String(e.claim||'')).join(' ').toLowerCase();
   const positive=(text.match(/\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract)\b/g)||[]).length;
   const negative=(text.match(/\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|default|weak)\b/g)||[]).length;
+  const snapshot=marketSnapshot||state?.marketSnapshot||null;
+  const quality=snapshot?.quality||{};
+  const quote=snapshot?.quote||{};
+  const change=Number(quote.changePct);
+  const validChange=Number.isFinite(change);
+  const verified=quality.forecastEligible===true;
+  const dataQuality=!snapshot?10:verified?100:quality.status==='DELAYED'?30:quality.status==='STALE'?5:15;
+  const marketMomentum=verified&&validChange?clamp(50+Math.max(-10,Math.min(10,change))*2):50;
+  const existingMarket=50+(web?.stance==='Positive'?18:web?.stance==='Cautious'?-18:0);
   return {
     evidence:clamp(45+ev*4),
-    freshness:clamp(state?.lastEvidenceSync?75:35),
+    freshness:snapshot?(verified?100:quality.status==='STALE'?5:30):clamp(state?.lastEvidenceSync?75:35),
     sentiment:clamp(50+(positive-negative)*5+(web?.stance==='Positive'?12:web?.stance==='Cautious'?-12:0)),
-    market:clamp(50+(web?.stance==='Positive'?18:web?.stance==='Cautious'?-18:0)),
+    market:clamp(verified&&validChange?50+Math.max(-5,Math.min(5,change))*4:existingMarket),
     risk:clamp(75-(reserve<3?25:0)-(free<0?25:0)),
     liquidity:clamp(50+(reserve-3)*9+(free>0?12:-18)),
     disagreement:clamp(85),
-    dataDepth:clamp(tx*4+ev*3)
+    dataDepth:clamp(tx*4+ev*3),
+    marketDataQuality:clamp(dataQuality),
+    marketMomentum:clamp(marketMomentum)
   };
 }
 function weighted(a,f){
@@ -105,14 +116,14 @@ function resolveCandidate(query,search,web){
   return {ticker:top.ticker,name:top.name,confidence:top.confidence,score:top.evidenceScore,candidates:scored.slice(0,5),method:broad?'Evidence-ranked candidate from today search':'Symbol-resolved analysis',disclaimer:'Candidate selection is evidence-ranked, not a guaranteed best trade or personalized investment advice.'};
 }
 function runFleet(state,context){
-  const s=load(),f=features(state,context?.web||null),results={};
+  const s=load(),marketSnapshot=context?.marketSnapshot||state?.marketSnapshot||null,f=features(state,context?.web||null,marketSnapshot),results={};
   AGENTS.forEach(name=>{
     const a=ensureAgent(s,name),raw=weighted(a,f),cal=Number(a.calibration||0);
-    results[name]={score:Math.round(clamp(raw+cal)),confidence:Math.round(clamp(raw+cal*.7)),features:f};
+    results[name]={score:Math.round(clamp(raw+cal)),confidence:Math.round(clamp(raw+cal*.7)),features:f,marketSnapshotId:marketSnapshot?.snapshotId||null,marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',forecastEligible:marketSnapshot?.quality?.forecastEligible===true};
     a.runs++;a.confidenceSum+=results[name].confidence;a.avgConfidence=Number((a.confidenceSum/a.runs).toFixed(1));
   });
   s.runs++;s.lastRun=new Date().toISOString();
-  s.events.unshift({type:'FLEET_LEARNING_RUN',time:s.lastRun,features:f,results:Object.fromEntries(Object.entries(results).map(([k,v])=>[k,{score:v.score,confidence:v.confidence}]))});
+  s.events.unshift({type:'FLEET_LEARNING_RUN',time:s.lastRun,marketSnapshotId:marketSnapshot?.snapshotId||null,marketTicker:marketSnapshot?.instrument?.ticker||null,marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',marketForecastEligible:marketSnapshot?.quality?.forecastEligible===true,marketSourceAsOf:marketSnapshot?.timing?.sourceAsOf||null,features:f,results:Object.fromEntries(Object.entries(results).map(([k,v])=>[k,{score:v.score,confidence:v.confidence,marketDataStatus:v.marketDataStatus}]))});
   s.events=s.events.slice(0,100);save(s);
   return results;
 }
