@@ -1562,12 +1562,19 @@ const RESEARCH_QUEUE=[];
 const PORTFOLIO_STATE={positions:[],cash:0};
 const CORE={version:'7.0',started:Date.now(),eventScans:0,decisions:0,cacheHits:0};
 function coreKey(x){return JSON.stringify(x||{});}
-function remember(agent,entry){const k=String(agent||'Unknown');const a=AGENT_MEMORY.get(k)||{agent:k,runs:0,decisions:0,lessons:[]};a.runs++;a.decisions+=entry.decision?1:0;if(entry.lesson)a.lessons.unshift(entry.lesson);a.lessons=a.lessons.slice(0,20);AGENT_MEMORY.set(k,a);return a;}
+function remember(agent,entry){
+ const k=clean(agent,64)||'Unknown';
+ if(!AGENT_MEMORY.has(k)&&AGENT_MEMORY.size>=100)AGENT_MEMORY.delete(AGENT_MEMORY.keys().next().value);
+ const a=AGENT_MEMORY.get(k)||{agent:k,runs:0,decisions:0,lessons:[]};
+ a.runs++;a.decisions+=entry?.decision?1:0;
+ const lesson=clean(entry?.lesson||'',600);if(lesson)a.lessons.unshift(lesson);
+ a.lessons=a.lessons.slice(0,20);AGENT_MEMORY.set(k,a);return a;
+}
 function evidenceFusion(req,res){
  const x=JSON.parse(req._bodyCache||'{}');
  const incoming=Array.isArray(x.evidence)?x.evidence.slice(0,50):[];
  const existing=new Set(EVIDENCE_LEDGER.map(e=>String(e.url||e.fingerprint||'')).filter(Boolean));
- const accepted=[],seen=new Set();
+ const accepted=[],seen=new Set();let duplicatesSuppressed=0,invalidDiscarded=0;
  for(const raw of incoming){
   const row=raw&&typeof raw==='object'?raw:{};
   let url=String(row.url||'').trim().slice(0,2048);
@@ -1577,9 +1584,9 @@ function evidenceFusion(req,res){
   const title=String(row.title||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,220);
   const query=String(row.query||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,200);
   const snippet=String(row.snippet||row.text||'').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g,' ').slice(0,1200);
-  if(!title&&!snippet&&!url)continue;
+  if(!title&&!snippet&&!url){invalidDiscarded++;continue;}
   const fingerprint=url||[query,title,snippet.slice(0,100)].join('|');
-  if(seen.has(fingerprint)||existing.has(fingerprint))continue;
+  if(seen.has(fingerprint)||existing.has(fingerprint)){duplicatesSuppressed++;continue;}
   seen.add(fingerprint);
   const age=Date.parse(row.publishedAt||'');
   const freshness=typeof row.fresh==='boolean'?row.fresh:Number.isFinite(age)?(Date.now()-age>=-30_000&&Date.now()-age<=7*86400000):null;
@@ -1608,7 +1615,7 @@ function evidenceFusion(req,res){
  });
  const conflicts=topics.filter(t=>t.conflict).length;
  const confidence=topics.length?Math.round(topics.reduce((a,t)=>a+t.confidence,0)/topics.length):0;
- return send(res,200,{ok:true,engine:'evidence-fusion-v4500',accepted:accepted.length,duplicatesSuppressed:incoming.length-accepted.length,
+ return send(res,200,{ok:true,engine:'evidence-fusion-v4500',accepted:accepted.length,duplicatesSuppressed,invalidDiscarded,
   topics,conflicts,overallConfidence:confidence,staleEvidence:EVIDENCE_LEDGER.filter(e=>e.fresh===false).length,
   unknownTimestampEvidence:EVIDENCE_LEDGER.filter(e=>typeof e.fresh!=='boolean').length,
   retrievedPages:EVIDENCE_LEDGER.filter(e=>e.retrievalStatus==='RETRIEVED').length,ledgerSize:EVIDENCE_LEDGER.length});
