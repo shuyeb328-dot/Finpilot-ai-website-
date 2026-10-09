@@ -5,7 +5,7 @@ const MAX_HISTORY=160;
 const MAX_FEEDBACK=500;
 const ALLOWED_MODES=new Set(['MONITOR_ONLY','SAFE_AUTONOMY']);
 const VALID_OUTCOMES=new Set(['SUCCESS','FAILURE','FALSE_POSITIVE','INCONCLUSIVE']);
-const SAFE_ACTIONS=new Set(['health_check','refresh_status','read_only_diagnostic','analyze_logs','record_feedback','benchmark_candidate']);
+const SAFE_ACTIONS=new Set(['health_check','run_health_check','refresh_status','read_only_diagnostic','analyze_logs','record_feedback','benchmark_candidate']);
 
 export const OS_REGISTRY=[
  {id:'main-core',name:'Main Core OS',domain:'ORCHESTRATION',criticality:'CRITICAL',dependencies:['core-brain','ai-security'],description:'Coordinates evidence, tasks and governed decisions.',signal:'core'},
