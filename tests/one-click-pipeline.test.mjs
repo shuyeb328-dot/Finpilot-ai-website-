@@ -55,4 +55,4 @@ assert.match(moduleText, /BLOCKED_UNVERIFIED_DATA/, 'unverified market data must
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
-console.log('one-click-pipeline: 31 contract checks passed');
+console.log('one-click-pipeline: 43 contract checks passed');
