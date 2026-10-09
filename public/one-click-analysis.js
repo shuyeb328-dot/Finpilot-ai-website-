@@ -347,6 +347,16 @@
           <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> ${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid var(--line);background:var(--surface)">
+          <div class="sectionTitle"><div><span class="eyebrow">FORECAST FEEDBACK</span><h3 style="font-size:18px;margin-top:5px">Measured prediction quality</h3></div><span class="pill ${forecastEval.resolved>=100?'low':'med'}">${Number(forecastEval.resolved||0)} resolved</span></div>
+          <div class="grid four">
+            <div class="card"><span class="muted">Eligible / pending</span><div class="metric">${Number(forecastEval.eligible||0)} / ${Number(forecastEval.pending||0)}</div></div>
+            <div class="card"><span class="muted">Mean Brier score ↓</span><div class="metric">${forecastEval.meanBrierScore==null?'—':Number(forecastEval.meanBrierScore).toFixed(4)}</div></div>
+            <div class="card"><span class="muted">Mean log loss ↓</span><div class="metric">${forecastEval.meanLogLoss==null?'—':Number(forecastEval.meanLogLoss).toFixed(4)}</div></div>
+            <div class="card"><span class="muted">Top-class hit rate</span><div class="metric">${forecastEval.topClassAccuracyPct==null?'—':Number(forecastEval.topClassAccuracyPct).toFixed(1)+'%'}</div></div>
+          </div>
+          <div class="notice" style="margin-top:8px"><b>Calibration status:</b> ${escLocal(forecastEval.calibrationStatus||'INSUFFICIENT_RESOLVED_OUTCOMES')} · <b>Probabilities calibrated:</b> NO.<br><span class="muted">Only later, fresh, matching provider-verified quotes can resolve a forecast. Blocked or historical quotes are not scored. Raw scores are evaluation telemetry, not proof of future profitability.</span></div>
+        </div>
+<div class="card" style="margin-top:12px;border:1px solid var(--line);background:var(--surface)">
           <div class="sectionTitle"><div><span class="eyebrow">RISK CHECK</span><h3 style="font-size:18px;margin-top:5px">Safety and risk checks</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Safe position</span><div class="metric" style="font-size:20px">₹${v8?.position?.recommended?.toLocaleString('en-IN')||0}</div><span class="muted">of ₹${v8?.position?.requested?.toLocaleString('en-IN')||0} requested</span></div>
@@ -523,32 +533,48 @@
   function createForecastLedgerRecord({snapshot,candidate,decision,money,chartAnalysis}={}){
     const createdAt=new Date().toISOString();
     const horizonDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
-    const probability=value=>{const n=Number(value);return Number.isFinite(n)&&n>=0&&n<=100?n:null;};
+    const probability=value=>{
+      if(value===null||value===undefined||String(value).trim()==='')return null;
+      const n=Number(value);return Number.isFinite(n)&&n>=0&&n<=100?n:null;
+    };
     const price=value=>{const n=Number(value);return Number.isFinite(n)&&n>0?n:null;};
-    const eligible=snapshot?.quality?.forecastEligible===true&&price(snapshot?.quote?.price)!==null;
+    const rawProbabilities={
+      up:probability(money?.buyProbability),
+      down:probability(money?.sellProbability),
+      hold:probability(money?.holdProbability)
+    };
+    const probabilityVector=window.FinPilotForecastEvaluation?.normalizeProbabilities(rawProbabilities)||null;
+    const snapshotEligible=snapshot?.quality?.forecastEligible===true&&price(snapshot?.quote?.price)!==null;
+    const eligible=snapshotEligible&&probabilityVector!==null;
     const id='fc_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,9);
+    const threshold=Number(money?.breakEvenPct);
     return {
-      schemaVersion:1,
+      schemaVersion:2,
       forecastId:id,
       createdAt,
       dueAt:new Date(Date.now()+horizonDays*86400000).toISOString(),
       horizonDays,
-      modelVersion:'finpilot-one-click-baseline-v1',
+      modelVersion:'finpilot-one-click-baseline-v2',
       ticker:snapshot?.instrument?.ticker||candidate?.ticker||null,
       market:snapshot?.instrument?.market||'UNKNOWN',
       currency:snapshot?.instrument?.currency||'UNKNOWN',
       marketSnapshotId:snapshot?.snapshotId||null,
       dataStatus:snapshot?.quality?.status||'UNAVAILABLE',
       forecastEligible:eligible,
-      forecastStatus:eligible?'PENDING_OUTCOME':'BLOCKED_UNVERIFIED_DATA',
+      forecastStatus:eligible?'PENDING_OUTCOME':!snapshotEligible?'BLOCKED_UNVERIFIED_DATA':'BLOCKED_INVALID_PROBABILITY_VECTOR',
+      forecastEligibilityReason:eligible?null:!snapshotEligible?'VERIFIED_LIVE_SNAPSHOT_REQUIRED':'VALID_UP_DOWN_HOLD_PROBABILITIES_REQUIRED',
       referencePrice:price(snapshot?.quote?.price),
       quoteAsOf:snapshot?.timing?.sourceAsOf||null,
       probabilitiesCalibrated:false,
-      probabilities:{
-        up:probability(money?.buyProbability),
-        down:probability(money?.sellProbability),
-        hold:probability(money?.holdProbability)
-      },
+      probabilityStatus:probabilityVector?'RAW_UNCALIBRATED_ESTIMATE':'MISSING_OR_INVALID',
+      probabilitySource:'FINPILOT_SCENARIO_HEURISTIC',
+      probabilityTotalPct:probabilityVector?100:null,
+      probabilities:probabilityVector?{
+        up:+(probabilityVector.up*100).toFixed(6),
+        down:+(probabilityVector.down*100).toFixed(6),
+        hold:+(probabilityVector.hold*100).toFixed(6)
+      }:rawProbabilities,
+      outcomeThresholdPct:Number.isFinite(threshold)&&threshold>0?Math.min(5,Math.max(0.25,threshold)):0.5,
       expectedValue:eligible&&Number.isFinite(Number(money?.expectedValue))?Number(money.expectedValue):null,
       targetPrice:price(chartAnalysis?.target),
       stopPrice:price(chartAnalysis?.stop),
@@ -1018,11 +1044,21 @@
       decision.marketReport=marketReport;
       decision.marketSnapshotId=marketSnapshot?.snapshotId||null;
       decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
+      state.forecastLedger=Array.isArray(state.forecastLedger)?state.forecastLedger:[];
+      const forecastEvaluator=window.FinPilotForecastEvaluation;
+      // Score only already-mature forecasts after a fresh provider-verified quote
+      // for the same instrument arrives. Never score stale/EOD/unverified data.
+      const resolution=forecastEvaluator?.resolveMatured(state.forecastLedger,marketSnapshot)||{resolved:0,skipped:0,summary:null};
       const forecastRecord=createForecastLedgerRecord({snapshot:marketSnapshot,candidate,decision,money:finalMoney,chartAnalysis:decision.chartAnalysis});
       decision.forecastRecordId=forecastRecord.forecastId;
-      state.forecastLedger=Array.isArray(state.forecastLedger)?state.forecastLedger:[];
+      decision.forecastResolution=resolution;
       state.forecastLedger.unshift(forecastRecord);
       state.forecastLedger=state.forecastLedger.slice(0,200);
+      state.forecastEvaluationSummary=forecastEvaluator?.summarize(state.forecastLedger)||{
+        version:'UNAVAILABLE',total:state.forecastLedger.length,resolved:0,pending:0,blocked:state.forecastLedger.length,
+        meanBrierScore:null,meanLogLoss:null,probabilitiesCalibrated:false,calibrationStatus:'EVALUATOR_UNAVAILABLE'
+      };
+      decision.forecastEvaluationSummary=state.forecastEvaluationSummary;
       state.lastForecastRecordId=forecastRecord.forecastId;
       state.marketSnapshot=marketSnapshot||null;
       save();
@@ -1037,8 +1073,9 @@
 
       stage('6/6 · Complete. Review source freshness and risk gates before acting.');
       const agentStatusText='Specialist fleet: '+agentNames.length+' browser-calculated agents; telemetry '+(agentTelemetry.ok?(agentTelemetry.recorded+'/'+agentTelemetry.expected+' client-reported summaries acknowledged'):(agentTelemetry.error||'not recorded'))+'.';
+      const forecastStatusText='Forecast feedback: '+Number(state.forecastEvaluationSummary?.resolved||0)+' outcomes scored; '+Number(state.forecastEvaluationSummary?.pending||0)+' eligible forecasts pending; probabilities remain uncalibrated.';
       updateAnalysisStatus(
-        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' '+agentStatusText+' Query: '+query,
+        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' '+agentStatusText+' '+forecastStatusText+' Query: '+query,
         'complete'
       );
       window.__fpLastRenderedQuery=query;
