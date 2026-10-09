@@ -24,7 +24,7 @@ function snapshot({ticker='MSFT', price=100, asOf=Date.now()-1000, verified=true
   return {
     snapshotId,
     requested: {ticker, symbol:ticker},
-    instrument: {ticker, symbol:ticker, market, currency:'USD', symbolMatches:true},
+    instrument: {ticker, symbol:ticker, market, currency:'USD', exchange:'UNKNOWN', symbolMatches:true},
     quote: {price, changePct:1.2},
     timing: {sourceAsOf:time, capturedAt:new Date().toISOString(), ageMs:1000, maxAgeMs:120000, fresh:true, providerMarkedLive:true},
     candles: {count:30},
@@ -62,6 +62,9 @@ const settlementAsOf = dueAt + 1000;
 const wrongTicker = snapshot({ticker:'TSLA',price:101,asOf:settlementAsOf,snapshotId:'settle-wrong'});
 const notSettled = api.resolveDueForecasts(wrongTicker,{nowMs:settlementAsOf});
 assert.equal(notSettled.resolved,0,'a different instrument must never settle the forecast');
+const wrongMarket = snapshot({ticker:'MSFT',price:101,market:'CRYPTO',asOf:settlementAsOf,snapshotId:'settle-msft-wrong-market'});
+const marketNotSettled = api.resolveDueForecasts(wrongMarket,{nowMs:settlementAsOf});
+assert.equal(marketNotSettled.resolved,0,'same ticker text from a different market class must not settle an equity forecast');
 
 const settlement = snapshot({ticker:'MSFT',price:101,asOf:settlementAsOf,snapshotId:'settle-msft'});
 const settled = api.resolveDueForecasts(settlement,{nowMs:settlementAsOf});
