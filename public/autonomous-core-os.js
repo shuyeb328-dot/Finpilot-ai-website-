@@ -90,7 +90,7 @@ function render(data){
  const extra=localEvidence(),rows=Array.isArray(data.os)?data.os:[];
  document.getElementById('fpac-os-list').innerHTML=rows.map(os=>{
   const key=os.signal==='foundation'?'foundation':os.signal==='evolution'?'evolution':os.signal==='quantum'?'quantum':'',local=key?extra[key]:null;
-  const status=local?local.status:os.status,detail=local?local.detail:os.detail,t=statusTone;
+  const status=local?local.status:os.status,detail=local?local.detail:os.detail,t=tone;
   return '<div class="fpac-os" data-os="'+esc(os.id)+'"><div class="fpac-os-main"><span class="fpac-dot '+t(status)+'"></span><div class="fpac-grow"><div class="fpac-os-name">'+esc(os.name)+'</div><div class="fpac-os-sub">'+esc(os.domain)+' · '+esc(os.criticality)+'</div></div><span class="fpac-badge '+t(status)+'">'+esc(nice(status))+'</span><button class="fpac-btn" data-expand="'+esc(os.id)+'" aria-label="Details for '+esc(os.name)+'">⌄</button></div><div class="fpac-details"><p>'+esc(detail||os.description)+'</p><p>Dependencies: '+esc((os.dependencies||[]).join(', ')||'None registered')+'</p><p>'+esc(os.description||'')+'</p></div></div>';
  }).join('');
  document.getElementById('fpac-os-list').querySelectorAll('[data-expand]').forEach(b=>b.addEventListener('click',()=>b.closest('.fpac-os').classList.toggle('expanded')));
