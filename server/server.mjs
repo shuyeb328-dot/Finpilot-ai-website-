@@ -84,8 +84,7 @@ async function ai(req,res){
   const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},body:JSON.stringify(payload)});
   const t=await r.text();
   if(r.ok)usage.count++;
-  res.writeHead(r.status,{'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Cache-Control':'no-store','X-FinPilot-AI-Tier':'FREE'});
-  res.end(t);
+  return send(res,r.status,t,'application/json; charset=utf-8',{'X-FinPilot-AI-Tier':'FREE'});
  }catch(e){return send(res,502,{ok:false,error:'AI_PROVIDER_UNAVAILABLE',tier:'FREE',used:usage.count,remaining:AI_FREE_LIMIT-usage.count,message:e.message});}
 }
 async function simulate(req,res){
