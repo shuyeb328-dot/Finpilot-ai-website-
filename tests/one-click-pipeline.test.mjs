@@ -170,4 +170,11 @@ assert.match(moduleText, /INTRADAY/, 'trading-style modifiers should not be trea
 assert.match(moduleText, /SWING/, 'trading-style modifiers should not be treated as stock names');
 assert.match(moduleText, /No unambiguous instrument match was found/, 'unresolved entity requests must not silently substitute an unrelated stock');
 
+
+assert.match(moduleText, /\/api\/task-research/, 'one-click analysis should call the task-specific supplemental search endpoint');
+assert.match(moduleText, /appendTaskDiscoveryEvidence/, 'supplemental evidence should be displayed with its separate provenance');
+assert.match(moduleText, /sourceRole:discovery\.sourceRole/, 'supplemental result role must be preserved');
+assert.match(moduleText, /quoteEligible:false/, 'supplemental search results must never become market quotes');
+assert.match(moduleText, /window\.__lastSearch=search/, 'merged evidence should remain tied to the current query');
+
 console.log('one-click-pipeline: contract checks passed');
