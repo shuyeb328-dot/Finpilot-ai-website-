@@ -54,6 +54,10 @@ assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'
 assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
 assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must match the health endpoint version');
 assert.match(serverText, /status,dataQuality,dataQualityScore/, 'health endpoint must distinguish service status from data quality');
+assert.match(serverText, /x\.timestampType==='PROVIDER_TIMESTAMP'/, 'market data must require a provider-supplied timestamp before execution verification');
+assert.match(serverText, /const ts=x\.asOf/, 'local observation time must not make an undated quote appear fresh');
+assert.match(serverText, /Date\.parse\(ts\)<=Date\.now\(\)\+5000/, 'provider timestamps far in the future must be rejected');
+assert.match(serverText, /const selectedAsOf=winner\.asOf\|\|null/, 'unverified local observation timestamps must not be reported as source timestamps');
 assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
 assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
 assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click must expose one shared snapshot to the agent fleet');
