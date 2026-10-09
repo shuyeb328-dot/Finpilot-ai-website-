@@ -10,6 +10,7 @@ let emptyMode=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async url=>{
   fetchCalls++;
+  if(String(url).includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
   await new Promise(resolve=>setTimeout(resolve,15));
   const xml=emptyMode
     ? '<rss><channel></channel></rss>'
@@ -58,7 +59,15 @@ try{
   process.env.SEARCH_ALLOW_PAID_FALLBACK='false';
   await assert.rejects(()=>searchWeb('FinPilot never spend by default test',{count:3}));
   assert.equal(fetchCalls,1,'failed free RSS should not call a metered provider unless fallback is explicitly enabled');
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard');
+
+  // Explicit provider mode may fall back to free RSS, but a billing error must not block that free fallback.
+  emptyMode=false;
+  fetchCalls=0;
+  process.env.SEARCH_PROVIDER='exa';
+  const afterBilling=await searchWeb('FinPilot free fallback after billing error',{count:3});
+  assert.equal(afterBilling.provider,'google-news-rss');
+  assert.equal(fetchCalls,2,'a billing error should stop paid retries but still allow one free RSS fallback');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard, billing-error free fallback');
 }finally{
   globalThis.fetch=originalFetch;
 }
