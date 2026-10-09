@@ -92,6 +92,9 @@ assert.match(serverText, /RESEARCH_FETCH_MAX_BYTES/, 'article retrieval must enf
 assert.match(serverText, /Source redirected too many times/, 'article retrieval must cap redirect depth');
 assert.match(serverText, /RESEARCH_FETCH_CACHE_TTL_MS/, 'retrieved article pages must use a bounded short cache');
 assert.match(pageText, /function retrieveTopSearchPages\(results,searchSequence\)/, 'search must run a bounded top-result retrieval stage');
+assert.match(pageText, /slice\(0,5\)/, 'source retrieval should try up to five publisher URLs so a blocked first result does not leave retrieval at zero');
+assert.ok(pageText.includes('news\\.google\\.com\\/rss\\/articles'), 'Google News wrapper URLs should not waste a source-page retrieval attempt');
+assert.ok(pageText.includes("retrievedCount+'/'+Math.min(5,results.filter"), 'retrieval counter denominator should match the expanded bounded attempt budget');
 assert.match(pageText, /\/api\/research\/fetch\?url=/, 'the search UI must use the guarded article retrieval API');
 assert.match(pageText, /retrievedText:String\(fetched\.text\)\.slice\(0,15000\)/, 'retrieved text must remain bounded before being passed to analysis');
 assert.match(pageText, /ARTICLE RETRIEVED/, 'results must visually distinguish retrieved article pages from search snippets');

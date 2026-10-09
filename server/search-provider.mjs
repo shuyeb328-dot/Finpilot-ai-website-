@@ -7,10 +7,23 @@ async function providerFetch(url,options={}){
  catch(e){if(e.name==='AbortError')throw providerError('Search provider timed out');throw e}
  finally{clearTimeout(t)}
 }
+function resolveBingArticleUrl(value){
+ const raw=String(value||'');
+ try{
+  const wrapper=new URL(raw);
+  if(!/(^|\.)bing\.com$/i.test(wrapper.hostname)||!/^\/news\/apiclick\.aspx$/i.test(wrapper.pathname))return raw;
+  const destination=wrapper.searchParams.get('url');
+  if(!destination)return raw;
+  const target=new URL(destination);
+  if(target.protocol!=='https:'||target.username||target.password||!target.hostname)return raw;
+  target.hash='';
+  return target.href;
+ }catch{return raw}
+}
 function normalize(items,provider){
  const seen=new Set(),out=[];
  for(const [i,x] of (items||[]).entries()){
-  const url=String(x.url||x.link||'');
+  const url=resolveBingArticleUrl(x.url||x.link||'');
   if(!/^https?:\/\//i.test(url))continue;
   let canonical=url;
   try{
@@ -121,6 +134,24 @@ async function googleNewsRss(q,count){
  finally{clearTimeout(timer)}
 }
 
+async function bingNewsRss(q,count){
+ const u='https://www.bing.com/news/search?q='+encodeURIComponent(q)+'&format=rss&mkt=en-in';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
+  if(!r.ok)throw providerError('Bing News RSS returned HTTP '+r.status);
+  const xml=await r.text(),items=[];
+  const blocks=xml.match(/<item>[\s\S]*?<\/item>/gi)||[];
+  for(const block of blocks.slice(0,count)){
+   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim():''};
+   const title=cleanText(val('title')),link=cleanText(val('link')),snippet=cleanText(val('description')),publishedAt=cleanText(val('pubDate')),source=cleanText(val('source'))||'Bing News';
+   if(/^https?:\/\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
+  }
+  return normalize(items,'bing-news-rss');
+ }catch(e){if(e.name==='AbortError')throw providerError('Bing News RSS timed out');throw e}
+ finally{clearTimeout(timer)}
+}
+
 const configuredSearchCacheTtl=Number(process.env.SEARCH_CACHE_TTL_MS);
 const SEARCH_CACHE_TTL_MS=Number.isFinite(configuredSearchCacheTtl)
  ?Math.max(0,Math.min(60*60*1000,configuredSearchCacheTtl))
@@ -145,11 +176,14 @@ function trimSearchCache(){
 }
 async function searchWebUncached(q,count,requested){
  const allowPaidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
- // Keep the default search path free: use Google News RSS first and do not call metered APIs unless explicitly enabled.
- const order=requested==='free'?['google-news-rss']:requested==='auto'&&!allowPaidFallback?['google-news-rss']:requested==='auto'?['google-news-rss','exa','serpapi','brave','tavily','google']:requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['google-news-rss'];
+ // Free search prefers Bing RSS because its redirect URL exposes a publisher URL
+ // that can be safely normalized. Google News RSS remains a fallback; paid APIs
+ // are never called unless explicitly enabled.
+ const freeRss=['bing-news-rss','google-news-rss'];
+ const order=requested==='free'?freeRss:requested==='auto'&&!allowPaidFallback?freeRss:requested==='auto'?[...freeRss,'exa','serpapi','brave','tavily','google']:requested==='exa'?['exa',...freeRss]:requested==='serpapi'?['serpapi','exa',...freeRss]:requested==='brave'?['brave','exa',...freeRss]:requested==='tavily'?['tavily','exa',...freeRss]:requested==='google'?['google','exa',...freeRss]:freeRss;
  const errors=[];let paidProviderBlocked=false;
  for(const p of order){
-  if(paidProviderBlocked&&p!=='google-news-rss')continue;
+  if(paidProviderBlocked&&!['bing-news-rss','google-news-rss'].includes(p))continue;
   try{
    let results=[];
    if(p==='brave'&&process.env.BRAVE_SEARCH_API_KEY)results=await brave(q,count);
@@ -157,6 +191,7 @@ async function searchWebUncached(q,count,requested){
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
    if(p==='exa'&&process.env.EXA_API_KEY)results=await exa(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
+   if(p==='bing-news-rss')results=await bingNewsRss(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
   }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){paidProviderBlocked=true;}continue}
