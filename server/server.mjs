@@ -241,6 +241,10 @@ async function cloudKnowledge(req,res,u){
 
 const RESEARCH_FETCH_CACHE=new Map();
 const RESEARCH_FETCH_CACHE_TTL_MS=10*60*1000;
+const RESEARCH_FETCH_RATE_LIMIT=60;
+const RESEARCH_FETCH_RATE_WINDOW_MS=60*1000;
+let researchFetchRateStart=Date.now(),researchFetchRateCount=0;
+function researchFetchRateAllowed(){const now=Date.now();if(now-researchFetchRateStart>=RESEARCH_FETCH_RATE_WINDOW_MS){researchFetchRateStart=now;researchFetchRateCount=0;}if(researchFetchRateCount>=RESEARCH_FETCH_RATE_LIMIT)return false;researchFetchRateCount++;return true;}
 const RESEARCH_FETCH_MAX_BYTES=450*1024;
 const RESEARCH_FETCH_MAX_TEXT=15000;
 function isPublicResearchIp(ip){
@@ -270,6 +274,7 @@ function safeResearchUrl(raw){
  let u;
  try{u=new URL(String(raw||''))}catch{throw new Error('Invalid source URL')}
  if(u.protocol!=='https:')throw new Error('Only public HTTPS article links are supported');
+ if(u.port&&u.port!=='443')throw new Error('Only HTTPS on standard port 443 is supported');
  if(u.username||u.password)throw new Error('URLs with embedded credentials are not allowed');
  if(!u.hostname||net.isIP(u.hostname)||/(^|\.)(localhost|local|internal|test|invalid)$/i.test(u.hostname))throw new Error('Private or non-public hostnames are not allowed');
  if(u.hostname.length>253||u.href.length>2048)throw new Error('Source URL is too long');
@@ -364,6 +369,7 @@ async function researchFetch(req,res,u){
  if(raw.length>2048)return send(res,400,{ok:false,error:'SOURCE_URL_TOO_LONG'});
  let normalized;
  try{normalized=safeResearchUrl(raw)}catch(e){return send(res,400,{ok:false,error:'SOURCE_URL_REJECTED',message:e.message})}
+ if(!researchFetchRateAllowed())return send(res,429,{ok:false,error:'RETRIEVAL_RATE_LIMITED',message:'Article retrieval is temporarily rate-limited. Please retry after one minute.'},'application/json; charset=utf-8',{'Retry-After':'60'});
  const key=normalized.href,cachedPage=RESEARCH_FETCH_CACHE.get(key),now=Date.now();
  if(cachedPage&&cachedPage.expiresAt>now)return send(res,200,{ok:true,...cachedPage.data,cached:true,cacheAgeMs:now-cachedPage.cachedAt});
  if(cachedPage)RESEARCH_FETCH_CACHE.delete(key);
