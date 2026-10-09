@@ -215,7 +215,7 @@ assert.match(moduleText, /Number\(result\.recorded\)!==agents\.length/, 'partial
 assert.match(moduleText, /AGENT_TELEMETRY_TIMEOUT/, 'telemetry timeout should be explicit instead of silently ignored');
 assert.match(moduleText, /agentFleet,\n        agentCount:agentNames\.length,\n        agentTelemetry,\n        time:new Date\(\)\.toISOString\(\)/, 'analysis history must preserve actual agent and telemetry counts');
 assert.match(moduleText, /syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'the one-click pipeline should sync actual fleet results, not merely pending agent placeholders');
-assert.match(moduleText, /not server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
+assert.match(moduleText, /never as server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
 assert.match(serverText, /source:'CLIENT_REPORTED_UNVERIFIED'/, 'client telemetry must be assigned an explicit unverified source');
 assert.match(serverText, /serverExecutedRuns:0,clientReportedRuns:0/, 'server memory entries must track server and client activity separately');
 assert.match(serverText, /serverExecutedAgentRuns,clientReportedAgentRuns/, 'Core status must report server-executed and client-reported agent counts separately');
