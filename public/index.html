@@ -598,6 +598,37 @@ function simulate(e){e.preventDefault();const type=simType.value,amt=Math.max(0,
 
 function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function startOneClickAnalysis(q){return window.finpilotLaunch?window.finpilotLaunch(q):window.runFullStockAnalysis?.(q)}
+function syncCoreBrainEvidence(d){
+ if(!d||!Array.isArray(d.results)||!d.results.length||d.provider==='user-provided'||d.provenance==='USER_PROVIDED')return;
+ const now=Date.now();
+ const evidence=d.results.slice(0,10).map(x=>{
+  const publishedAt=x?.publishedAt||x?.published_date||x?.date||null;
+  const publishedMs=publishedAt?Date.parse(publishedAt):NaN;
+  const fresh=Number.isFinite(publishedMs)?(publishedMs<=now+30000&&now-publishedMs<=7*86400000):null;
+  const retrieved=String(x?.retrievalStatus||'').toUpperCase()==='RETRIEVED';
+  return {
+   title:String(x?.articleTitle||x?.title||'').slice(0,220),
+   url:String(x?.canonicalUrl||x?.articleUrl||x?.url||'').slice(0,2048),
+   source:String(x?.source||d.provider||'Web Search').slice(0,120),
+   query:String(d.query||'').slice(0,200),
+   topic:String(d.assetClass||'Web Search').slice(0,120),
+   snippet:String(retrieved?(x?.retrievedText||x?.text||x?.snippet||''):(x?.snippet||x?.description||'')).slice(0,900),
+   publishedAt,
+   fresh,
+   retrievalStatus:retrieved?'RETRIEVED':'SNIPPET_ONLY',
+   sourceType:retrieved?'ARTICLE_TEXT':'SEARCH_SNIPPET'
+  };
+ }).filter(x=>x.title||x.url||x.snippet);
+ if(!evidence.length)return;
+ fetch('/api/evidence-fusion',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({evidence}),keepalive:true
+ }).then(r=>r.ok?r.json():null).then(result=>{
+  window.__finpilotCoreEvidenceStatus=result?.ok?{ok:true,accepted:Number(result.accepted||0),ledgerSize:Number(result.ledgerSize||0),updatedAt:new Date().toISOString()}:{ok:false,updatedAt:new Date().toISOString()};
+ }).catch(()=>{
+  window.__finpilotCoreEvidenceStatus={ok:false,updatedAt:new Date().toISOString()};
+ });
+}
 function ingestSearchEvidence(d){
  if(!d||!Array.isArray(d.results)||!d.results.length)return 0;
  const manual=d.provider==='user-provided'||d.provenance==='USER_PROVIDED';
@@ -630,7 +661,7 @@ function ingestSearchEvidence(d){
   detail:manual?added+' user-provided item(s) added. FinPilot did not independently fetch or verify their contents, publication dates, or authenticity.':added+' result(s) from '+(d.provider||'web search')+' were added; '+fetchedCount+' public page(s) were retrieved. Retrieved text is not independent fact-checking.',
   source:'Internet Search',query:d.query,provider:d.provider,time:new Date().toISOString(),provenance:manual?'USER_PROVIDED':'WEB_SEARCH'
  });
- if(!manual)state.lastEvidenceSync=new Date().toISOString();
+ if(!manual){state.lastEvidenceSync=new Date().toISOString();syncCoreBrainEvidence(d);}
  state.lastSearchEvidence={query:d.query,provider:d.provider,count:added,time:new Date().toISOString(),provenance:manual?'USER_PROVIDED':'WEB_SEARCH',retrievedPages:fetchedCount};
  save();return added;
 }

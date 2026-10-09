@@ -104,7 +104,7 @@ assert.match(pageText, /function importGoogleEvidence\(\)/, 'pasted Google resea
 assert.match(pageText, /provider:'user-provided',provenance:'USER_PROVIDED'/, 'manual import must preserve user-provided provenance');
 assert.match(pageText, /User-provided research — not independently verified/, 'manual evidence must be distinguished from fetched evidence');
 assert.match(pageText, /Publication date not verified/, 'manual import must not invent publication dates');
-assert.match(pageText, /if\(!manual\)state\.lastEvidenceSync=/, 'manual import must not pretend a web source was freshly synchronized');
+assert.match(pageText, /if\(!manual\)\{state\.lastEvidenceSync=.*syncCoreBrainEvidence\(d\);\}/, 'only fetched web search results should update local freshness and sync to Core Brain; manual imports must remain separate');
 assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
 assert.match(pageText, /data-search-result-index=/, 'search result cards must be addressable for targeted retrieval updates');
 assert.match(pageText, /Article retrieval retry/, 'retry must use the safe backend retrieval endpoint rather than browser scraping');
@@ -191,5 +191,19 @@ assert.match(marketOsText, /d\.executionEligible===true&&providerTime/, 'dashboa
 assert.match(marketOsText, /age>=-30000&&age<=90000/, 'dashboard LIVE label must reject future-dated and stale quotes');
 assert.match(marketOsText, /x\.executionEligible===true&&String\(x\.sourceTimestampType\|\|x\.timestampType\|\|''\)\.toUpperCase\(\)==='PROVIDER_TIMESTAMP'/, 'fallback polling must require the same provider timestamp gate as the stream');
 assert.match(marketOsText, /'UNVERIFIED · ANALYSIS ONLY'/, 'recent but unverified data must not be labelled live');
+
+
+assert.match(pageText, /function syncCoreBrainEvidence\(d\)/, 'real search evidence should also be sent to the server Core Brain ledger');
+assert.match(pageText, /syncCoreBrainEvidence\(d\);/, 'server evidence sync must run after non-manual search ingestion');
+assert.match(pageText, /retrievalStatus:retrieved\?'RETRIEVED':'SNIPPET_ONLY'/, 'retrieved article text must remain distinct from search snippets in the server ledger');
+assert.match(serverText, /engine:'evidence-fusion-v4500'/, 'Core Brain evidence ledger must report normalized, deduplicated evidence telemetry');
+assert.match(serverText, /unknownTimestampEvidence:EVIDENCE_LEDGER\.filter/, 'evidence status must report unknown publication timestamps rather than silently calling them fresh');
+assert.match(serverText, /remember\(name,\{decision:recommendation,lesson:challenge\}\)/, 'actual deterministic agent runs must contribute to agent memory telemetry');
+assert.match(serverText, /AGENT_MEMORY\.size>=100/, 'agent-memory telemetry must have a bounded number of agent buckets');
+
+
+assert.match(serverText, /const names=supplied\.slice\(0,12\)\.map\(name=>clean\(name,64\)\|\|'Unknown'\)/, 'parallel agent batches must cap agent count and normalize names before scheduling');
+assert.match(serverText, /remember\(name,\{decision:stance,lesson:view\}\)/, 'actual parallel agent runs must be reflected in memory telemetry');
+assert.match(serverText, /durable training or persistent memory/, 'agent memory must be described honestly as process-memory telemetry until durable storage is connected');
 
 console.log('one-click-pipeline: contract checks passed');
