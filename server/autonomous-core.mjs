@@ -143,7 +143,7 @@ function buildTasks(observations){
  const learning=checkStatus('learning',observations);
  if(learning.status==='DEGRADED')tasks.push({id:'learning-health-review',category:'learning',title:'Review learning loop errors',priority:68,risk:'LOW',action:'read_only_diagnostic',reason:learning.detail,recommendation:'Inspect the research/benchmark failure before resuming learning.'});
  if(!tasks.length)tasks.push({id:'baseline-regression',category:'verification',title:'Run a bounded regression check',priority:55,risk:'LOW',action:'benchmark_candidate',reason:'No high-priority server-side fault was observed in this cycle.',recommendation:'Run existing contract and smoke tests; preserve the current release unless measured evidence supports a change.'});
- return tasks.map(t=>{const reliability=categoryReliability(t.category);return {...t,priorityScore:Math.round(clamp(t.priority*(0.8+0.2*reliability),0,100)),learnedReliability:Math.round(reliability*100),feedbackSamples:categoryState(t.category).samples,execution:'PLAN_ONLY',requiresApproval:false}}).sort((a,b)=>b.priorityScore-a.priorityScore).slice(0,6);
+ return tasks.map(t=>{const reliability=categoryReliability(t.category),learnedAdjustment=clamp((0.7-reliability)*20,-5,8);return {...t,priorityScore:Math.round(clamp(t.priority+learnedAdjustment,0,100)),learnedReliability:Math.round(reliability*100),learningEffect:learnedAdjustment>=1?'LOW_RELIABILITY_ESCALATES_REVIEW':learnedAdjustment<=-1?'HIGH_RELIABILITY_CONFIRMED':'NO_MATERIAL_ADJUSTMENT',feedbackSamples:categoryState(t.category).samples,execution:'PLAN_ONLY',requiresApproval:false}}).sort((a,b)=>b.priorityScore-a.priorityScore).slice(0,6);
 }
 export async function runAutonomousCoreCycle(observations={}){
  await ensurePersistence();
