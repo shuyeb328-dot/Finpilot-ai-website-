@@ -45,5 +45,14 @@ assert.match(moduleText, /market\.currency\|\|\(String\(market\.market\|\|''\)\.
 assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback must use Binance symbol rather than NSE symbol');
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
+assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
+assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
+assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click must expose one shared snapshot to the agent fleet');
+assert.match(moduleText, /runFleet\(state,\{web,candidate,marketSnapshot:window\.__fpMarketSnapshot\}\)/, 'the agent fleet must receive the same validated snapshot');
+assert.match(moduleText, /state\.forecastLedger\.unshift\(forecastRecord\)/, 'completed runs must append a forecast ledger record');
+assert.match(moduleText, /BLOCKED_UNVERIFIED_DATA/, 'unverified market data must be explicitly blocked in the forecast ledger');
+assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
+assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
 console.log('one-click-pipeline: 31 contract checks passed');
