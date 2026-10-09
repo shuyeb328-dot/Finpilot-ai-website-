@@ -58,6 +58,9 @@ assert.match(serverText, /u\.pathname==='\/api\/research\/fetch'/, 'a dedicated 
 assert.match(serverText, /function isPublicResearchIp/, 'article retrieval must reject private and non-public IP ranges');
 assert.match(serverText, /function safeResearchUrl/, 'article retrieval must validate every URL and redirect target');
 assert.match(serverText, /u\.protocol!=='https:'/ , 'article retrieval must require HTTPS');
+assert.match(serverText, /u\.port&&u\.port!=='443'/, 'article retrieval must refuse non-standard HTTPS ports');
+assert.match(serverText, /RESEARCH_FETCH_RATE_LIMIT=60/, 'article retrieval must have a bounded global request budget');
+assert.match(serverText, /if\(!researchFetchRateAllowed\(\)\)return send\(res,429/, 'article retrieval rate limits must return a clear retryable response');
 assert.match(serverText, /dns\.lookup\(current\.hostname,\{all:true,verbatim:true\}\)/, 'article retrieval must validate DNS answers before connecting');
 assert.match(serverText, /RESEARCH_FETCH_MAX_BYTES/, 'article retrieval must enforce a response-size limit');
 assert.match(serverText, /Source redirected too many times/, 'article retrieval must cap redirect depth');
