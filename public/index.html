@@ -659,22 +659,22 @@ function importGoogleEvidence(){
  const status=document.getElementById('googleEvidenceImportStatus');
  if(!raw){if(status)status.innerHTML='<div class="notice">Paste at least one source link, headline, or article excerpt first.</div>';toast('Paste a Google result or article text first');return 0;}
  const maxChars=12000,content=raw.slice(0,maxChars);
- const lines=content.split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean);
- const results=[],urlPattern=/https?:\\/\\/[^\\s<>"'`)\\]]+/ig;
- const seenUrls=new Set(),urlLines=new Set();
+ const lines=content.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ const results=[],urlPattern=/https?:\/\/[^\s<>"']+/ig;
+ const seenUrls=new Set(),urlLines=new Set(),consumedLines=new Set();
  for(let i=0;i<lines.length;i++){
   const line=lines[i],matches=[...line.matchAll(urlPattern)];
   for(const m of matches){
    const urlText=String(m[0]||'').replace(/[),.;!?]+$/,'');
    let url;try{url=new URL(urlText);if(!['http:','https:'].includes(url.protocol))continue;}catch{continue}
    const href=url.href;if(seenUrls.has(href))continue;seenUrls.add(href);urlLines.add(i);
-   let title=line.replace(urlText,' ').replace(/\\s+/g,' ').replace(/^[-•*\\s]+|[-•*\\s]+$/g,'').trim();
-   if(!title&&i>0&&!/https?:\\/\\//i.test(lines[i-1])&&lines[i-1].length<240)title=lines[i-1];
+   let title=line.replace(urlText,' ').replace(/\s+/g,' ').replace(/^[-•*\s]+|[-•*\s]+$/g,'').trim();
+   if(!title&&i>0&&!/https?:\/\//i.test(lines[i-1])&&lines[i-1].length<240){title=lines[i-1];consumedLines.add(i-1);}
    if(!title)title=url.hostname+' source link';
    results.push({id:'user-paste-'+(results.length+1),title:title.slice(0,240),url:href,snippet:'User-supplied source link. FinPilot has not fetched or verified this page.',source:'User-provided Google result',publishedAt:null,provenance:'USER_PROVIDED'});
   }
  }
- const notes=lines.filter((line,i)=>!urlLines.has(i)&&!/^https?:\\/\\//i.test(line)).join(' ').trim();
+ const notes=lines.filter((line,i)=>!urlLines.has(i)&&!consumedLines.has(i)&&!/https?:\/\//i.test(line)).join(' ').trim();
  if(notes)results.push({id:'user-paste-notes',title:'Pasted research notes',url:'',snippet:notes.slice(0,8000),source:'User-provided text',publishedAt:null,provenance:'USER_PROVIDED'});
  if(!results.length)results.push({id:'user-paste-text',title:'Pasted research notes',url:'',snippet:content,source:'User-provided text',publishedAt:null,provenance:'USER_PROVIDED'});
  const query=String(document.getElementById('searchQuery')?.value||'').trim()||'Google research notes';
