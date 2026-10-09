@@ -36,7 +36,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261009-3/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261009-4/, 'rebuilt one-click module must use a new asset version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
