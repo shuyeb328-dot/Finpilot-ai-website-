@@ -391,15 +391,16 @@ async function researchFetch(req,res,u){
 async function search(req,res,u){
  const q=(u.searchParams.get('q')||'').trim();
  const count=Math.min(10,Math.max(1,Number(u.searchParams.get('count')||8)));
+ const forceRefresh=u.searchParams.get('refresh')==='1'||u.searchParams.get('fresh')==='1';
  if(!q)return send(res,400,{ok:false,error:'Missing query'});
  try{
-  const d=await searchWeb(q,{count});
+  const d=await searchWeb(q,{count,forceRefresh});
   const archive=await archiveResearch(q,d);
   emitEvent('RESEARCH_UPDATE',{source:d.provider||'web',query:q,count:Array.isArray(d.results)?d.results.length:0,archive},65);
-  return send(res,200,{ok:true,query:q,...d,...archive});
+  return send(res,200,{ok:true,query:q,refreshRequested:forceRefresh,...d,...archive});
  }catch(e){
   const google=`https://www.google.com/search?q=${encodeURIComponent(q)}`;
-  return send(res,200,{ok:true,query:q,provider:'google-search-bridge',results:[],externalUrl:google,fallback:'GOOGLE_SEARCH_BRIDGE',warning:e.code||'SEARCH_PROVIDER_UNAVAILABLE',message:'Free news search could not return results for this request. Open Google Search to continue; results opened there are not automatically imported into FinPilot.',live:false,cached:false,freshness:'FALLBACK'});
+  return send(res,200,{ok:true,query:q,provider:'google-search-bridge',results:[],externalUrl:google,fallback:'GOOGLE_SEARCH_BRIDGE',refreshRequested:forceRefresh,warning:e.code||'SEARCH_PROVIDER_UNAVAILABLE',message:'Free news search could not return results for this request. Open Google Search to continue; results opened there are not automatically imported into FinPilot.',live:false,cached:false,freshness:'FALLBACK'});
  }
 }
 
@@ -1515,7 +1516,70 @@ function optimizeOS(req,res){
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
 function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
-function health70(req,res){const dataQuality=DATA_HEALTH.freshness;const status=dataQuality==='STALE'?'DEGRADED':'OPERATIONAL';return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',status,autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality,dataQualityScore:DATA_HEALTH.qualityScore,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),security:'hardened',realtime:true,execution:'human-approval-gated',executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,frontendSyntax:frontendSyntax(),timestamp:new Date().toISOString()});}
+const DATA_HEALTH_STALE_AFTER_MS=Math.max(120000,Number(EXECUTION_FRESHNESS_MS)||90000);
+function dataHealthDiagnostics(){
+ const now=Date.now();
+ const sources=Object.entries(DATA_HEALTH.sources||{}).map(([name,raw])=>{
+  const lastSuccess=raw.lastSuccess||null;
+  const lastSuccessMs=lastSuccess?Date.parse(lastSuccess):NaN;
+  const lastSuccessAgeMs=Number.isFinite(lastSuccessMs)?Math.max(0,now-lastSuccessMs):null;
+  let status=String(raw.status||'UNKNOWN').toUpperCase();
+  if(status==='HEALTHY'&&lastSuccessAgeMs!==null&&lastSuccessAgeMs>DATA_HEALTH_STALE_AFTER_MS)status='STALE';
+  if(!['HEALTHY','DEGRADED','STALE','UNKNOWN'].includes(status))status='UNKNOWN';
+  return {
+   name,status,
+   latencyMs:Number.isFinite(Number(raw.latencyMs))?Number(raw.latencyMs):null,
+   lastSuccess,
+   lastSuccessAgeMs,
+   staleAfterMs:DATA_HEALTH_STALE_AFTER_MS,
+   lastError:raw.lastError?String(raw.lastError).slice(0,180):null
+  };
+ });
+ const states=sources.map(x=>x.status);
+ const allUnknown=!states.length||states.every(x=>x==='UNKNOWN');
+ let dataQuality='UNKNOWN';
+ if(!allUnknown){
+  if(states.includes('DEGRADED'))dataQuality='DEGRADED';
+  else if(states.includes('STALE'))dataQuality='STALE';
+  else if(states.includes('UNKNOWN'))dataQuality='DEGRADED';
+  else dataQuality='FRESH';
+ }
+ const weights={HEALTHY:100,STALE:50,DEGRADED:35,UNKNOWN:0};
+ const dataQualityScore=sources.length?Math.round(sources.reduce((sum,x)=>sum+(weights[x.status]??0),0)/sources.length):0;
+ const warnings=[];
+ if(allUnknown)warnings.push('No successful market-provider check has been recorded since this process started. Run a market lookup to measure source health.');
+ for(const x of sources){
+  if(x.status==='STALE')warnings.push(x.name+' last succeeded '+Math.round((x.lastSuccessAgeMs||0)/1000)+' seconds ago; refresh the market data before relying on it.');
+  else if(x.status==='DEGRADED')warnings.push(x.name+' provider is degraded'+(x.lastError?': '+x.lastError:'')+'.');
+  else if(x.status==='UNKNOWN')warnings.push(x.name+' source has not been verified in this process.');
+ }
+ const aiConfigured=Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY);
+ if(!aiConfigured)warnings.push('External AI gateway is not configured. Deterministic analysis remains available; live external AI reasoning is not active.');
+ const paidSearchFallbackEnabled=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
+ return {
+  dataQuality,dataQualityScore,
+  updatedAt:DATA_HEALTH.updatedAt||null,
+  staleAfterMs:DATA_HEALTH_STALE_AFTER_MS,
+  sources,warnings,
+  ai:{configured:aiConfigured,mode:aiConfigured?'EXTERNAL_GATEWAY':'DETERMINISTIC_ONLY'},
+  search:{providerMode:String(process.env.SEARCH_PROVIDER||'auto').toLowerCase(),freeFirst:true,paidFallbackEnabled:paidSearchFallbackEnabled}
+ };
+}
+function health70(req,res){
+ const diagnostics=dataHealthDiagnostics();
+ return send(res,200,{
+  ok:true,service:'FinPilot Web Gateway',version:'8.6',status:'OPERATIONAL',
+  readiness:diagnostics.dataQuality==='FRESH'?'MARKET_DATA_READY':diagnostics.dataQuality==='UNKNOWN'?'NOT_YET_VERIFIED':'PARTIAL',
+  autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,
+  dataQuality:diagnostics.dataQuality,dataQualityScore:diagnostics.dataQualityScore,
+  dataQualityUpdatedAt:diagnostics.updatedAt,dataQualityStaleAfterMs:diagnostics.staleAfterMs,
+  dataSources:diagnostics.sources,dataQualityWarnings:diagnostics.warnings,
+  aiConfigured:diagnostics.ai.configured,ai:diagnostics.ai,search:diagnostics.search,
+  security:'hardened',realtime:true,execution:'human-approval-gated',
+  executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,
+  frontendSyntax:frontendSyntax(),timestamp:new Date().toISOString()
+ });
+}
 
 const server=http.createServer(async(req,res)=>{
  const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','8.6');
