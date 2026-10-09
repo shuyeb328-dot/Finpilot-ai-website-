@@ -39,7 +39,6 @@ export function recordProviderFailure(source,error,now=Date.now()){
  if(previous)previous.probeInFlight=false;
  const policy=classifyCooldown(error);
  if(!policy)return providerCooldownStatus(key,now);
- const previous=COOLDOWNS.get(key);
  const consecutiveFailures=previous?previous.consecutiveFailures+1:1;
  const durationMs=Math.min(policy.maxMs,policy.baseMs*Math.pow(2,Math.min(8,consecutiveFailures-1)));
  const state={source:key,kind:policy.kind,reason:String(error?.message||error||policy.kind).slice(0,180),consecutiveFailures,startedAt:new Date(now).toISOString(),untilMs:now+durationMs};
