@@ -201,4 +201,9 @@ assert.match(serverText, /unknownTimestampEvidence:EVIDENCE_LEDGER\.filter/, 'ev
 assert.match(serverText, /remember\(name,\{decision:recommendation,lesson:challenge\}\)/, 'actual deterministic agent runs must contribute to agent memory telemetry');
 assert.match(serverText, /AGENT_MEMORY\.size>=100/, 'agent-memory telemetry must have a bounded number of agent buckets');
 
+
+assert.match(serverText, /const names=supplied\.slice\(0,12\)\.map\(name=>clean\(name,64\)\|\|'Unknown'\)/, 'parallel agent batches must cap agent count and normalize names before scheduling');
+assert.match(serverText, /remember\(name,\{decision:stance,lesson:view\}\)/, 'actual parallel agent runs must be reflected in memory telemetry');
+assert.match(serverText, /durable training or persistent memory/, 'agent memory must be described honestly as process-memory telemetry until durable storage is connected');
+
 console.log('one-click-pipeline: contract checks passed');
