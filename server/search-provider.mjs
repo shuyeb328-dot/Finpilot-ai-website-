@@ -11,7 +11,7 @@ function normalize(items,provider){
  const seen=new Set(),out=[];
  for(const [i,x] of (items||[]).entries()){
   const url=String(x.url||x.link||'');
-  if(!/^https?:\\/\\//i.test(url))continue;
+  if(!/^https?:\/\//i.test(url))continue;
   let canonical=url;
   try{
    const u=new URL(url);u.hash='';
