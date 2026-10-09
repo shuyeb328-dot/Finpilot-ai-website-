@@ -12,7 +12,7 @@ import {searchWeb} from './search-provider.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
-import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest} from './autonomous-core.mjs';
+import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate} from './autonomous-core.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -1807,6 +1807,12 @@ async function osControlPlaneSecurityCheck(req,res){
  return send(res,200,result);
 }
 
+function osControlPlaneShadowEvaluate(req,res){
+ const result=evaluateShadowCandidate(req._parsedBody||{});
+ audit('AUTONOMOUS_SHADOW_EVALUATION',{candidateId:result.candidateId,status:result.status,blockers:result.blockers,productionMutation:false});
+ emitEvent('OS_SHADOW_EVALUATION',{candidateId:result.candidateId,status:result.status},55);
+ return send(res,200,result);
+}
 function eventStatus(req,res){return send(res,200,{ok:true,version:'5.2',events:EVENT_BUS.events.slice(0,30),routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups,dropped:EVENT_BUS.dropped,queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed});}
 function agentFleetStatus(req,res){return send(res,200,{ok:true,version:'6.0',agents:[...AGENT_POOL.values()],scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,completed:SCHEDULER.completed,failed:SCHEDULER.failed},routing:'event-driven selective wakeups'});}
 function dataHealth(req,res){return send(res,200,{ok:true,version:'5.4',...DATA_HEALTH,resilience:RESILIENCE});}
@@ -1902,6 +1908,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/feedback'){await body(req);return osControlPlaneFeedback(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/mode'){await body(req);return osControlPlaneMode(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/security-check'){await body(req);return osControlPlaneSecurityCheck(req,res);}
+  if(req.method==='POST'&&u.pathname==='/api/os-control-plane/shadow-evaluate'){await body(req);return osControlPlaneShadowEvaluate(req,res);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
