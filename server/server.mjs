@@ -12,7 +12,7 @@ import {searchWeb} from './search-provider.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
-import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate} from './autonomous-core.mjs';
+import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus} from './autonomous-core.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -1776,7 +1776,8 @@ function osControlPlaneObservations(){
   security:{ok:true,blocked:SECURITY.blocked,rateLimited:SECURITY.rateLimited,events:SECURITY.events.slice(0,12),headers:['CSP','X-Content-Type-Options','X-Frame-Options','Referrer-Policy','Permissions-Policy'],secretExposure:'server-only'},
   autonomy:{ok:true,level:AUTONOMY.level,mode:AUTONOMY.mode,cycles:AUTONOMY.cycles,policyBlocks:AUTONOMY.policyBlocks},
   eventBus:{ok:true,events:EVENT_BUS.events.length,routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups},
-  quantum:{ok:false,note:'The browser Quantum snapshot is reported by the client panel.'}
+  quantum:{ok:true,configured:Boolean(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY),backend:(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY)?'EXTERNAL_QUANTUM_PROVIDER':'UNCONFIGURED',mode:'HYBRID_OPTIMIZATION',finalValidator:'CLASSICAL'},
+  evolution:getShadowEvaluationStatus()
  };
 }
 async function osControlPlaneSnapshot(req,res){return send(res,200,await getOSControlPlaneSnapshot(osControlPlaneObservations()));}

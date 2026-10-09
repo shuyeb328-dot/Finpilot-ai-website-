@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
+import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
 resetAutonomousCoreForTests();
 assert.equal(OS_REGISTRY.length,12);
 assert.ok(OS_REGISTRY.some(x=>x.id==='ai-security-os'));
@@ -18,8 +18,9 @@ const observations={
  data:{dataQuality:'FRESH',dataQualityScore:95,providers:[{},{}]},
  marketHealth:{providers:[{id:'coinbase',status:'HEALTHY'},{id:'nasdaq-public',status:'HEALTHY'},{id:'binance',status:'DEGRADED'}]},
  learning:{version:'3.3',enabled:false,stats:{cycles:10,evidenceAccepted:20}},
+ evolution:{ok:true,evaluations:0,claimedThresholdsMet:0,rejected:0,riskRegressionCount:0},
  policy:{policy:{execution:'HUMAN_APPROVAL_REQUIRED',moneyMovement:'BLOCKED',credentialAccess:'BLOCKED',cfoVeto:'ENFORCED'}},
- security:{ok:true,blocked:0,rateLimited:0,events:[]},quantum:{ok:true}
+ security:{ok:true,blocked:0,rateLimited:0,events:[]},quantum:{ok:true,configured:false,backend:'UNCONFIGURED'}
 };
 const snap=await getOSControlPlaneSnapshot(observations);
 assert.equal(snap.os.find(x=>x.id==='main-core').status,'HEALTHY');
@@ -30,7 +31,11 @@ assert.match(emptyBrain.os.find(x=>x.id==='core-brain').detail,/not yet establis
 assert.equal(snap.os.find(x=>x.id==='market-data-os').status,'DEGRADED');
 assert.equal(snap.os.find(x=>x.id==='trading-risk-os').status,'SAFE_GATED');
 assert.equal(snap.os.find(x=>x.id==='ai-security-os').status,'ACTIVE');
-assert.equal(snap.os.find(x=>x.id==='learning-os').status,'IDLE');
+assert.equal(snap.os.find(x=>x.id==='learning-os').status,'PARTIAL');
+assert.equal(snap.os.find(x=>x.id==='learning-os').metrics.feedbackPersistence,'PROCESS_MEMORY');
+assert.match(snap.os.find(x=>x.id==='learning-os').detail,/can be lost on restart/);
+assert.equal(snap.os.find(x=>x.id==='evolution-os').status,'READY');
+assert.equal(snap.os.find(x=>x.id==='quantum-os').status,'PARTIAL');
 const beforeMode=getAutonomousCoreMode();
 const cycle=await runAutonomousCoreCycle({...observations,marketHealth:{providers:[{id:'nasdaq-public',status:'DEGRADED'}]},data:{dataQuality:'DEGRADED',dataQualityScore:35}});
 assert.equal(cycle.ok,true);
@@ -74,6 +79,12 @@ const riskRegression=evaluateShadowCandidate({candidateId:'shadow-v4',baselineSc
 assert.ok(riskRegression.blockers.includes('RISK_REGRESSION_DETECTED'));
 const missingEvidence=evaluateShadowCandidate({candidateId:'shadow-v5',baselineScore:70,candidateScore:90,samples:100,testsPassed:true});
 assert.ok(missingEvidence.blockers.includes('EVIDENCE_REQUIRED'));
+const shadowStatus=getShadowEvaluationStatus();
+assert.equal(shadowStatus.evaluations,4);
+assert.equal(shadowStatus.claimedThresholdsMet,1);
+assert.equal(shadowStatus.riskRegressionCount,1);
+assert.equal(shadowStatus.metricsVerified,false);
+assert.equal(shadowStatus.automaticPromotion,false);
 const unknownAdapters=snap.os.filter(x=>x.status==='UNKNOWN');
 assert.ok(unknownAdapters.every(x=>x.evidenceLevel==='NONE'),'unknown health adapters must expose zero evidence');
 assert.ok(snap.os.every(x=>x.adapter&&x.observedAt),'each OS status must identify its adapter and observation time');

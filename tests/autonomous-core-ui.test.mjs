@@ -9,5 +9,8 @@ assert.match(ui,/fpac-security-probe/,'security policy probe must be present');
 assert.match(ui,/Resolved \/ helpful/,'operator outcome feedback must be available');
 assert.match(ui,/No real-money execution/,'panel must clearly state the execution limitation');
 assert.match(ui,/t=tone/,'status classes must resolve through the defined tone mapper');
+assert.match(ui,/Browser Evolution OS:/,'Evolution UI must show measured browser-side status metrics');
+assert.match(ui,/Browser Quantum Core:/,'Quantum UI must show observed agent and run counts');
+assert.match(ui,/Foundation benchmark:/,'Foundation status must include the benchmark evidence');
 assert.doesNotMatch(ui,/t=statusTone/,'undefined status mapper must not be referenced');
 console.log('Autonomous Core OS UI contract checks passed.');
