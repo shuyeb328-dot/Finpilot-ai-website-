@@ -26,10 +26,10 @@ assert.match(deepText, /hasPhrase\(corpus,c\[0\]\)/, 'resolver should match whol
 assert.doesNotMatch(deepText, /corpus\.includes\(c\[0\]\)/, 'substring-based ticker false positives must not return');
 assert.match(moduleText, /\[o,h,l,c\]\.every\(v=>Number\.isFinite\(v\)&&v>0\)/, 'chart analysis must discard zero-price candles');
 assert.match(moduleText, /const s20=positive\(market\.sma20\),s50=positive\(market\.sma50\)/, 'null/zero moving averages must remain unavailable');
-assert.match(moduleText, /report\.chartAnalysis\?\.sma50>0\?.*'N\/A'/, 'missing SMA50 should render N/A instead of ₹0.00');
+assert.match(moduleText, /const chartPrice=value=>Number\(value\)>0\?.*:'N\/A'/, 'missing or zero-price chart indicators should render N/A instead of ₹0.00');
 assert.match(serverText, /Equity provider returned insufficient valid OHLC candles/, 'server should reject a series after invalid candles are filtered');
 assert.match(serverText, /x\.high>=Math\.max\(x\.open,x\.close,x\.low\)/, 'server candles must pass OHLC consistency validation');
-assert.match(moduleText, /Resolved market quote request/, 'reload market data for the search-resolved instrument when symbols disagree');
+assert.match(moduleText, /Resolved market snapshot request/, 'reload market data for the search-resolved instrument when symbols disagree');
 assert.doesNotMatch(moduleText, /function mountSearchCard\(/, 'duplicate analysis launcher cards must not be injected');
 
 assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bound fetch and JSON parsing');
@@ -45,5 +45,14 @@ assert.match(moduleText, /market\.currency\|\|\(String\(market\.market\|\|''\)\.
 assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback must use Binance symbol rather than NSE symbol');
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
+assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
+assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
+assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click must expose one shared snapshot to the agent fleet');
+assert.match(moduleText, /runFleet\(state,\{web,candidate,marketSnapshot:window\.__fpMarketSnapshot\}\)/, 'the agent fleet must receive the same validated snapshot');
+assert.match(moduleText, /state\.forecastLedger\.unshift\(forecastRecord\)/, 'completed runs must append a forecast ledger record');
+assert.match(moduleText, /BLOCKED_UNVERIFIED_DATA/, 'unverified market data must be explicitly blocked in the forecast ledger');
+assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
+assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
-console.log('one-click-pipeline: 31 contract checks passed');
+console.log('one-click-pipeline: 43 contract checks passed');

@@ -69,9 +69,11 @@ jobs:
       - name: Production health and search smoke test
         run: |
           set -e
-          curl -fsS --max-time 20 https://finpilot-ai-8wn6.onrender.com/api/health | tee /tmp/prod-health.json
+          # Render free instances can be cold-starting or rolling over during this check.
+          # Retry transient gateway timeouts, but still fail if health/search never recover.
+          curl --retry 4 --retry-delay 4 --retry-all-errors --connect-timeout 5 --max-time 18 -fsS https://finpilot-ai-8wn6.onrender.com/api/health | tee /tmp/prod-health.json
           grep -q '"ok":true' /tmp/prod-health.json
-          curl -fsS --max-time 20 --get --data-urlencode "q=IRFC" --data-urlencode "count=3" https://finpilot-ai-8wn6.onrender.com/api/search | tee /tmp/prod-search.json
+          curl --retry 4 --retry-delay 4 --retry-all-errors --connect-timeout 5 --max-time 18 -fsS --get --data-urlencode "q=IRFC" --data-urlencode "count=3" https://finpilot-ai-8wn6.onrender.com/api/search | tee /tmp/prod-search.json
           grep -q '"live":true' /tmp/prod-search.json
           grep -q '"results":' /tmp/prod-search.json
           echo "Production FinPilot health + live search passed"

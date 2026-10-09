@@ -8,6 +8,7 @@ import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
+import {buildMarketSnapshot} from './market-snapshot.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -870,6 +871,32 @@ async function marketDataStream(req,res,u){
  req.on('close',()=>{closed=true;clearInterval(timer);clearInterval(heartbeat);});
 }
 
+async function marketSnapshotRoute(req,res,u){
+ const ticker=String(u.searchParams.get('ticker')||'').trim().toUpperCase();
+ const interval=String(u.searchParams.get('interval')||'1h');
+ if(!ticker)return send(res,400,{ok:false,error:'TICKER_REQUIRED'});
+ const innerUrl=new URL('http://finpilot.local/api/stock-report');
+ innerUrl.searchParams.set('ticker',ticker);
+ innerUrl.searchParams.set('interval',interval);
+ innerUrl.searchParams.set('multi',u.searchParams.get('multi')==='0'?'0':'1');
+ let statusCode=500,bodyText='';
+ const capture={req,writeHead(code){statusCode=code;},end(value){bodyText=String(value||'');}};
+ await stockReport(req,capture,innerUrl);
+ let payload={};
+ try{payload=JSON.parse(bodyText||'{}');}catch{}
+ const capturedAt=new Date().toISOString();
+ const snapshot=buildMarketSnapshot(payload?.report||null,{requestedTicker:ticker,interval,capturedAt});
+ // Keep the endpoint envelope inspectable even if the provider failed: clients still receive
+ // an explicit UNAVAILABLE snapshot instead of having to infer failure from a blank response.
+ return send(res,200,{
+   ok:Boolean(payload?.ok&&payload?.report),
+   report:payload?.report||null,
+   snapshot,
+   error:payload?.error||null,
+   warning:payload?.warning||null,
+   providerHttpStatus:statusCode
+ });
+}
 async function stockReport(req,res,u){
  const t=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
@@ -1339,6 +1366,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/market-snapshot')return marketSnapshotRoute(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-data-stream')return marketDataStream(req,res,u);

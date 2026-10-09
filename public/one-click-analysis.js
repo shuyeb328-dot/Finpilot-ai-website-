@@ -370,6 +370,45 @@
     throw new Error('Search engine is still loading. Please try again in a moment.');
   }
 
+  function createForecastLedgerRecord({snapshot,candidate,decision,money,chartAnalysis}={}){
+    const createdAt=new Date().toISOString();
+    const horizonDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
+    const probability=value=>{const n=Number(value);return Number.isFinite(n)&&n>=0&&n<=100?n:null;};
+    const price=value=>{const n=Number(value);return Number.isFinite(n)&&n>0?n:null;};
+    const eligible=snapshot?.quality?.forecastEligible===true&&price(snapshot?.quote?.price)!==null;
+    const id='fc_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,9);
+    return {
+      schemaVersion:1,
+      forecastId:id,
+      createdAt,
+      dueAt:new Date(Date.now()+horizonDays*86400000).toISOString(),
+      horizonDays,
+      modelVersion:'finpilot-one-click-baseline-v1',
+      ticker:snapshot?.instrument?.ticker||candidate?.ticker||null,
+      market:snapshot?.instrument?.market||'UNKNOWN',
+      currency:snapshot?.instrument?.currency||'UNKNOWN',
+      marketSnapshotId:snapshot?.snapshotId||null,
+      dataStatus:snapshot?.quality?.status||'UNAVAILABLE',
+      forecastEligible:eligible,
+      forecastStatus:eligible?'PENDING_OUTCOME':'BLOCKED_UNVERIFIED_DATA',
+      referencePrice:price(snapshot?.quote?.price),
+      quoteAsOf:snapshot?.timing?.sourceAsOf||null,
+      probabilitiesCalibrated:false,
+      probabilities:{
+        up:probability(money?.buyProbability),
+        down:probability(money?.sellProbability),
+        hold:probability(money?.holdProbability)
+      },
+      expectedValue:eligible&&Number.isFinite(Number(money?.expectedValue))?Number(money.expectedValue):null,
+      targetPrice:price(chartAnalysis?.target),
+      stopPrice:price(chartAnalysis?.stop),
+      decision:String(decision?.decision||'UNSPECIFIED'),
+      outcome:null,
+      actualReturnPct:null,
+      evaluatedAt:null
+    };
+  }
+
   async function runFullStockAnalysis(query){
     query=String(query||'').trim();
     if(!query){
@@ -425,15 +464,14 @@
         const raw=String(query).trim().toUpperCase();
         if(!/^(?:[A-Z][A-Z0-9]{0,5})(?:\.(?:NS|BO))?$/.test(raw))return null;
         try{
-          const d=await fetchJsonBounded(
-            '/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),
+          return await fetchJsonBounded(
+            '/api/market-snapshot?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),
             {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
             12000,
-            'Market quote request'
+            'Market snapshot request'
           );
-          return d?.ok&&d?.report?d.report:null;
         }catch(e){
-          return null;
+          return {ok:false,report:null,snapshot:null,error:String(e?.message||'Market snapshot unavailable')};
         }
       })();
 
@@ -470,7 +508,9 @@
         }
       }
 
-      let directMarket=await directMarketPromise;
+      const initialMarket=await directMarketPromise;
+      let marketSnapshot=initialMarket?.snapshot||null;
+      let directMarket=initialMarket?.report||null;
       const normalizeTicker=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
       // A short query can match a different instrument on another exchange (for example
       // "SBI" can map to an unrelated US-listed fund while web evidence resolves SBIN).
@@ -479,13 +519,14 @@
         stage('Market symbol mismatch detected — fetching the resolved instrument…');
         try{
           const resolved=await fetchJsonBounded(
-            '/api/stock-report?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
+            '/api/market-snapshot?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
             {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
             12000,
-            'Resolved market quote request'
+            'Resolved market snapshot request'
           );
-          directMarket=resolved?.ok&&resolved?.report?resolved.report:null;
-          if(!directMarket)searchWarning=searchWarning||'The search-resolved instrument quote is unavailable; market-dependent scenarios will be blocked.';
+          marketSnapshot=resolved?.snapshot||null;
+          directMarket=resolved?.report||null;
+          if(!directMarket)searchWarning=searchWarning||resolved?.error||'The search-resolved instrument quote is unavailable; market-dependent scenarios will be blocked.';
         }catch(e){
           directMarket=null;
           searchWarning=searchWarning||String(e?.message||'Resolved instrument quote unavailable');
@@ -506,8 +547,29 @@
         };
       }
 
+      if(candidate?.ticker&&!directMarket){
+        stage('Verifying the resolved ticker and building the shared market snapshot…');
+        try{
+          const resolved=await fetchJsonBounded(
+            '/api/market-snapshot?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
+            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+            12000,
+            'Candidate market snapshot request'
+          );
+          marketSnapshot=resolved?.snapshot||marketSnapshot;
+          directMarket=resolved?.report||null;
+          if(!directMarket)searchWarning=searchWarning||resolved?.error||'Market data unavailable for the resolved candidate.';
+        }catch(e){searchWarning=searchWarning||String(e?.message||'Market snapshot unavailable');}
+      }
+      marketSnapshot=marketSnapshot||null;
+      if(directMarket&&marketSnapshot&&!marketSnapshot?.quality?.forecastEligible){
+        directMarket={...directMarket,live:false};
+        searchWarning=searchWarning||'Market data status '+String(marketSnapshot?.quality?.status||'UNAVAILABLE')+'; forecasts are blocked until the quote is verified.';
+      }
+      window.__fpMarketSnapshot=marketSnapshot?Object.freeze({...marketSnapshot}):null;
+      state.marketSnapshot=window.__fpMarketSnapshot;
       stage('3/6 · Running specialist agents and the Round Table…');
-      window.FinPilotDeepLearning?.runFleet(state,{web,candidate});
+      const agentFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate,marketSnapshot:window.__fpMarketSnapshot})||null;
       // Decision Core's fourth argument is a money-formatting function, not a scenario object.
       // Passing scenarioSafe(...) here shadows the formatter and causes "money is not a function".
       const formatMoney=typeof window.FinPilotBridge?.money==='function'
@@ -526,6 +588,10 @@
         webSignal:core.webSignal,
         executive:core.executive,
         candidate,
+        marketSnapshotId:marketSnapshot?.snapshotId||null,
+        marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',
+        marketForecastEligible:marketSnapshot?.quality?.forecastEligible===true,
+        agentFleet,
         time:new Date().toISOString()
       };
 
@@ -539,23 +605,9 @@
       state.memory.push({title:'One-click full stock analysis',text:query+': '+decision.decision,time:new Date().toLocaleTimeString()});
       save();
 
-      stage('4/6 · Validating market data and loading the chart…');
+      stage('4/6 · Validating the shared snapshot and loading the chart…');
       let marketReport=directMarket;
-      if(!marketReport&&candidate?.ticker){
-        try{
-          const md=await fetchJsonBounded(
-            '/api/stock-report?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
-            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
-            12000,
-            'Chart data request'
-          );
-          if(md?.ok&&md?.report)marketReport=md.report;
-          else searchWarning=searchWarning||(md?.error||'Market chart data is unavailable');
-        }catch(e){
-          searchWarning=searchWarning||String(e?.message||'Chart data unavailable');
-        }
-      }
-
+      if(marketReport&&marketSnapshot&&!marketSnapshot.quality?.forecastEligible)marketReport={...marketReport,live:false};
       const reportTicker=String(marketReport?.ticker||marketReport?.symbol||'').trim().toUpperCase();
       const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
       if(marketReport&&candidateTicker&&reportTicker&&reportTicker!==candidateTicker){
@@ -564,7 +616,16 @@
       }
       const finalMoney=scenarioSafe({...decision,marketReport});
       decision.marketReport=marketReport;
+      decision.marketSnapshotId=marketSnapshot?.snapshotId||null;
       decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
+      const forecastRecord=createForecastLedgerRecord({snapshot:marketSnapshot,candidate,decision,money:finalMoney,chartAnalysis:decision.chartAnalysis});
+      decision.forecastRecordId=forecastRecord.forecastId;
+      state.forecastLedger=Array.isArray(state.forecastLedger)?state.forecastLedger:[];
+      state.forecastLedger.unshift(forecastRecord);
+      state.forecastLedger=state.forecastLedger.slice(0,200);
+      state.lastForecastRecordId=forecastRecord.forecastId;
+      state.marketSnapshot=marketSnapshot||null;
+      save();
 
       stage('5/6 · Reconciling CEO, CFO, Judge and risk gates…');
       const report={...decision,agentCount:cycle.enabled.length,paper};
