@@ -121,7 +121,8 @@ function searchCacheKey(q,count,requested){
   Boolean(process.env.BRAVE_SEARCH_API_KEY),Boolean(process.env.TAVILY_API_KEY),
   Boolean(process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)
  ].map(x=>x?'1':'0').join('');
- return [requested,q.toLowerCase().replace(/\s+/g,' ').trim(),count,providers].join('|');
+ const paidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true'?'paid-fallback-on':'paid-fallback-off';
+ return [requested,paidFallback,q.toLowerCase().replace(/\s+/g,' ').trim(),count,providers].join('|');
 }
 function trimSearchCache(){
  const now=Date.now();
