@@ -538,7 +538,7 @@
       statusTitle='Forecast issuance blocked';
       statusText='No price-direction probabilities were issued on the last run because market verification did not pass: '+(Array.isArray(last.reasons)?last.reasons.join(', '):'VERIFIED_PROVIDER_SNAPSHOT_REQUIRED')+'.';
     }
-    const briers=agents.filter(a=>Number.isFinite(Number(a.brier))).map(a=>Number(a.brier));
+    const briers=agents.filter(a=>a.brier!==null&&a.brier!==undefined&&Number.isFinite(Number(a.brier))).map(a=>Number(a.brier));
     const avgBrier=briers.length?briers.reduce((n,x)=>n+x,0)/briers.length:null;
     const rows=agents.map(a=>{
       const f=a.latestForecast,p=f?.probabilities;
@@ -612,7 +612,7 @@
         if(!script){
           script=document.createElement('script');
           script.id='finpilotDeepLearningReload';
-          script.src='/deep-learning-os.js?v=20261010-4';
+          script.src='/deep-learning-os.js?v=20261010-5';
           script.async=false;
           document.head.appendChild(script);
         }
