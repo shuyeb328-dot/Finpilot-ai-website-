@@ -294,7 +294,7 @@
           <span class="pill low">COMPLETE</span>
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
-          <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?(candidate.method==='Live market scan'?'SCAN CANDIDATE':candidate.confidence+'% CONFIDENCE'):'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
@@ -526,7 +526,7 @@
             candidate={
               ticker:top.ticker,
               name:top.name,
-              confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),
+              confidence:0,
               score:top.score,
               evidenceMentions:0,
               positive:Number(top.changePct||0)>0?1:0,
