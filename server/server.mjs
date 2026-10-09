@@ -1153,6 +1153,18 @@ async function marketDataStream(req,res,u){
  res.on('close',close);
 }
 
+function gateMarketReport(report,ticker,interval,capturedAt=new Date().toISOString()){
+ const snapshot=buildMarketSnapshot(report||null,{requestedTicker:ticker,interval,capturedAt,maxAgeMs:EXECUTION_FRESHNESS_MS});
+ const upstreamAllowed=report&&report.executionEligible!==false;
+ const eligible=Boolean(upstreamAllowed&&snapshot.quality.forecastEligible);
+ const reasons=[...snapshot.quality.reasons];
+ if(report?.executionEligible===false)reasons.unshift('UPSTREAM_EXECUTION_GATE_BLOCKED');
+ return {...(report||{}),executionEligible:eligible,executionGate:{
+  eligible,status:snapshot.quality.status,reasons,
+  sourceTimestampType:report?.sourceTimestampType||'UNKNOWN_TIMESTAMP',
+  sourceAgeMs:snapshot.timing.ageMs,maxAgeMs:snapshot.timing.maxAgeMs,checkedAt:capturedAt
+ }};
+}
 async function marketSnapshotRoute(req,res,u){
  const ticker=String(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=String(u.searchParams.get('interval')||'1h');
@@ -1167,44 +1179,59 @@ async function marketSnapshotRoute(req,res,u){
  let payload={};
  try{payload=JSON.parse(bodyText||'{}');}catch{}
  const capturedAt=new Date().toISOString();
- const snapshot=buildMarketSnapshot(payload?.report||null,{requestedTicker:ticker,interval,capturedAt});
- // Keep the endpoint envelope inspectable even if the provider failed: clients still receive
- // an explicit UNAVAILABLE snapshot instead of having to infer failure from a blank response.
+ const gatedReport=payload?.report?gateMarketReport(payload.report,ticker,interval,capturedAt):null;
+ const snapshot=buildMarketSnapshot(gatedReport||null,{requestedTicker:ticker,interval,capturedAt,maxAgeMs:EXECUTION_FRESHNESS_MS});
+ const eligible=Boolean(gatedReport?.executionEligible&&snapshot.quality.forecastEligible);
+ const reasons=[...snapshot.quality.reasons];
+ if(gatedReport?.executionEligible===false&&!reasons.includes('UPSTREAM_EXECUTION_GATE_BLOCKED'))reasons.unshift('UPSTREAM_EXECUTION_GATE_BLOCKED');
+ const report=gatedReport?{...gatedReport,executionEligible:eligible,executionGate:{...gatedReport.executionGate,eligible,status:snapshot.quality.status,reasons}}:null;
  return send(res,200,{
-   ok:Boolean(payload?.ok&&payload?.report),
-   report:payload?.report||null,
-   snapshot,
-   error:payload?.error||null,
-   warning:payload?.warning||null,
-   providerHttpStatus:statusCode
+  ok:Boolean(payload?.ok&&report),
+  report,snapshot,executionEligible:eligible,
+  executionDecision:eligible?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION',
+  eligibilityReasons:reasons,
+  error:payload?.error||null,warning:payload?.warning||null,providerHttpStatus:statusCode
  });
 }
 async function stockReport(req,res,u){
  const t=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
  const multi=u.searchParams.get('multi')!=='0';
- const cacheKey=`stock:${t}:${interval}:${multi}`;
+ const cacheKey=\`stock:\${t}:\${interval}:\${multi}\`;
  try{
-   const hit=getCached(cacheKey); if(hit) return send(res,200,{...hit,cached:true});
-   if(CRYPTO_ASSETS[t]){
-     const report=await liveCrypto(t,interval,multi);
-     const payload={ok:true,report};
-     if(Array.isArray(report?.candles)&&report.candles.length>1) cached(cacheKey,payload);
-     return send(res,200,payload);
+  const hit=getCached(cacheKey);
+  if(hit){
+   const report=hit.report?gateMarketReport(hit.report,t,interval):null;
+   return send(res,200,{...hit,report,executionEligible:Boolean(report?.executionEligible),executionGate:report?.executionGate||{eligible:false,status:'UNAVAILABLE',reasons:['NO_MARKET_REPORT']},cached:true});
+  }
+  if(CRYPTO_ASSETS[t]){
+   const sourceReport=await liveCrypto(t,interval,multi);
+   const report=gateMarketReport(sourceReport,t,interval);
+   const payload={ok:true,report,executionEligible:report.executionEligible,executionGate:report.executionGate};
+   if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
+   return send(res,200,payload);
+  }
+  try{
+   const sourceReport=await liveEquity(t);
+   const report=gateMarketReport(sourceReport,t,interval);
+   const payload={ok:true,report,executionEligible:report.executionEligible,executionGate:report.executionGate};
+   if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
+   return send(res,200,payload);
+  }catch(liveErr){
+   if(t==='SBC'){
+    const sourceReport={...SBC_SERVER,live:false,executionEligible:false,sourceTimestampType:'HISTORICAL_SNAPSHOT',provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'};
+    const report=gateMarketReport(sourceReport,t,interval);
+    return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate});
    }
-   try{
-     const report=await liveEquity(t);
-     const payload={ok:true,report};
-     if(Array.isArray(report?.candles)&&report.candles.length>1) cached(cacheKey,payload);
-     return send(res,200,payload);
-   }catch(liveErr){
-     if(t==='SBC'){
-       const payload={ok:true,report:{...SBC_SERVER,live:false,provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'}};
-       return send(res,200,payload);
-     }
-     throw liveErr;
-   }
- }catch(e){ if(t==='BTC'||t==='BTCUSDT') return send(res,200,{ok:true,report:btcFallback(),warning:e.message}); return send(res,502,{ok:false,error:`Live market provider unavailable for ${t}: ${e.message}`}); }
+   throw liveErr;
+  }
+ }catch(e){
+  if(t==='BTC'||t==='BTCUSDT'){
+   const report=gateMarketReport(btcFallback(e.message),t,interval);
+   return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:e.message});
+  }
+  return send(res,502,{ok:false,error:\`Live market provider unavailable for \${t}: \${e.message}\`,executionEligible:false});
+ }
 }
 const SBC_SERVER={ticker:'SBC',name:'SBC Exports Ltd.',exchange:'NSE',asOf:'2026-10-05',price:62.04,previous:58.54,week52High:63.10,week52Low:21.50,support:45.38,rsi:89.96,adx:43.84,vwap20:52.69,vwap50:46.95,volumeMultiple:2.33,pe:77.2,roce:18.4,roe:37.2,riskScore:86,trend:'Strong uptrend',posture:'WATCH / MOMENTUM',conclusion:'Trend and participation are strong, but the evidence set also shows extreme momentum extension and valuation risk. The engine therefore prioritizes confirmation and risk control over chasing strength.',targets:[{label:'Immediate breakout zone',price:63.10,logic:'52-week high; sustained acceptance above it would indicate price discovery.'},{label:'Extension checkpoint',price:66.00,logic:'Illustrative scenario level above the prior high; requires fresh evidence and volume confirmation.'},{label:'Deeper value / reset zone',price:52.69,logic:'20-day VWAP; loss of this zone would weaken the short-term momentum thesis.'}],risks:[{label:'Momentum exhaustion',level:'HIGH'},{label:'Valuation / expectation risk',level:'HIGH'},{label:'Pullback to VWAP',level:'MEDIUM'},{label:'Trend breakdown',level:'MEDIUM'}],sources:[{name:'NSE',url:'https://www.nseindia.com/get-quotes/equity?symbol=SBC',use:'Price, range, volume and market statistics',freshness:'5 Oct 2026 snapshot'},{name:'Screener',url:'https://www.screener.in/company/SBC/',use:'Valuation and return metrics',freshness:'5 Oct 2026 snapshot'},{name:'Flash Finance',url:'https://flashfinance.in/technical-analysis/SBC/',use:'RSI, ADX, VWAP and momentum context',freshness:'5 Oct 2026 snapshot'}]};
 
