@@ -1,5 +1,15 @@
 const COOLDOWNS=new Map();
 
+function normalizeProviderKey(source){
+ const key=String(source||'provider').trim().toLowerCase();
+ // Provider modules may use different labels for the same upstream API.
+ // Share one cooldown so aliases cannot continue hammering a blocked vendor.
+ if(key==='binance'||key.startsWith('binance-')||key.startsWith('binance '))return 'binance';
+ if(key==='kraken'||key.startsWith('kraken-')||key.startsWith('kraken '))return 'kraken';
+ if(key==='coinbase'||key.startsWith('coinbase-')||key.startsWith('coinbase '))return 'coinbase';
+ return key;
+}
+
 function classifyCooldown(error){
  const message=String(error?.message||error||'').toUpperCase();
  if(/HTTP[_ ]?418|HTTP[_ ]?429|\b418\b|\b429\b|RATE.?LIMIT|TOO MANY REQUESTS|IP.?BAN|TEMPORARILY BLOCKED/.test(message)){
@@ -10,7 +20,7 @@ function classifyCooldown(error){
 }
 
 export function recordProviderFailure(source,error,now=Date.now()){
- const key=String(source||'provider').trim().toLowerCase();
+ const key=normalizeProviderKey(source);
  const policy=classifyCooldown(error);
  if(!policy)return providerCooldownStatus(key,now);
  const previous=COOLDOWNS.get(key);
@@ -22,7 +32,7 @@ export function recordProviderFailure(source,error,now=Date.now()){
 }
 
 export function providerCooldownStatus(source,now=Date.now()){
- const key=String(source||'provider').trim().toLowerCase();
+ const key=normalizeProviderKey(source);
  const state=COOLDOWNS.get(key);
  if(!state)return null;
  const retryAfterMs=Math.max(0,state.untilMs-now);
@@ -35,7 +45,7 @@ export function activeProviderCooldowns(now=Date.now()){
 }
 
 export function recordProviderSuccess(source){
- COOLDOWNS.delete(String(source||'provider').trim().toLowerCase());
+ COOLDOWNS.delete(normalizeProviderKey(source));
 }
 
 export function resetProviderCooldownsForTests(){
