@@ -244,7 +244,7 @@
   }
   function injectMarketChartStyles(){
     if(document.getElementById('fp-market-chart-styles'))return;
-    const s=document.createElement('style');s.id='fp-market-chart-styles';s.textContent='.tv-chart{min-height:360px;border-radius:10px;overflow:hidden;background:#fff}.tradingview-widget-container{font-family:Inter,system-ui,sans-serif}@media(max-width:640px){#live-equity-snapshot .grid.four{grid-template-columns:1fr 1fr!important}.tv-chart{min-height:330px}}';document.head.appendChild(s);
+    const s=document.createElement('style');s.id='fp-market-chart-styles';s.textContent='.tv-chart{min-height:280px;height:280px;border-radius:10px;overflow:hidden;background:#0b1728}.tv-fallback-wrap{min-width:0;max-width:100%;overflow:hidden}.tradingview-widget-container{font-family:Inter,system-ui,sans-serif;max-width:100%}#oneClickAnalysis{min-width:0;max-width:100%;overflow-wrap:anywhere}#oneClickAnalysis .grid.cards{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px}#oneClickAnalysis .card{min-width:0}#oneClickAnalysis svg{max-width:100%}@media(max-width:640px){#live-equity-snapshot .grid.four{grid-template-columns:1fr 1fr!important}.tv-chart{min-height:240px;height:240px}#oneClickAnalysis .sectionTitle{align-items:flex-start;flex-wrap:wrap}#oneClickAnalysis .grid.cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}#oneClickAnalysis .metric{overflow-wrap:anywhere}#q5-launch{bottom:74px!important;right:10px!important;z-index:900!important}}';document.head.appendChild(s);
   }
   function detectChartPattern(ca){
     const candles=Array.isArray(ca?.candles)?ca.candles.filter(x=>Number.isFinite(Number(x?.close))):[];
@@ -531,7 +531,7 @@
               positive:Number(top.changePct||0)>0?1:0,
               negative:Number(top.changePct||0)<0?1:0,
               method:'Live market scan',
-              reason:'Top scan score '+Number(top.score||0)+'/100; session move '+Number(top.changePct||0).toFixed(2)+'%; RSI '+Number(top.rsi||0).toFixed(1)+'.',
+              reason:'Top-ranked candidate in FinPilot’s available market scan (score '+Number(top.score||0)+'/100; reported session move '+Number(top.changePct||0).toFixed(2)+'%). This is not proof it is the best trade today.',
               disclaimer:picks.disclaimer||'Market-scan candidate; verify current broker/exchange data.'
             };
           }
