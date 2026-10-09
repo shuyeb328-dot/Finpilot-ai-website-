@@ -198,12 +198,12 @@ assert.match(pageText, /syncCoreBrainEvidence\(d\);/, 'server evidence sync must
 assert.match(pageText, /retrievalStatus:retrieved\?'RETRIEVED':'SNIPPET_ONLY'/, 'retrieved article text must remain distinct from search snippets in the server ledger');
 assert.match(serverText, /engine:'evidence-fusion-v4500'/, 'Core Brain evidence ledger must report normalized, deduplicated evidence telemetry');
 assert.match(serverText, /unknownTimestampEvidence:EVIDENCE_LEDGER\.filter/, 'evidence status must report unknown publication timestamps rather than silently calling them fresh');
-assert.match(serverText, /remember\(name,\{decision:recommendation,lesson:challenge\}\)/, 'actual deterministic agent runs must contribute to agent memory telemetry');
+assert.match(serverText, /remember\(name,\{source:'SERVER_EXECUTED',decision:recommendation,lesson:challenge\}\)/, 'deterministic server agent runs must be marked server-executed in telemetry');
 assert.match(serverText, /AGENT_MEMORY\.size>=100/, 'agent-memory telemetry must have a bounded number of agent buckets');
 
 
 assert.match(serverText, /const names=supplied\.slice\(0,12\)\.map\(name=>clean\(name,64\)\|\|'Unknown'\)/, 'parallel agent batches must cap agent count and normalize names before scheduling');
-assert.match(serverText, /remember\(name,\{decision:stance,lesson:view\}\)/, 'actual parallel agent runs must be reflected in memory telemetry');
+assert.match(serverText, /remember\(name,\{source:'SERVER_EXECUTED',decision:stance,lesson:view\}\)/, 'parallel server agent runs must be marked server-executed in telemetry');
 assert.match(serverText, /durable training or persistent memory/, 'agent memory must be described honestly as process-memory telemetry until durable storage is connected');
 
 
