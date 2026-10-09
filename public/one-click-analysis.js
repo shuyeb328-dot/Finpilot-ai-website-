@@ -458,8 +458,12 @@
 
       stage('3/6 · Running specialist agents and the Round Table…');
       window.FinPilotDeepLearning?.runFleet(state,{web,candidate});
-      const preMoney=scenarioSafe({risk:50,confidence:50,webSignal:web,candidate});
-      const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,preMoney,sourceAge);
+      // Decision Core's fourth argument is a money-formatting function, not a scenario object.
+      // Passing scenarioSafe(...) here shadows the formatter and causes "money is not a function".
+      const formatMoney=typeof window.FinPilotBridge?.money==='function'
+        ? window.FinPilotBridge.money
+        : (value)=>'₹'+(Number(value)||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,formatMoney,sourceAge);
       const decision={
         decision:core.decision,
         summary:core.summary,
