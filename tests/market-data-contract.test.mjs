@@ -29,4 +29,10 @@ assert.match(server, /storeMarketTick\(tick\)/, 'the shared server poll should i
 assert.match(server, /FINPILOT_MARKET_CACHE_MS\|\|15000/);
 assert.match(server, /FINPILOT_YAHOO_COOLDOWN_MS\|\|60000/);
 
+
+assert.match(server,/fetchTejHqEod\(t,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Indian equity EOD fallback must be restricted to Indian symbols');
+assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED/,'EOD fallback must announce that live quotes were unavailable');
+assert.match(server,/fetchTejHqEod\(raw,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Market Data OS may expose EOD context only as a fallback');
+assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
+
 console.log('Market data stream contract checks passed.');
