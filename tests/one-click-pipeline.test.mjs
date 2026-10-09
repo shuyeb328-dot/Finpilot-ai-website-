@@ -41,6 +41,9 @@ assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fal
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
 assert.match(moduleText, /Exposure gate:/, 'P/L scenario must distinguish hypothetical outcomes from approved exposure');
+assert.match(moduleText, /market\.currency\|\|\(String\(market\.market\|\|''\)\.toUpperCase\(\)==='CRYPTO'\?'USD':'INR'\)/, 'quote display must default to USD for crypto and INR for equities');
+assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback must use Binance symbol rather than NSE symbol');
+assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
 
 console.log('one-click-pipeline: 31 contract checks passed');
