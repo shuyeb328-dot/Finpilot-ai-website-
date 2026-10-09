@@ -1,7 +1,7 @@
 const COOLDOWNS=new Map();
 
 function normalizeProviderKey(source){
- const key=normalizeProviderKey(source);
+ const key=String(source||'provider').trim().toLowerCase();
  // Provider modules may use different labels for the same upstream API.
  // Share one cooldown so aliases cannot continue hammering a blocked vendor.
  if(key==='binance'||key.startsWith('binance-')||key.startsWith('binance '))return 'binance';
