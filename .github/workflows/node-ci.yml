@@ -65,8 +65,14 @@ jobs:
           curl -fsS http://127.0.0.1:8787/api/core-status | grep -q '"ok":true'
           curl -fsS http://127.0.0.1:8787/api/compliance | grep -q '"jurisdiction":"India"'
           curl -fsS "http://127.0.0.1:8787/api/stock-report?ticker=SBC" | grep -q '"ticker":"SBC"'
-          echo "FinPilot server smoke test passed"
+          curl -fsS --get --data-urlencode "ticker=SBC" --data-urlencode "interval=1h" --data-urlencode "multi=0" http://127.0.0.1:8787/api/market-snapshot > /tmp/market-snapshot.json
+          node --input-type=module -e "import fs from 'node:fs'; const d=JSON.parse(fs.readFileSync('/tmp/market-snapshot.json','utf8')); if(!d.snapshot?.snapshotId||!d.snapshot?.quality?.status) throw new Error('market snapshot contract missing'); if(d.snapshot.quality.forecastEligible && !d.report?.live) throw new Error('snapshot eligibility disagrees with live quote'); console.log('Market snapshot API smoke test passed:',d.snapshot.quality.status)"
+          curl -fsS -D /tmp/local-page-headers -o /dev/null http://127.0.0.1:8787/
+          grep -qi 'Content-Security-Policy:.*script-src.*s3.tradingview.com' /tmp/local-page-headers
+          grep -qi 'Content-Security-Policy:.*frame-src.*www.tradingview.com' /tmp/local-page-headers
+          echo "FinPilot server, market snapshot, and chart policy smoke tests passed"
       - name: Production health and search smoke test
+        if: github.event_name != 'pull_request'
         run: |
           set -e
           # Render free instances can be cold-starting or rolling over during this check.
@@ -76,7 +82,12 @@ jobs:
           curl --retry 4 --retry-delay 4 --retry-all-errors --connect-timeout 5 --max-time 18 -fsS --get --data-urlencode "q=IRFC" --data-urlencode "count=3" https://finpilot-ai-8wn6.onrender.com/api/search | tee /tmp/prod-search.json
           grep -q '"live":true' /tmp/prod-search.json
           grep -q '"results":' /tmp/prod-search.json
-          echo "Production FinPilot health + live search passed"
+          curl --retry 4 --retry-delay 4 --retry-all-errors --connect-timeout 5 --max-time 18 -fsS --get --data-urlencode "ticker=SBC" --data-urlencode "interval=1h" --data-urlencode "multi=0" https://finpilot-ai-8wn6.onrender.com/api/market-snapshot > /tmp/prod-market-snapshot.json
+          node --input-type=module -e "import fs from 'node:fs'; const d=JSON.parse(fs.readFileSync('/tmp/prod-market-snapshot.json','utf8')); if(!d.snapshot?.snapshotId||!d.snapshot?.quality?.status) throw new Error('production market snapshot contract missing'); if(d.snapshot.quality.forecastEligible && !d.report?.live) throw new Error('production snapshot allowed a non-live quote'); console.log('Production market snapshot passed:',d.snapshot.quality.status)"
+          curl --retry 4 --retry-delay 4 --retry-all-errors --connect-timeout 5 --max-time 18 -fsS -D /tmp/prod-page-headers -o /dev/null https://finpilot-ai-8wn6.onrender.com/
+          grep -qi 'Content-Security-Policy:.*script-src.*s3.tradingview.com' /tmp/prod-page-headers
+          grep -qi 'Content-Security-Policy:.*frame-src.*www.tradingview.com' /tmp/prod-page-headers
+          echo "Production health, search, market snapshot, and chart policy smoke tests passed"
       - name: Live Internet Search smoke test
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
