@@ -559,6 +559,38 @@
     };
   }
 
+  function syncClientAgentTelemetry(agentFleet,candidate,marketSnapshot){
+    if(!agentFleet||typeof agentFleet!=='object'||Array.isArray(agentFleet))return;
+    const agents=Object.entries(agentFleet).slice(0,12).map(([agent,row])=>({
+      agent:String(agent).slice(0,64),
+      lesson:[
+        'Browser-side deterministic specialist output; client-reported and not server-verified.',
+        'score='+String(Number.isFinite(Number(row?.score))?Number(row.score):'unknown'),
+        'confidence='+String(Number.isFinite(Number(row?.confidence))?Number(row.confidence):'unknown'),
+        'marketDataStatus='+String(row?.marketDataStatus||'UNKNOWN').slice(0,48),
+        'candidate='+String(candidate?.ticker||'UNRESOLVED').slice(0,32),
+        'snapshot='+String(row?.marketSnapshotId||marketSnapshot?.snapshotId||'NONE').slice(0,48)
+      ].join('; ').slice(0,580)
+    }));
+    if(!agents.length)return;
+    fetch('/api/agent-memory',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({source:'CLIENT_REPORTED_UNVERIFIED',agents}),
+      keepalive:true
+    }).then(async response=>{
+      let result=null;try{result=await response.json()}catch{}
+      if(!response.ok||!result?.ok)throw new Error('agent telemetry sync rejected');
+      window.__finpilotAgentTelemetryStatus={
+        ok:true,source:'CLIENT_REPORTED_UNVERIFIED',recorded:Number(result.recorded||0),
+        warning:String(result.warning||'Client-reported telemetry only'),
+        updatedAt:new Date().toISOString()
+      };
+    }).catch(()=>{
+      window.__finpilotAgentTelemetryStatus={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',updatedAt:new Date().toISOString()};
+    });
+  }
+
   async function runFullStockAnalysis(query){
     query=String(query||'').trim();
     if(!query){
@@ -858,6 +890,10 @@
       state.marketSnapshot=window.__fpMarketSnapshot;
       stage('3/6 · Running specialist agents and the Round Table…');
       const agentFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate,marketSnapshot:window.__fpMarketSnapshot})||null;
+      // The fleet runs in the browser. Send bounded diagnostic summaries to the
+      // server only as client-reported telemetry; this is not server execution,
+      // validated training, an outcome label, or persistent memory.
+      syncClientAgentTelemetry(agentFleet,candidate,window.__fpMarketSnapshot);
       // Decision Core's fourth argument is a money-formatting function, not a scenario object.
       // Passing scenarioSafe(...) here shadows the formatter and causes "money is not a function".
       const formatMoney=typeof window.FinPilotBridge?.money==='function'
