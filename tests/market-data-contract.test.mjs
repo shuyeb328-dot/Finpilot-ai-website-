@@ -8,7 +8,9 @@ const nasdaqEod = fs.readFileSync(new URL('../server/nasdaq-eod.mjs', import.met
 assert.match(frontend, /\/api\/market-data-stream\?ticker=/, 'frontend should connect to the market-data stream endpoint');
 assert.doesNotMatch(frontend, /new EventSource\('\/api\/market-stream\?ticker=/, 'frontend should not use the legacy crypto-only stream');
 assert.match(frontend, /d\.verified&&d\.status==='LIVE'/, 'stream data must be verified and LIVE before being shown as live');
-assert.match(frontend, /x\.live===true&&x\.executionEligible!==false&&asOf&&Number\.isFinite\(Date\.parse\(asOf\)\)/, 'fallback report must require explicit freshness, execution eligibility, and a valid timestamp before LIVE status');
+assert.match(frontend, /x\.live===true&&x\.executionEligible===true&&String\(x\.sourceTimestampType\|\|x\.timestampType\|\|''\)\.toUpperCase\(\)==='PROVIDER_TIMESTAMP'/, 'fallback report must require explicit execution eligibility and provider timestamp provenance before LIVE status');
+assert.match(frontend, /quoteAge>=-30000&&quoteAge<=90000/, 'fallback report must reject future-dated and stale quotes');
+assert.match(frontend, /d\.executionEligible===true&&providerTime/, 'dashboard freshness labels must share the strict execution gate');
 assert.match(frontend, /END-OF-DAY · ANALYSIS ONLY/, 'historical EOD fallback must be labelled analysis-only');
 assert.match(frontend, /STALE · DO NOT TRADE/, 'stale or unknown market data must be visibly blocked from trading');
 assert.match(frontend, /DELAYED · ANALYSIS ONLY/, 'delayed market data must be labelled analysis-only');
