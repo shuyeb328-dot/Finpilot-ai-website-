@@ -11,6 +11,7 @@ import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
+import {fetchNasdaqEod} from './nasdaq-eod.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -795,28 +796,8 @@ async function fetchGlobalProviderQuote(symbol){
   if(rows.length<2)throw new Error('FMP insufficient candles');
   return {rows,provider:'Financial Modeling Prep · free-tier/API key',live:false};
  });
- // Keyless Stooq EOD is an independent, no-cost analysis fallback.
- // It is never considered live or execution-eligible; symbol coverage varies by exchange.
- addProvider('stooq-public',async()=>{
-  const raw=String(symbol).trim().toLowerCase();
-  const candidates=/\.(us|uk|de|fr|jp|hk|ca|au)$/.test(raw)?[raw]:[/^[a-z0-9.-]+$/.test(raw)?raw+'.us':raw,raw];
-  let lastError='Stooq public EOD unavailable';
-  for(const stooqSymbol of [...new Set(candidates)]){
-   try{
-    const u='https://stooq.com/q/d/l/?s='+encodeURIComponent(stooqSymbol)+'&i=d';
-    const r=await fetch(u,{headers:{'Accept':'text/csv','User-Agent':'FinPilot/8.6 market-data adapter'},signal:AbortSignal.timeout(8000)});
-    const txt=await r.text();
-    if(!r.ok||/^N\/D|Exceeded|<html/i.test(txt))throw new Error('Stooq public HTTP/data unavailable');
-    const lines=txt.trim().split(/\r?\n/);
-    if(lines.length<3)throw new Error('Stooq public EOD insufficient candles');
-    const head=lines.shift().split(',').map(x=>x.trim().toLowerCase());
-    const rows=lines.map(line=>{const v=line.split(',');const o=Object.fromEntries(head.map((k,i)=>[k,v[i]]));return {time:new Date(o.date+'T00:00:00Z').toISOString(),open:Number(o.open),high:Number(o.high),low:Number(o.low),close:Number(o.close),volume:Number(o.volume||0)}}).filter(x=>Number.isFinite(Date.parse(x.time))&&[x.open,x.high,x.low,x.close].every(v=>Number.isFinite(v)&&v>0));
-    if(rows.length<2)throw new Error('Stooq public EOD insufficient valid candles');
-    return {rows,provider:'Stooq public EOD · no API key · analysis only',live:false};
-   }catch(e){lastError=String(e?.message||e)}
-  }
-  throw new Error(lastError);
- });
+ // Keyless Nasdaq daily history is a US-equity fallback only; always analysis-only.
+ if(/^[A-Z0-9-]{1,10}$/.test(String(symbol).trim().toUpperCase()))addProvider('nasdaq-public',async()=>fetchNasdaqEod(symbol));
  const sq=process.env.STOOQ_API_KEY;
  if(sq)addProvider('stooq',async()=>{
   const stooqSymbol=String(symbol).toLowerCase();
@@ -843,7 +824,7 @@ function recordProviderResult(id,ok,error=null){
  const now=Date.now();
  if(ok){p.requests++;p.success++;p.lastSuccess=new Date(now).toISOString();p.lastError=null;p.cooldownUntil=0;}
  else{p.requests++;p.failures++;p.lastFailure=new Date(now).toISOString();p.lastError=String(error||'PROVIDER_FAILED').slice(0,300);
-   if(/429|rate.?limit|too many/i.test(p.lastError))p.cooldownUntil=now+60000;
+   if(/429|rate.?limit|too many/i.test(p.lastError))p.cooldownUntil=now+60000;else if(/timeout|abort|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(p.lastError))p.cooldownUntil=now+30000;
  }
  MARKET_PROVIDER_HEALTH.set(id,p);
  return p;
@@ -933,7 +914,7 @@ function globalProviderStatus(){
   {id:'twelvedata',configured:Boolean(process.env.TWELVEDATA_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities/ETFs',mode:'licensed API key'},
   {id:'finnhub',configured:Boolean(process.env.FINNHUB_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'licensed API key'},
   {id:'alphavantage',configured:Boolean(process.env.ALPHAVANTAGE_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'API key'},
-  {id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback',coverage:'US/global securities subject to Stooq symbol coverage',mode:'public EOD · analysis only'},
+  {id:'nasdaq-public',configured:true,role:'no-key US equity EOD fallback',coverage:'US-listed equities available through Nasdaq historical endpoint',mode:'public EOD · analysis only'},
   {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'},
   {id:'marketstack',configured:Boolean(process.env.MARKETSTACK_API_KEY),role:'global EOD fallback',coverage:'Worldwide exchange/ticker metadata and EOD data',mode:'free tier/API key'},
   {id:'fmp',configured:Boolean(process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY),role:'US/global fallback',coverage:'Market data plus fundamentals where plan permits',mode:'free tier/API key'}
@@ -1107,7 +1088,7 @@ async function liveEquity(ticker){
      const rows=gp.rows,closes=rows.map(x=>x.close),highs=rows.map(x=>x.high),lows=rows.map(x=>x.low),vols=rows.map(x=>x.volume);
      const price=closes.at(-1),prev=closes.at(-2)??price,s20=sma(closes,20),s50=sma(closes,50),rr=rsi(closes),recentHigh=Math.max(...highs.slice(-20)),recentLow=Math.min(...lows.slice(-20)),changePct=prev?((price-prev)/prev)*100:0,momentum=s20?((price/s20)-1)*100:0,avgVol=vols.length?sma(vols,Math.min(20,vols.length)):null,volume=vols.at(-1)??null,volumeRatio=avgVol&&avgVol>0?volume/avgVol:null,score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
      const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED',riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
-     return {ticker:String(ticker).toUpperCase(),symbol,market:'GLOBAL_EQUITY',exchange:'GLOBAL',name:symbol,currency:'',price,previous:prev,changePct,dayHigh:highs.at(-1),dayLow:lows.at(-1),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atr(rows.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*.01,Math.abs(recentHigh-recentLow)/4),support:recentLow,resistance:recentHigh,direction,riskScore,candles:rows,live:false,provider:gp.provider,asOf:new Date().toISOString(),dataFreshness:'daily / may be delayed',dataDisclaimer:'Global provider fallback; verify the exchange or licensed broker quote before acting.'};
+     return {ticker:String(ticker).toUpperCase(),symbol,market:'GLOBAL_EQUITY',exchange:'GLOBAL',name:symbol,currency:'',price,previous:prev,changePct,dayHigh:highs.at(-1),dayLow:lows.at(-1),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atr(rows.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*.01,Math.abs(recentHigh-recentLow)/4),support:recentLow,resistance:recentHigh,direction,riskScore,candles:rows,live:false,executionEligible:false,executionEligibilityReason:gp.executionEligibilityReason||'HISTORICAL_DATA_ANALYSIS_ONLY',sourceTimestampType:gp.sourceTimestampType||'HISTORICAL_EOD',provider:gp.provider,asOf:gp.asOf||rows.at(-1)?.time||null,dataFreshness:gp.dataFreshness||'END_OF_DAY',dataDisclaimer:gp.dataDisclaimer||'Historical global equity data only; verify a live exchange or broker quote before acting.'};
     }catch(globalErr){
      const stale=staleYahooLastGood(symbol);
      if(stale)return stale;
@@ -1298,7 +1279,7 @@ function gateMarketReport(report,ticker,interval,capturedAt=new Date().toISOStri
  const reasons=[...snapshot.quality.reasons];
  const blockReason=report?.executionEligibilityReason||'UPSTREAM_EXECUTION_GATE_BLOCKED';
  if(report?.executionEligible===false)reasons.unshift(blockReason);
- const status=eligible?snapshot.quality.status:report?.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'?'UNTRUSTED_SOURCE':snapshot.quality.status==='VERIFIED_LIVE'?'UPSTREAM_BLOCKED':snapshot.quality.status;
+ const status=eligible?snapshot.quality.status:report?.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'?'UNTRUSTED_SOURCE':report?.executionEligibilityReason==='HISTORICAL_DATA_ANALYSIS_ONLY'?'END_OF_DAY_ANALYSIS_ONLY':snapshot.quality.status==='VERIFIED_LIVE'?'UPSTREAM_BLOCKED':snapshot.quality.status;
  return {...(report||{}),executionEligible:eligible,executionGate:{
   eligible,status,reasons,
   sourceTimestampType:report?.sourceTimestampType||'UNKNOWN_TIMESTAMP',
@@ -1370,6 +1351,11 @@ async function stockReport(req,res,u){
    if(!quoteStale){
     const payload={ok:true,report,executionEligible:report.executionEligible,executionGate:report.executionGate};
     if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
+    return send(res,200,payload);
+   }
+   if(report?.sourceTimestampType==='HISTORICAL_EOD'&&report.live===false&&Array.isArray(report.candles)&&report.candles.length>=2){
+    const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED',dataDisclaimer:report.dataDisclaimer};
+    cached(cacheKey,payload);
     return send(res,200,payload);
    }
    liveErr=new Error('PRIMARY_EQUITY_QUOTE_STALE_OR_NON_LIVE');

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const frontend = fs.readFileSync(new URL('../public/market-data-os.js', import.meta.url), 'utf8');
 const server = fs.readFileSync(new URL('../server/server.mjs', import.meta.url), 'utf8');
+const nasdaqEod = fs.readFileSync(new URL('../server/nasdaq-eod.mjs', import.meta.url), 'utf8');
 
 assert.match(frontend, /\/api\/market-data-stream\?ticker=/, 'frontend should connect to the market-data stream endpoint');
 assert.doesNotMatch(frontend, /new EventSource\('\/api\/market-stream\?ticker=/, 'frontend should not use the legacy crypto-only stream');
@@ -49,10 +50,13 @@ assert.match(server,/primaryAgeMs>EXECUTION_FRESHNESS_MS/,'Market Data OS must t
 assert.match(server,/if\(primary\)quotes\.splice\(quoteCountBeforePrimary\)/,'stale primary quote must not outrank the EOD analysis fallback');
 assert.match(server,/executionReady=Boolean\(verified&&winner\.live!==false/,'EOD fallback must remain execution-ineligible');
 assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
-assert.match(server,/Stooq public EOD · no API key · analysis only/,'independent no-key global EOD source must be explicitly analysis-only');
-assert.match(server,/addProvider\('stooq-public',async\(\)=>\{/,'keyless Stooq source must be registered as an independent provider');
-assert.match(server,/id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback'/,'provider status must expose the keyless source as configured');
-assert.match(server,/for\(const p of providers\)\{try\{return await trackedProvider\(p.id,p.run\)/,'provider cooldown/health tracking must use explicit provider IDs, not array positions');
-assert.match(server,/provider:'Stooq public EOD · no API key · analysis only',live:false/,'keyless EOD provider must never be marked live');
-
+assert.match(nasdaqEod,/Nasdaq public historical data · EOD · analysis only/,'keyless Nasdaq EOD source must be explicitly analysis-only');
+assert.match(server,/addProvider\('nasdaq-public',async\(\)=>fetchNasdaqEod\(symbol\)\)/,'keyless Nasdaq EOD source must be registered with a stable provider ID');
+assert.match(server,/id:'nasdaq-public',configured:true,role:'no-key US equity EOD fallback'/,'provider status must expose the no-key US EOD source');
+assert.match(server,/sourceTimestampType:gp\.sourceTimestampType\|\|'HISTORICAL_EOD'/,'global historical fallback must preserve source-date provenance');
+assert.match(server,/executionEligibilityReason:gp\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical fallback must remain execution-ineligible');
+assert.match(server,/report\?\.sourceTimestampType==='HISTORICAL_EOD'&&report\.live===false/,'valid global EOD context should remain visible when live quotes fail');
+assert.match(server,/END_OF_DAY_ANALYSIS_ONLY/,'historical context must not be labelled VERIFIED_LIVE');
+assert.match(server,/timeout\|abort\|ECONNRESET/,'timeout failures should cool down the provider and reduce duplicate requests');
+assert.match(server,/for\(const p of providers\)\{try\{return await trackedProvider\(p.id,p.run\)/,'provider cooldown/health tracking must use explicit provider IDs');
 console.log('Market data stream contract checks passed.');
