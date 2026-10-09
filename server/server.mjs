@@ -9,7 +9,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
-import {planFinancialTask,getSourceCatalog} from './task-intelligence.mjs';
+import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -388,6 +388,54 @@ async function researchFetch(req,res,u){
   const message=String(e?.message||'Source could not be retrieved').slice(0,220);
   const code=/private|non-public|credential|HTTPS|hostname|invalid|URL|too long/i.test(message)?'SOURCE_URL_REJECTED':/HTTP \d+|not a readable|size limit|too many times/i.test(message)?'SOURCE_BLOCKED_OR_UNSUPPORTED':/timed out/i.test(message)?'SOURCE_TIMEOUT':'SOURCE_UNAVAILABLE';
   return send(res,200,{ok:false,error:code,requestedUrl:key,message:'FinPilot could not safely retrieve this page. Open the source directly; the search snippet remains available.',retrievalStatus:'UNAVAILABLE'});
+ }
+}
+
+async function taskResearch(req,res){
+ const input=await body(req);
+ const plan=planFinancialTask(input||{});
+ const discovery=buildSupplementalDiscovery(plan);
+ try{
+  // Enforce the free-only RSS path even if another search provider is configured.
+  const data=await searchWeb(discovery.query,{count:4,freeOnly:true});
+  const retrievedAt=new Date().toISOString();
+  const results=(Array.isArray(data.results)?data.results:[]).map(x=>({
+   ...x,
+   discoveryQuery:discovery.query,
+   sourceRole:discovery.sourceRole,
+   evidenceType:discovery.evidenceType,
+   assetClass:discovery.assetClass,
+   quoteEligible:false,
+   executionEligible:false,
+   retrievedAt
+  }));
+  return send(res,200,{
+   ok:true,plan,
+   discovery:{
+    ...discovery,
+    provider:data.provider||'google-news-rss',
+    live:data.live===true,
+    cached:data.cached===true,
+    fetchedAt:data.fetchedAt||null,
+    retrievedAt,
+    resultCount:results.length,
+    results,
+    error:null
+   }
+  });
+ }catch(e){
+  return send(res,200,{
+   ok:true,plan,
+   discovery:{
+    ...discovery,
+    provider:'google-news-rss',
+    live:false,cached:false,fetchedAt:null,retrievedAt:new Date().toISOString(),
+    resultCount:0,results:[],
+    error:'SUPPLEMENTAL_SEARCH_UNAVAILABLE',
+    message:String(e?.message||'Free supplemental search unavailable').slice(0,240),
+    externalUrl:'https://www.google.com/search?q='+encodeURIComponent(discovery.query)
+   }
+  });
  }
 }
 
@@ -1780,6 +1828,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
   if(req.method==='GET'&&u.pathname==='/api/research/fetch')return researchFetch(req,res,u);
   if(req.method==='POST'&&u.pathname==='/api/task-intelligence'){await body(req);const plan=planFinancialTask(req._parsedBody||{});return send(res,200,{ok:true,plan,sourceCatalog:getSourceCatalog().map(x=>({id:x.id,name:x.name,tier:x.tier,assetClasses:x.assetClasses,dataTypes:x.dataTypes,liveCapability:x.liveCapability,url:x.url}))});}
+  if(req.method==='POST'&&u.pathname==='/api/task-research')return taskResearch(req,res);
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
