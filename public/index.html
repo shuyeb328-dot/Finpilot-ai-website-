@@ -746,7 +746,14 @@ async function retryResearchSource(index){
   if(updated.retrievalStatus==='RETRIEVED')toast('Article retrieved and added to the Evidence Ledger');else toast('Publisher could not be retrieved; search snippet retained');
  }catch(error){if(retry){retry.disabled=false;retry.textContent='↻ Retry retrieval'}toast('Retrieval failed: '+String(error?.message||'network error').slice(0,100));}
 }
-async function doSearch(q){
+function refreshCurrentSearch(){
+ const input=document.getElementById('searchQuery')||document.getElementById('globalSearch');
+ const q=String(input?.value||window.__lastSearch?.query||'').trim();
+ if(!q){toast('Enter a query before refreshing search');input?.focus();return;}
+ toast('Refreshing free search sources; cached results will be bypassed');
+ doSearch(q,true);
+}
+async function doSearch(q,forceRefresh=false){
  q=String(q||'').trim();if(!q)return;
  const searchSequence=window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
  if(!window.__fpAnalysisRunning){const oldStatus=document.getElementById('fpPipelineStatus');if(oldStatus)oldStatus.remove()}
@@ -755,9 +762,9 @@ async function doSearch(q){
  const box=document.getElementById('searchResults');if(!box)return;
  const btn=document.getElementById('searchOneClick'),hero=document.getElementById('searchHeroRunAll');
  if(btn)btn.disabled=true;if(hero)hero.disabled=true;
- box.innerHTML='<div class="searchLoading"><div class="loaderRing"></div><div><b>FinPilot is searching live sources…</b><div class="muted">Ranking evidence, checking freshness and building the research ledger.</div></div></div>';
+ box.innerHTML='<div class="searchLoading"><div class="loaderRing"></div><div><b>'+(forceRefresh?'Refreshing free search sources…':'FinPilot is searching free sources…')+'</b><div class="muted">'+(forceRefresh?'Cache bypass requested. The provider may still return a fallback if no fresh result is available.':'Ranking evidence, checking freshness and building the research ledger.')+'</div></div></div>';
  try{
-  const d=await fpFetchJson('/api/search?q='+encodeURIComponent(q)+'&count=10',{cache:'no-store'},10000,'Web search');
+  const d=await fpFetchJson('/api/search?q='+encodeURIComponent(q)+'&count=10'+(forceRefresh?'&refresh=1':''),{cache:'no-store'},10000,forceRefresh?'Fresh web search':'Web search');
   if(searchSequence!==window.__fpSearchSequence)return;
   const rawResults=Array.isArray(d.results)?d.results:[];
   const results=await retrieveTopSearchPages(rawResults,searchSequence);
@@ -793,8 +800,8 @@ async function doSearch(q){
   }).join('');
   if(searchSequence!==window.__fpSearchSequence)return;
   window.__lastMarketMatch=marketMatch;
-  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.articleTitle||top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+retrievedCount+'/'+Math.min(2,results.length)+'</b><small>pages retrieved</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div></div>':'';
-  const marketCard=marketMatch?'<div class="searchAnswer marketMatchCard"><div><span class="eyebrow">MARKET MATCH</span><h3>'+esc(marketMatch.name||marketMatch.ticker||q.toUpperCase())+' · '+esc(marketMatch.ticker||q.toUpperCase())+'</h3><p class="muted">Verified FinPilot market record. Latest price: <b>'+((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'₹':'$')+Number(marketMatch.price||0).toLocaleString((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'en-IN':'en-US',{maximumFractionDigits:2})+'</b> · RSI '+Number(marketMatch.rsi||0).toFixed(1)+' · risk '+Number(marketMatch.riskScore||0)+'/100.</p></div><button class="btn primary" type="button">⚡ Analyze this asset</button></div>':'';const emptyNotice=d.fallback==='GOOGLE_SEARCH_BRIDGE'?'<div class="notice"><b>Free search unavailable</b><br>'+esc(d.message||'Open Google Search to continue.')+'</div>':'<div class="notice">No results returned. Try a broader query or use the external search link below.</div>';box.innerHTML=marketCard+summary+(rows||emptyNotice);
+  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.articleTitle||top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+retrievedCount+'/'+Math.min(2,results.length)+'</b><small>pages retrieved</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div><div class="answerActions"><button class="btn" type="button" onclick="refreshCurrentSearch()">↻ Refresh free sources</button></div></div>':'';
+  const marketCard=marketMatch?'<div class="searchAnswer marketMatchCard"><div><span class="eyebrow">MARKET MATCH</span><h3>'+esc(marketMatch.name||marketMatch.ticker||q.toUpperCase())+' · '+esc(marketMatch.ticker||q.toUpperCase())+'</h3><p class="muted">Verified FinPilot market record. Latest price: <b>'+((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'₹':'$')+Number(marketMatch.price||0).toLocaleString((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'en-IN':'en-US',{maximumFractionDigits:2})+'</b> · RSI '+Number(marketMatch.rsi||0).toFixed(1)+' · risk '+Number(marketMatch.riskScore||0)+'/100.</p></div><button class="btn primary" type="button">⚡ Analyze this asset</button></div>':'';const emptyNotice=d.fallback==='GOOGLE_SEARCH_BRIDGE'?'<div class="notice"><b>Free search unavailable</b><br>'+esc(d.message||'Open Google Search to continue.')+'</div>':'<div class="notice">No results returned. Try a broader query or use the external search link below.</div><button class="btn" type="button" onclick="refreshCurrentSearch()">↻ Retry free search</button>';box.innerHTML=marketCard+summary+(rows||emptyNotice);
   window.__fpLastRenderedQuery=q;
   if(marketMatch){const mb=box.querySelector('.searchAnswer button');if(mb)mb.onclick=()=>startOneClickAnalysis(marketMatch.ticker||q);}
   if(!results.length){
