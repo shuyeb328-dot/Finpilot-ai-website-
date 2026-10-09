@@ -108,11 +108,19 @@ function resolveCandidate(query,search,web){
 }
 const FORECAST_HORIZON_DAYS=1;
 const FORECAST_MOVE_THRESHOLD_PCT=0.5;
-const MAX_FORECASTS=1200;
+const MAX_FORECASTS=4000;
 const MIN_PRIOR_OUTCOMES_FOR_SHRINKAGE=30;
 const MIN_CALIBRATION_OUTCOMES=100;
 const CLASS_KEYS=['UP','DOWN','HOLD'];
 const CLASS_PROB_KEYS={UP:'up',DOWN:'down',HOLD:'hold'};
+function marketClassOf(value){
+ const market=String(value||'UNKNOWN').trim().toUpperCase();
+ if(/CRYPTO|DIGITAL_ASSET|DIGITAL_ASSETS/.test(market))return 'CRYPTO';
+ if(/OPTION|FUTURE|DERIVATIVE/.test(market))return 'DERIVATIVES';
+ if(/INDEX|INDICES|BENCHMARK/.test(market))return 'INDEX';
+ if(/EQUITY|STOCK|NYSE|NASDAQ|NSE|BSE/.test(market))return 'EQUITY';
+ return market||'UNKNOWN';
+}
 function normalizeTicker(value){
  return String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/USDT$/,'').replace(/\s+/g,'');
 }
@@ -249,11 +257,12 @@ function settleDueForecasts(s,snapshot,nowMs=Date.now()){
 }
 function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.now(),horizonDays=FORECAST_HORIZON_DAYS){
  const ticker=normalizeTicker(snapshot.instrument?.ticker||snapshot.instrument?.symbol);
+ const market=String(snapshot.instrument?.market||'UNKNOWN');
+ const marketClass=marketClassOf(market);
  const createdAt=new Date(nowMs).toISOString();
  const horizon=Math.max(1,Math.min(30,Math.floor(Number(horizonDays)||FORECAST_HORIZON_DAYS)));
  const dueAt=new Date(nowMs+horizon*86400000).toISOString();
- const key=[snapshot.snapshotId||snapshot.timing?.sourceAsOf,ticker,agentName,horizon].join('|');
- const existing=s.forecasts.find(x=>x.key===key);
+ const existing=s.forecasts.find(x=>x.snapshotId===(snapshot.snapshotId||null)&&normalizeTicker(x.ticker)===ticker&&x.agent===agentName&&Number(x.horizonDays)===horizon);
  if(existing)return existing;
  const history=priorResolved(s,agentName,createdAt);
  const baselineProbabilities=empiricalClassRates(history);
@@ -272,12 +281,12 @@ function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.
  const normalized={up:+(probabilities.up/total*100).toFixed(4),down:+(probabilities.down/total*100).toFixed(4),hold:0};
  normalized.hold=+(100-normalized.up-normalized.down).toFixed(4);
  const metrics=agentForecastMetrics(s,agentName);
- return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),key,agent:agentName,ticker,market:snapshot.instrument?.market||'UNKNOWN',currency:snapshot.instrument?.currency||'UNKNOWN',
+ return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),agent:agentName,ticker,market,marketClass,
   snapshotId:snapshot.snapshotId||null,createdAt,dueAt,horizonDays:horizon,referencePrice:Number(snapshot.quote.price),quoteAsOf:snapshot.timing.sourceAsOf,
   forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,probabilities:normalized,rawProbabilities:raw,
   baselineProbabilities,priorResolvedSampleCount:sampleCount,shrinkageWeight:+shrinkageWeight.toFixed(4),
   forecastMethod:'ROLE_WEIGHTED_RULE_BASELINE_V1',probabilitiesCalibrated:metrics.probabilitiesCalibrated,calibrationStatus:metrics.calibrationStatus,
-  forecastStatus:'PENDING_OUTCOME',outcome:null,actualReturnPct:null,resolvedAt:null};
+  forecastStatus:'PENDING_OUTCOME'};
 }
 function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(),horizonDays=FORECAST_HORIZON_DAYS){
  const eligible=verifiedSnapshot(snapshot,nowMs);
@@ -290,7 +299,7 @@ function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(
  const output={};
  for(const [name,agent] of Object.entries(agentDefs)){
   const forecast=buildAgentForecast(name,agent,featuresValue,snapshot,s,nowMs,horizonDays);
-  const duplicate=s.forecasts.some(x=>x.key===forecast.key);
+  const duplicate=s.forecasts.includes(forecast);
   if(!duplicate){s.forecasts.unshift(forecast);s.forecasts=s.forecasts.slice(0,MAX_FORECASTS);}
   output[name]={status:'PENDING_OUTCOME',forecastId:forecast.id,ticker:forecast.ticker,horizonDays:forecast.horizonDays,
    probabilities:forecast.probabilities,probabilitiesCalibrated:forecast.probabilitiesCalibrated,calibrationStatus:forecast.calibrationStatus,
@@ -304,7 +313,7 @@ function forecastTrainingReport(){
  const agentReports=AGENTS.map(agent=>{
   const stats=agentForecastMetrics(s,agent);
   const latest=s.forecasts.find(x=>x.agent===agent)||null;
-  return {...stats,latestForecast:latest?{ticker:latest.ticker,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
+  return {...stats,latestForecast:latest?{ticker:latest.ticker,market:latest.market,marketClass:latest.marketClass,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
  });
  const forecasts=s.forecasts;
  const resolved=forecasts.filter(x=>x.forecastStatus==='RESOLVED');
