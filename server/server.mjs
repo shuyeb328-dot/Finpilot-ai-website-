@@ -108,6 +108,7 @@ async function agentRun(req,res){
  else if(name==='Risk'){ const months=emergency/Math.max(1,spending); analysis=`Emergency coverage is ${months.toFixed(1)} months.`; challenge='Historical averages can understate a sudden income or expense shock.'; recommendation=months<3?'Strengthen emergency liquidity before increasing financial risk.':'Maintain a dedicated reserve while pursuing long-term goals.'; confidence=91; risk=months<3?'HIGH':'LOW'; }
  else if(name==='Goals'){ analysis='Goal progress should be evaluated against cash-flow capacity and time horizon.'; challenge='A high savings rate can still miss a goal if the target or deadline changes.'; recommendation='Recalculate required contribution and goal probability before accelerating contributions.'; confidence=79; risk='MEDIUM'; }
  else { analysis=`${name} reviewed ${f.length} structured Financial Brain findings.`; challenge='Specialist conclusions may be incomplete without domain-specific evidence.'; recommendation=`Run ${name} again with fresh evidence before any high-impact decision.`; confidence=70; risk='MEDIUM'; }
+ remember(name,{decision:recommendation,lesson:challenge});
  return send(res,200,{ok:true,agent:name,pipeline:{question:`What should ${name} focus on now?`,evidence:f.map(v=>({domain:v.domain,severity:v.severity,title:v.title})),analysis,challenge,confidence,recommendation,risk,action:{type:'PREPARE',approvalRequired:true},time:new Date().toISOString(),engine:'deterministic-agent-v2600'}});
 }
 async function learn(req,res){
@@ -1564,12 +1565,53 @@ function coreKey(x){return JSON.stringify(x||{});}
 function remember(agent,entry){const k=String(agent||'Unknown');const a=AGENT_MEMORY.get(k)||{agent:k,runs:0,decisions:0,lessons:[]};a.runs++;a.decisions+=entry.decision?1:0;if(entry.lesson)a.lessons.unshift(entry.lesson);a.lessons=a.lessons.slice(0,20);AGENT_MEMORY.set(k,a);return a;}
 function evidenceFusion(req,res){
  const x=JSON.parse(req._bodyCache||'{}');
- const items=Array.isArray(x.evidence)?x.evidence:[]; const grouped={};
- for(const e of items){const topic=String(e.topic||e.domain||'general');(grouped[topic]??=[]).push(e)}
- const topics=Object.entries(grouped).map(([topic,arr])=>{const fresh=arr.filter(e=>e.fresh!==false).length;const supports=arr.filter(e=>String(e.direction||'').toUpperCase()==='BULL').length;const opposes=arr.filter(e=>String(e.direction||'').toUpperCase()==='BEAR').length;const conflict=supports>0&&opposes>0;return {topic,count:arr.length,freshness:Math.round(fresh/Math.max(1,arr.length)*100),bull:supports,bear:opposes,conflict,confidence:coreClamp(55+Math.min(25,arr.length*4)-(conflict?20:0)-(fresh<arr.length?10:0),0,95)}});
- const conflicts=topics.filter(t=>t.conflict).length; const confidence=topics.length?Math.round(topics.reduce((a,t)=>a+t.confidence,0)/topics.length):0;
- EVIDENCE_LEDGER.push(...items.slice(0,50).map(e=>({...e,receivedAt:new Date().toISOString()}))); while(EVIDENCE_LEDGER.length>500)EVIDENCE_LEDGER.shift();
- return send(res,200,{ok:true,engine:'evidence-fusion-v4400',topics,conflicts,overallConfidence:confidence,staleEvidence:items.filter(e=>e.fresh===false).length,ledgerSize:EVIDENCE_LEDGER.length});
+ const incoming=Array.isArray(x.evidence)?x.evidence.slice(0,50):[];
+ const existing=new Set(EVIDENCE_LEDGER.map(e=>String(e.url||e.fingerprint||'')).filter(Boolean));
+ const accepted=[],seen=new Set();
+ for(const raw of incoming){
+  const row=raw&&typeof raw==='object'?raw:{};
+  let url=String(row.url||'').trim().slice(0,2048);
+  try{
+   if(url){const u=new URL(url);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)url='';else{u.hash='';for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);url=u.href;}}
+  }catch{url='';}
+  const title=String(row.title||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,220);
+  const query=String(row.query||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,200);
+  const snippet=String(row.snippet||row.text||'').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g,' ').slice(0,1200);
+  if(!title&&!snippet&&!url)continue;
+  const fingerprint=url||[query,title,snippet.slice(0,100)].join('|');
+  if(seen.has(fingerprint)||existing.has(fingerprint))continue;
+  seen.add(fingerprint);
+  const age=Date.parse(row.publishedAt||'');
+  const freshness=typeof row.fresh==='boolean'?row.fresh:Number.isFinite(age)?(Date.now()-age>=-30_000&&Date.now()-age<=7*86400000):null;
+  accepted.push({
+   title,url,query,snippet,source:String(row.source||'unknown').slice(0,120),
+   topic:String(row.topic||row.domain||'Web Search').slice(0,120),
+   publishedAt:Number.isFinite(age)?new Date(age).toISOString():null,
+   fresh:freshness,
+   retrievalStatus:row.retrievalStatus==='RETRIEVED'?'RETRIEVED':'SNIPPET_ONLY',
+   sourceType:row.sourceType==='ARTICLE_TEXT'?'ARTICLE_TEXT':'SEARCH_SNIPPET',
+   direction:['BULL','BEAR'].includes(String(row.direction||'').toUpperCase())?String(row.direction).toUpperCase():null,
+   receivedAt:new Date().toISOString(),fingerprint
+  });
+ }
+ EVIDENCE_LEDGER.push(...accepted);while(EVIDENCE_LEDGER.length>500)EVIDENCE_LEDGER.shift();
+ const grouped={};
+ for(const e of EVIDENCE_LEDGER){const topic=String(e.topic||'Web Search');(grouped[topic]??=[]).push(e);}
+ const topics=Object.entries(grouped).map(([topic,arr])=>{
+  const dated=arr.filter(e=>typeof e.fresh==='boolean').length;
+  const fresh=arr.filter(e=>e.fresh===true).length;
+  const supports=arr.filter(e=>e.direction==='BULL').length,opposes=arr.filter(e=>e.direction==='BEAR').length;
+  const conflict=supports>0&&opposes>0;
+  return {topic,count:arr.length,freshness:dated?Math.round(fresh/dated*100):null,freshnessKnown:dated,freshnessUnknown:arr.length-dated,
+   retrieved:arr.filter(e=>e.retrievalStatus==='RETRIEVED').length,snippetOnly:arr.filter(e=>e.retrievalStatus!=='RETRIEVED').length,
+   bull:supports,bear:opposes,conflict,confidence:coreClamp(55+Math.min(25,arr.length*2)-(conflict?20:0)-(dated===0?10:0)-(fresh<dated?10:0),0,95)};
+ });
+ const conflicts=topics.filter(t=>t.conflict).length;
+ const confidence=topics.length?Math.round(topics.reduce((a,t)=>a+t.confidence,0)/topics.length):0;
+ return send(res,200,{ok:true,engine:'evidence-fusion-v4500',accepted:accepted.length,duplicatesSuppressed:incoming.length-accepted.length,
+  topics,conflicts,overallConfidence:confidence,staleEvidence:EVIDENCE_LEDGER.filter(e=>e.fresh===false).length,
+  unknownTimestampEvidence:EVIDENCE_LEDGER.filter(e=>typeof e.fresh!=='boolean').length,
+  retrievedPages:EVIDENCE_LEDGER.filter(e=>e.retrievalStatus==='RETRIEVED').length,ledgerSize:EVIDENCE_LEDGER.length});
 }
 function agentMemory(req,res){const data=[...AGENT_MEMORY.values()];return send(res,200,{ok:true,engine:'agent-memory-v4200',agents:data,totalAgents:data.length});}
 function recordMemory(req,res){const x=JSON.parse(req._bodyCache||'{}');const m=remember(x.agent,{decision:x.decision,lesson:x.lesson||''});return send(res,200,{ok:true,memory:m});}
