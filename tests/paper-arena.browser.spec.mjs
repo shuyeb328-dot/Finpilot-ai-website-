@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('production Paper Arena boots and executes a virtual fill in-browser', async ({ page }) => {
+test('production Paper Arena renders charts and only fills when market data is verified', async ({ page }) => {
   const errors = [];
   const errorDetails = [];
   const consoleErrors = [];
@@ -66,6 +66,14 @@ test('production Paper Arena boots and executes a virtual fill in-browser', asyn
   await expect(page.locator('#paperChart')).toContainText(/Provider:/, { timeout: 15000 });
   expect(await page.locator('#paperChart svg').count()).toBe(1);
   expect(await page.locator('#paperChart .cu, #paperChart .cd').count()).toBeGreaterThan(1);
+  const marketGate = await page.evaluate(async () => { try { const r=await fetch('/api/market-data-os?ticker=BTC&interval=1h&ts='+Date.now(),{cache:'no-store'}); const d=await r.json(); return {eligible:d?.executionEligible===true&&d?.marketDataOS?.decision==='ALLOW_ANALYSIS_AND_PAPER',status:d?.marketDataOS?.status||'UNKNOWN'}; } catch(e) { return {eligible:false,status:'UNAVAILABLE'}; } });
+  console.log('PAPER_MARKET_GATE', JSON.stringify(marketGate));
+  if (!marketGate.eligible) {
+    await expect(page.locator('#paperMarketStatus')).toContainText(/UNVERIFIED|unavailable|verification/i);
+    expect(await page.locator('#paperPrice').inputValue()).toMatch(/^(|0|0\\.0+)$/);
+    console.log('PAPER_ORDER_SAFETY', 'No verified quote; chart-only mode retained and execution skipped safely.');
+    return;
+  }
   // Verify the actual visible BUY button using the AI risk-sized fractional quantity.
   const quantity = page.locator('#paperQty');
   const suggestedQtyText = await page.locator('#paperRecommendation').innerText();
