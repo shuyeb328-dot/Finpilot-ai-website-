@@ -8,18 +8,18 @@ const VALID_OUTCOMES=new Set(['SUCCESS','FAILURE','FALSE_POSITIVE','INCONCLUSIVE
 const SAFE_ACTIONS=new Set(['health_check','run_health_check','refresh_status','read_only_diagnostic','analyze_logs','record_feedback','benchmark_candidate']);
 
 export const OS_REGISTRY=[
- {id:'main-core',name:'Main Core OS',domain:'ORCHESTRATION',criticality:'CRITICAL',dependencies:['core-brain','ai-security'],description:'Coordinates evidence, tasks and governed decisions.',signal:'core'},
- {id:'core-brain',name:'Core Brain',domain:'REASONING',criticality:'HIGH',dependencies:['data-os','agent-mesh'],description:'Decision memory, evidence fusion and task routing.',signal:'core'},
- {id:'agent-mesh',name:'Agent Mesh OS',domain:'AGENTS',criticality:'HIGH',dependencies:['main-core','ai-security'],description:'Specialist-agent scheduling and event-driven routing.',signal:'fleet'},
+ {id:'main-core',name:'Main Core OS',domain:'ORCHESTRATION',criticality:'CRITICAL',dependencies:['core-brain','ai-security-os'],description:'Coordinates evidence, tasks and governed decisions.',signal:'core'},
+ {id:'core-brain',name:'Core Brain',domain:'REASONING',criticality:'HIGH',dependencies:['data-os','agent-mesh'],description:'Decision memory, evidence fusion and task routing.',signal:'brain'},
+ {id:'agent-mesh',name:'Agent Mesh OS',domain:'AGENTS',criticality:'HIGH',dependencies:['main-core','ai-security-os'],description:'Specialist-agent scheduling and event-driven routing.',signal:'fleet'},
  {id:'data-os',name:'Data OS',domain:'DATA',criticality:'HIGH',dependencies:[],description:'Tracks connected data quality and provider freshness.',signal:'data'},
- {id:'market-data-os',name:'Market Data OS',domain:'MARKETS',criticality:'CRITICAL',dependencies:['data-os','ai-security'],description:'Provider health, provenance, freshness and quote safety.',signal:'market'},
- {id:'learning-os',name:'Learning OS',domain:'LEARNING',criticality:'MEDIUM',dependencies:['main-core','ai-security'],description:'Research, outcome measurement and bounded feedback adaptation.',signal:'learning'},
+ {id:'market-data-os',name:'Market Data OS',domain:'MARKETS',criticality:'CRITICAL',dependencies:['data-os','ai-security-os'],description:'Provider health, provenance, freshness and quote safety.',signal:'market'},
+ {id:'learning-os',name:'Learning OS',domain:'LEARNING',criticality:'MEDIUM',dependencies:['main-core','ai-security-os'],description:'Research, outcome measurement and bounded feedback adaptation.',signal:'learning'},
  {id:'foundation-os',name:'Foundation OS',domain:'GOVERNANCE',criticality:'HIGH',dependencies:['main-core'],description:'Shared governance and release-check contracts.',signal:'foundation'},
- {id:'evolution-os',name:'Evolution OS',domain:'IMPROVEMENT',criticality:'HIGH',dependencies:['learning-os','ai-security'],description:'Shadow evaluation and promotion-gated improvement proposals.',signal:'evolution'},
+ {id:'evolution-os',name:'Evolution OS',domain:'IMPROVEMENT',criticality:'HIGH',dependencies:['learning-os','ai-security-os'],description:'Shadow evaluation and promotion-gated improvement proposals.',signal:'evolution'},
  {id:'quantum-os',name:'Quantum OS',domain:'ROUTING',criticality:'HIGH',dependencies:['agent-mesh','main-core'],description:'Agent routing and decision synthesis.',signal:'quantum'},
- {id:'trading-risk-os',name:'Trading & Risk OS',domain:'EXECUTION_GOVERNANCE',criticality:'CRITICAL',dependencies:['market-data-os','ai-security'],description:'Risk veto, quote-quality checks and human approval gates.',signal:'policy'},
+ {id:'trading-risk-os',name:'Trading & Risk OS',domain:'EXECUTION_GOVERNANCE',criticality:'CRITICAL',dependencies:['market-data-os','ai-security-os'],description:'Risk veto, quote-quality checks and human approval gates.',signal:'policy'},
  {id:'ai-security-os',name:'AI Security OS',domain:'SECURITY',criticality:'CRITICAL',dependencies:['main-core'],description:'Least-privilege policy checks, security events and containment recommendations.',signal:'security'},
- {id:'research-search-os',name:'Research & Search OS',domain:'RESEARCH',criticality:'MEDIUM',dependencies:['data-os','ai-security'],description:'Research and search readiness without treating retrieved content as instructions.',signal:'search'}
+ {id:'research-search-os',name:'Research & Search OS',domain:'RESEARCH',criticality:'MEDIUM',dependencies:['data-os','ai-security-os'],description:'Research and search readiness without treating retrieved content as instructions.',signal:'search'}
 ];
 
 const state={version:'1.0.0',mode:'MONITOR_ONLY',cycleCount:0,lastCycle:null,lastFeedbackAt:null,recentCycles:[],feedback:[],categories:{},persistence:'PROCESS_MEMORY',persistenceDetail:'Outcome feedback is held in this server process unless DATABASE_URL persistence is available.',persistenceAttempted:false};
@@ -73,6 +73,12 @@ function checkStatus(signal,obs){
   const x=obs.core;if(!x?.ok)return {status:'UNKNOWN',detail:'Core runtime telemetry has not been verified.'};
   const errors=Number(obs.performance?.errors||0),requests=Number(obs.performance?.requests||0);
   return {status:errors>10&&requests>0&&errors/requests>.2?'DEGRADED':'HEALTHY',detail:'Core API observed; '+Number(x.evidenceLedger||0)+' evidence records and '+Number(x.memoryAgents||0)+' memory agents.',metrics:{uptimeMs:Number(x.uptimeMs||0),evidenceLedger:Number(x.evidenceLedger||0),memoryAgents:Number(x.memoryAgents||0)}};
+ }
+ if(signal==='brain'){
+  const x=obs.core;if(!x?.ok)return {status:'UNKNOWN',detail:'Core Brain runtime telemetry has not been verified.'};
+  const evidenceLedger=Number(x.evidenceLedger||0),memoryAgents=Number(x.memoryAgents||0);
+  const status=evidenceLedger>0&&memoryAgents>0?'HEALTHY':'PARTIAL';
+  return {status,detail:status==='HEALTHY'?'Decision memory and evidence ledger are populated.':'Core API is responding, but evidence ledger ('+evidenceLedger+') or memory agents ('+memoryAgents+') are empty; reasoning readiness is not yet established.',metrics:{evidenceLedger,memoryAgents}};
  }
  if(signal==='fleet'){
   const f=obs.fleet;if(!f?.ok)return {status:'UNKNOWN',detail:'Agent fleet endpoint has not been verified.'};
