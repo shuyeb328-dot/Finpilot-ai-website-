@@ -177,7 +177,7 @@
       const crypto=String(a?.market||'').toUpperCase()==='CRYPTO';
       const tvSymbol=crypto?'BINANCE:'+ticker.replace(/USDT$/,'')+'USDT':'NSE:'+ticker;
       const marketLabel=crypto?'crypto spot':'stock';
-      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>No local candle series available.</b> FinPilot is requesting the official TradingView '+marketLabel+' chart. Live forecast eligibility remains separately gated by quote freshness.</div><div class="tv-chart" data-tv-symbol="'+escLocal(tvSymbol)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">External chart fallback · verify quote freshness before acting.</div></div>';
+      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>No local candle series available.</b> FinPilot cannot draw a verified local chart for this result. The external '+marketLabel+' chart is optional; live forecast eligibility remains separately gated by quote freshness.</div><div class="tv-chart" data-tv-symbol="'+escLocal(tvSymbol)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">External chart · if blocked, open TradingView separately. No candles are invented.</div></div>';
     }
     const rows=validCandles.slice(-80),w=760,h=260,pad=28;
     const vals=rows.flatMap(x=>[Number(x.low),Number(x.high)]).concat([a?.sma20,a?.sma50,a?.support,a?.resistance, a?.price]).map(Number).filter(v=>Number.isFinite(v)&&v>0);
@@ -203,7 +203,8 @@
       const showFallback=message=>{
         if(el.dataset.mounted==='fallback')return;
         el.dataset.mounted='fallback';
-        el.innerHTML='<div class="notice" role="status"><b>Interactive chart unavailable.</b> '+escLocal(message)+' The analysis still uses only the returned market data; no candles have been fabricated.</div><p><a href="https://www.tradingview.com/chart/'+ '?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
+        el.style.cssText='min-height:0;height:auto;max-height:none;background:transparent;overflow:visible';
+        el.innerHTML='<div class="notice" role="status"><b>Interactive chart unavailable.</b> '+escLocal(message)+' The analysis still uses only returned market data; no candles have been fabricated.</div><p style="margin:8px 0"><a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
       };
       const script=document.createElement('script');
       script.type='text/javascript';
@@ -218,7 +219,7 @@
         }else if(el.dataset.mounted==='loading'){
           el.dataset.mounted='1';
         }
-      },12000);
+      },7000);
     });
   }
   function publishEquitySnapshot(market){
@@ -300,7 +301,7 @@
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
             <div class="card"><span class="muted">${report.marketForecastEligible===true&&scenarioQuoteValid?'Verified live price':(report.chartAnalysis?.realtimeAvailable?'Live quote · plan blocked':'Latest reported price · non-live/EOD')}</span><div class="metric">${chartPrice(report.chartAnalysis?.price)}</div></div>
-            <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
+            <div class="card"><span class="muted">RSI</span><div class="metric">${Number.isFinite(Number(report.chartAnalysis?.rsi))&&report.chartAnalysis?.rsi!==null&&report.chartAnalysis?.rsi!==''?Number(report.chartAnalysis.rsi).toFixed(1):'N/A'}</div></div>
             <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.sma20)} / ${chartPrice(report.chartAnalysis?.sma50)}</div></div>
             <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.support)} / ${chartPrice(report.chartAnalysis?.resistance)}</div></div>
           </div>
