@@ -51,7 +51,14 @@ try{
   const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
   assert.equal(freeFirst.provider,'google-news-rss');
   assert.equal(fetchCalls,1,'free RSS should satisfy auto search before any metered provider is called');
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search');
+
+  // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
+  emptyMode=true;
+  fetchCalls=0;
+  process.env.SEARCH_ALLOW_PAID_FALLBACK='false';
+  await assert.rejects(()=>searchWeb('FinPilot never spend by default test',{count:3}));
+  assert.equal(fetchCalls,1,'failed free RSS should not call a metered provider unless fallback is explicitly enabled');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard');
 }finally{
   globalThis.fetch=originalFetch;
 }
