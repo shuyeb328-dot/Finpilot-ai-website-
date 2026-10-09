@@ -859,6 +859,12 @@ async function loadMarketStreamSnapshot(channelKey){
    payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};
    payload.tick={price:mid,receivedAt:payload.receivedAt};
   }
+  // Archive and route one market tick per shared poll, not once per connected browser tab.
+  if(verified&&payload.status==='LIVE'){
+   const tick={ticker:raw,symbol:raw,price:payload.price,changePct:payload.changePct,volume:payload.volume,high:payload.high,low:payload.low,source:payload.provider||'FinPilot market-data stream',time:payload.asOf||payload.receivedAt};
+   try{payload.cloudStored=await storeMarketTick(tick)}catch{payload.cloudStored=false}
+   try{emitEvent('MARKET_TICK',tick,90)}catch{}
+  }else payload.cloudStored=false;
   return payload;
  }finally{clearTimeout(timeout);}
 }
