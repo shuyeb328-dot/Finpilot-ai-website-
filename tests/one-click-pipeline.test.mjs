@@ -40,4 +40,7 @@ assert.match(pageText, /one-click-analysis\.js\?v=20261009-3/, 'rebuilt one-clic
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
-console.log('one-click-pipeline: 29 contract checks passed');
+assert.match(moduleText, /Exposure gate:/, 'P/L scenario must distinguish hypothetical outcomes from approved exposure');
+assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
+
+console.log('one-click-pipeline: 31 contract checks passed');
