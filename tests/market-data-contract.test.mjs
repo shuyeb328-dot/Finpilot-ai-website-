@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const frontend = fs.readFileSync(new URL('../public/market-data-os.js', import.meta.url), 'utf8');
 const server = fs.readFileSync(new URL('../server/server.mjs', import.meta.url), 'utf8');
+const nasdaqEod = fs.readFileSync(new URL('../server/nasdaq-eod.mjs', import.meta.url), 'utf8');
 
 assert.match(frontend, /\/api\/market-data-stream\?ticker=/, 'frontend should connect to the market-data stream endpoint');
 assert.doesNotMatch(frontend, /new EventSource\('\/api\/market-stream\?ticker=/, 'frontend should not use the legacy crypto-only stream');
@@ -49,7 +50,7 @@ assert.match(server,/primaryAgeMs>EXECUTION_FRESHNESS_MS/,'Market Data OS must t
 assert.match(server,/if\(primary\)quotes\.splice\(quoteCountBeforePrimary\)/,'stale primary quote must not outrank the EOD analysis fallback');
 assert.match(server,/executionReady=Boolean\(verified&&winner\.live!==false/,'EOD fallback must remain execution-ineligible');
 assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
-assert.match(server,/Nasdaq public historical data · EOD · analysis only/,'keyless Nasdaq EOD source must be explicitly analysis-only');
+assert.match(nasdaqEod,/Nasdaq public historical data · EOD · analysis only/,'keyless Nasdaq EOD source must be explicitly analysis-only');
 assert.match(server,/addProvider\('nasdaq-public',async\(\)=>fetchNasdaqEod\(symbol\)\)/,'keyless Nasdaq EOD source must be registered with a stable provider ID');
 assert.match(server,/id:'nasdaq-public',configured:true,role:'no-key US equity EOD fallback'/,'provider status must expose the no-key US EOD source');
 assert.match(server,/sourceTimestampType:gp\.sourceTimestampType\|\|'HISTORICAL_EOD'/,'global historical fallback must preserve source-date provenance');
