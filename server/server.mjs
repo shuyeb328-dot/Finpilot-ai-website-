@@ -775,18 +775,24 @@ function providerHealthSnapshot(){
    existing.lastSuccessAgeMs=Math.max(0,now-Date.parse(p.lastSuccess));
   }
   if(p.lastError&&existing.status!=='HEALTHY')existing.lastError=String(p.lastError).slice(0,180);
-  existing.cooldownActive=Boolean(p.cooldownUntil>now||existing.cooldown?.retryAfterMs>0);
-  existing.cooldownMs=Math.max(0,Number(p.cooldownUntil||0)-now,Number(existing.cooldown?.retryAfterMs||0));
+  existing.providerCooldownUntil=Math.max(Number(existing.providerCooldownUntil)||0,Number(p.cooldownUntil)||0);
   existing.successRate=existing.requests?Math.round(existing.success/existing.requests*100):null;
   groups.set(id,existing);
  }
- return [...groups.values()].map(p=>({
-  ...p,
-  adapterNames:[...new Set(p.adapterNames)].sort(),
-  cooldownActive:Boolean(p.cooldownActive||p.cooldown?.retryAfterMs>0),
-  cooldownMs:Math.max(0,Number(p.cooldownMs)||0),
-  successRate:p.successRate??(p.requests?Math.round(p.success/p.requests*100):null)
- })).sort((a,b)=>a.id.localeCompare(b.id));
+ return [...groups.values()].map(p=>{
+  const moduleCooldown=providerCooldownStatus(p.id,now);
+  const moduleCooldownMs=Math.max(0,Number(moduleCooldown?.retryAfterMs)||0);
+  const registryCooldownMs=Math.max(0,Number(p.providerCooldownUntil||0)-now);
+  const cooldownMs=Math.max(moduleCooldownMs,registryCooldownMs);
+  return {
+   ...p,
+   adapterNames:[...new Set(p.adapterNames)].sort(),
+   cooldownActive:cooldownMs>0,
+   cooldownMs,
+   cooldown:moduleCooldown,
+   successRate:p.successRate??(p.requests?Math.round(p.success/p.requests*100):null)
+  };
+ }).sort((a,b)=>a.id.localeCompare(b.id));
 }
 async function marketProvenanceRoute(req,res,u){
  try{if(!(await ensureMarketProvenanceSchema()))return send(res,200,{ok:true,cloud:false,items:[]});
