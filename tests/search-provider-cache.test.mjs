@@ -56,7 +56,7 @@ try{
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
   const afterOneFailure=fetchCalls;
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
-  assert.equal(fetchCalls,afterOneFailure+1,'empty/error results must not be cached');
+  assert.equal(fetchCalls,afterOneFailure+2,'empty/error results must not be cached; each retry should try both bounded free RSS providers');
 
   // In auto mode, a free RSS result must win without touching a configured metered provider.
   emptyMode=false;
