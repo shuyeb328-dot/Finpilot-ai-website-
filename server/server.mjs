@@ -1158,8 +1158,17 @@ async function marketDataOS(req,res,u){
   await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
  }else{
+  const quoteCountBeforePrimary=quotes.length;
   const liveQuoteOk=await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'UNKNOWN_TIMESTAMP',live:Boolean(r.live),exchange:r.exchange};});
-  if(!liveQuoteOk){
+  const primary=quotes[quoteCountBeforePrimary]||null;
+  const primaryTs=primary?.asOf?Date.parse(primary.asOf):NaN;
+  const primaryAgeMs=Number.isFinite(primaryTs)&&primaryTs<=Date.now()+5000?Math.max(0,Date.now()-primaryTs):null;
+  const primaryStale=!liveQuoteOk||!primary||primary.live===false
+   ||['HISTORICAL_EOD','HISTORICAL_DATE_ONLY','HISTORICAL_SNAPSHOT'].includes(primary.timestampType)
+   ||primaryAgeMs===null||primaryAgeMs>EXECUTION_FRESHNESS_MS;
+  if(primaryStale){
+   // Keep the failed/stale attempt in diagnostics, but use the EOD quote only as non-live analysis context.
+   if(primary)quotes.splice(quoteCountBeforePrimary);
    await addAttempt('TejHQ public EOD',async()=>{
     const r=await fetchTejHqEod(raw,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
     return {price:r.price,changePct:r.changePct,volume:r.volume,high:r.dayHigh,low:r.dayLow,asOf:r.asOf,timestampType:r.sourceTimestampType,live:false,exchange:r.exchange,dataFreshness:r.dataFreshness};
