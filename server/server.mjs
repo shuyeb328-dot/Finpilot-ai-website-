@@ -14,7 +14,7 @@ import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_
 import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
-import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess} from './provider-cooldown.mjs';
+import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -1446,7 +1446,7 @@ async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return
  audit('AGENT_WAKE',{agent:a.name,trigger:job.trigger.type,result,evidenceScore});
 }
 function qualityUpdate(source,ok,latency,error){const x=DATA_HEALTH.sources[source]??={};if(ok){x.status='HEALTHY';x.latencyMs=latency;x.lastSuccess=new Date().toISOString();x.lastError=null}else{x.status='DEGRADED';x.lastError=error;x.latencyMs=latency;RESILIENCE.providerFailures++;RESILIENCE.lastIncident=new Date().toISOString();}const vals=Object.values(DATA_HEALTH.sources);DATA_HEALTH.qualityScore=Math.round(vals.reduce((n,v)=>n+(v.status==='HEALTHY'?100:v.status==='DEGRADED'?45:0),0)/Math.max(1,vals.length));DATA_HEALTH.freshness=DATA_HEALTH.qualityScore>=90?'FRESH':DATA_HEALTH.qualityScore>=50?'DEGRADED':'STALE';DATA_HEALTH.updatedAt=new Date().toISOString();if(!ok)emitEvent('DATA_QUALITY_ALERT',{source,error},95);}
-function providerCooldownError(source){const c=providerCooldownStatus(source);return c&&c.active?new Error(`PROVIDER_COOLDOWN_ACTIVE:${source}:RETRY_AFTER_${Math.ceil(c.retryAfterMs/1000)}S`):null;}
+function providerCooldownError(source){const c=claimProviderRequest(source);return c&&c.active?new Error(c.halfOpen?`PROVIDER_RECOVERY_PROBE_IN_PROGRESS:${source}`:`PROVIDER_COOLDOWN_ACTIVE:${source}:RETRY_AFTER_${Math.ceil(c.retryAfterMs/1000)}S`):null;}
 function resilientFetch(url,source='provider',timeoutMs=7000){const cooldownError=providerCooldownError(source);if(cooldownError)return Promise.reject(cooldownError);if(RESILIENCE.circuitOpen)return Promise.reject(new Error('PROVIDER_CIRCUIT_OPEN'));const started=Date.now();return Promise.race([fetch(url),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]).then(async r=>{const t=Date.now()-started;if(!r.ok)throw new Error(`HTTP_${r.status}`);qualityUpdate(source,true,t);recordProviderSuccess(source);return r}).catch(async e=>{qualityUpdate(source,false,Date.now()-started,e.message);recordProviderFailure(source,e.message);if(RESILIENCE.providerFailures>=5){RESILIENCE.circuitOpen=true;setTimeout(()=>{RESILIENCE.circuitOpen=false;RESILIENCE.providerFailures=0;},Math.min(30000,RESILIENCE.backoffMs*4));}throw e;});}
 
 // Exa Intelligence Layer: web research is evidence-only and never allowed to fabricate market numbers.
