@@ -35,6 +35,10 @@ assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED/,'EOD fallb
 assert.match(server,/PRIMARY_EQUITY_QUOTE_STALE_OR_NON_LIVE/,'stale or non-live primary equity quotes must trigger the EOD fallback path');
 assert.match(server,/report\?\.live===false/,'a non-live primary quote must never be accepted as fresh merely because retrieval succeeded');
 assert.match(server,/fetchTejHqEod\(raw,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Market Data OS may expose EOD context only as a fallback');
+assert.match(server,/const primaryStale=!liveQuoteOk\|\|!primary\|\|primary\.live===false/,'Market Data OS must treat successful-but-non-live primary quotes as stale');
+assert.match(server,/primaryAgeMs>EXECUTION_FRESHNESS_MS/,'Market Data OS must trigger fallback when a primary timestamp is older than the execution freshness threshold');
+assert.match(server,/if\(primary\)quotes\.splice\(quoteCountBeforePrimary\)/,'stale primary quote must not outrank the EOD analysis fallback');
+assert.match(server,/executionReady=Boolean\(verified&&winner\.live!==false/,'EOD fallback must remain execution-ineligible');
 assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
 
 console.log('Market data stream contract checks passed.');
