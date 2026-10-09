@@ -197,14 +197,15 @@
       if(el.dataset.mounted==='1'||el.dataset.mounted==='loading')return;
       const symbol=el.dataset.tvSymbol;
       el.dataset.mounted='loading';
-      el.innerHTML='<div class="tradingview-widget-container" style="height:360px;width:100%;border-radius:10px;overflow:hidden;background:#fff"><div class="tradingview-widget-container__widget" style="height:328px;width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
+      el.style.minHeight='0';
+      el.innerHTML='<div class="tradingview-widget-container" style="height:260px;width:100%;max-width:100%;border-radius:10px;overflow:hidden;background:#0b1728"><div class="tradingview-widget-container__widget" style="height:228px;width:100%;max-width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px;background:#0b1728;color:#9db0c8"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
       const widget=el.firstElementChild;
       const widgetBody=widget?.querySelector('.tradingview-widget-container__widget');
       const showFallback=message=>{
         if(el.dataset.mounted==='fallback')return;
         el.dataset.mounted='fallback';
         el.style.cssText='min-height:0;height:auto;max-height:none;background:transparent;overflow:visible';
-        el.innerHTML='<div class="notice" role="status"><b>Interactive chart unavailable.</b> '+escLocal(message)+' The analysis still uses only returned market data; no candles have been fabricated.</div><p style="margin:8px 0"><a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
+        el.innerHTML='<div class="notice" role="status" style="margin:0"><b>Chart unavailable.</b> '+escLocal(message)+' No candles were fabricated.</div><p style="margin:8px 0 2px;font-size:12px"><a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
       };
       const script=document.createElement('script');
       script.type='text/javascript';
@@ -219,7 +220,7 @@
         }else if(el.dataset.mounted==='loading'){
           el.dataset.mounted='1';
         }
-      },7000);
+      },5500);
     });
   }
   function publishEquitySnapshot(market){
