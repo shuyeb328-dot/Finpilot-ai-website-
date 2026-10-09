@@ -9,6 +9,8 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+import {normalizeMarketTick} from './market-tick-contract.mjs';
+import {createBoundedRateLimiter} from './bounded-rate-limiter.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
@@ -22,10 +24,10 @@ import {createProviderResponseCache} from './provider-response-cache.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
-async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
-async function ensureMarketSchema(){const pool=await marketStore();if(!pool||MARKET_SCHEMA_READY)return !!pool;await pool.query('CREATE TABLE IF NOT EXISTS market_ticks (id BIGSERIAL PRIMARY KEY,ticker TEXT NOT NULL,symbol TEXT,price DOUBLE PRECISION,change_pct DOUBLE PRECISION,volume DOUBLE PRECISION,high DOUBLE PRECISION,low DOUBLE PRECISION,source TEXT,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');await pool.query('CREATE INDEX IF NOT EXISTS market_ticks_ticker_time_idx ON market_ticks(ticker,observed_at DESC)');MARKET_SCHEMA_READY=true;return true;}
-async function storeMarketTick(x){try{if(!(await ensureMarketSchema()))return false;await MARKET_POOL.query('INSERT INTO market_ticks(ticker,symbol,price,change_pct,volume,high,low,source,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[x.ticker,x.symbol,Number(x.price),Number(x.changePct),Number(x.volume),Number(x.high),Number(x.low),x.source||'Binance public market data',x.time||new Date().toISOString()]);return true}catch(e){MARKET_SCHEMA_READY=false;return false;}}
-async function marketHistory(req,res,u){try{if(!(await ensureMarketSchema()))return send(res,200,{ok:true,cloud:false,rows:[],message:'Cloud archive adapter ready; connect DATABASE_URL on Render.'});const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();const limit=Math.min(500,Math.max(10,Number(u.searchParams.get('limit')||100)));const q=await MARKET_POOL.query('SELECT ticker,symbol,price,change_pct AS "changePct",volume,high,low,source,observed_at AS time FROM market_ticks WHERE ticker=$1 ORDER BY observed_at DESC LIMIT $2',[ticker,limit]);return send(res,200,{ok:true,cloud:true,ticker,rows:q.rows});}catch(e){return send(res,200,{ok:true,cloud:false,rows:[],error:e.message});}}
+async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000,connectionTimeoutMillis:1800});return MARKET_POOL;}
+async function ensureMarketSchema(){const pool=await marketStore();if(!pool||MARKET_SCHEMA_READY)return !!pool;await pool.query('CREATE TABLE IF NOT EXISTS market_ticks (id BIGSERIAL PRIMARY KEY,ticker TEXT NOT NULL,symbol TEXT,price DOUBLE PRECISION,change_pct DOUBLE PRECISION,volume DOUBLE PRECISION,high DOUBLE PRECISION,low DOUBLE PRECISION,source TEXT,source_verified BOOLEAN NOT NULL DEFAULT FALSE,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');await pool.query('ALTER TABLE market_ticks ADD COLUMN IF NOT EXISTS source_verified BOOLEAN NOT NULL DEFAULT FALSE');await pool.query('CREATE INDEX IF NOT EXISTS market_ticks_ticker_time_idx ON market_ticks(ticker,observed_at DESC)');MARKET_SCHEMA_READY=true;return true;}
+async function storeMarketTick(x){try{if(!(await ensureMarketSchema()))return false;await MARKET_POOL.query('INSERT INTO market_ticks(ticker,symbol,price,change_pct,volume,high,low,source,source_verified,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[x.ticker,x.symbol,x.price,x.changePct,x.volume,x.high,x.low,x.source,false,x.time]);return true}catch(e){MARKET_SCHEMA_READY=false;return false;}}
+async function marketHistory(req,res,u){try{if(!(await ensureMarketSchema()))return send(res,200,{ok:true,cloud:false,rows:[],message:'Cloud archive adapter ready; connect DATABASE_URL on Render.'});const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();const limit=Math.min(500,Math.max(10,Number(u.searchParams.get('limit')||100)));const q=await MARKET_POOL.query('SELECT ticker,symbol,price,change_pct AS "changePct",volume,high,low,source,source_verified AS "sourceVerified",observed_at AS time FROM market_ticks WHERE ticker=$1 ORDER BY observed_at DESC LIMIT $2',[ticker,limit]);return send(res,200,{ok:true,cloud:true,ticker,rows:q.rows});}catch(e){return send(res,200,{ok:true,cloud:false,rows:[],error:'MARKET_HISTORY_UNAVAILABLE'});}}
 
 
 const providerCacheTtl=Number(process.env.FINPILOT_PROVIDER_CACHE_TTL_MS);
@@ -1604,11 +1606,11 @@ function staticFile(req,res,u){
 
 // FinPilot 5.1 Security + Real-Time Automation layer
 const SECURITY={started:Date.now(),blocked:0,rateLimited:0,events:[],lastRefresh:null};
-const RATE=new Map();
+const RATE_LIMITER=createBoundedRateLimiter({limit:Number(process.env.FINPILOT_RATE_LIMIT||240),maxClients:10000});
 const AUTO={enabled:true,marketRefreshMs:5000,agentRefreshMs:15000,maxConcurrentAgents:5,cacheTtlMs:CACHE_TTL_MS,lastOptimization:null,optimizations:0};
 function clientKey(req){return String(req.socket?.remoteAddress||'unknown').replace(/^::ffff:/,'');}
 function securityEvent(type,detail){SECURITY.events.unshift({type,detail,time:new Date().toISOString()});SECURITY.events=SECURITY.events.slice(0,100);}
-function rateCheck(req){const key=clientKey(req), now=Date.now(), windowMs=60000, limit=Number(process.env.FINPILOT_RATE_LIMIT||240);let x=RATE.get(key);if(!x||now-x.start>windowMs)x={start:now,count:0};x.count++;RATE.set(key,x);if(x.count>limit){SECURITY.rateLimited++;securityEvent('RATE_LIMIT',key);return false}return true;}
+function rateCheck(req){const key=clientKey(req),result=RATE_LIMITER.check(key);if(!result.allowed){SECURITY.rateLimited++;securityEvent('RATE_LIMIT',key);return false}return true;}
 function securityStatus(req,res){return send(res,200,{ok:true,version:'7.0',headers:['CSP','X-Content-Type-Options','X-Frame-Options','Referrer-Policy','Permissions-Policy'],rateLimitPerMinute:Number(process.env.FINPILOT_RATE_LIMIT||240),rateLimited:SECURITY.rateLimited,blocked:SECURITY.blocked,events:SECURITY.events.slice(0,20),secretExposure:'server-only',execution:'human-approval-gated'});}
 function realtimeStatus(req,res){return send(res,200,{ok:true,enabled:AUTO.enabled,marketRefreshMs:AUTO.marketRefreshMs,agentRefreshMs:AUTO.agentRefreshMs,maxConcurrentAgents:AUTO.maxConcurrentAgents,cacheTtlMs:AUTO.cacheTtlMs,lastRefresh:SECURITY.lastRefresh,lastOptimization:AUTO.lastOptimization,optimizations:AUTO.optimizations});}
 function autoOptimize(req,res){
@@ -1939,7 +1941,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/realtime-status')return realtimeStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/auto-optimize')return autoOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/market-history')return marketHistory(req,res,u);
-  if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
+  if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const checked=normalizeMarketTick(req._parsedBody||{});if(!checked.ok)return send(res,400,{ok:false,error:'INVALID_MARKET_TICK',reason:checked.error});const x=checked.value;const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',{ticker:x.ticker,price:x.price,time:x.time,sourceVerified:false},90);return send(res,200,{ok:true,cloudStored:stored,sourceVerified:false,source:x.source,agentCoreHandoff:true,message:stored?'Validated tick archived as unverified client-reported data.':'Tick validated, but cloud archive did not confirm storage.'});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
   if(req.method==='GET'&&u.pathname==='/api/research/fetch')return researchFetch(req,res,u);
