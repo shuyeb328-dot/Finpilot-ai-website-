@@ -510,7 +510,7 @@
 
       const initialMarket=await directMarketPromise;
       let marketSnapshot=initialMarket?.snapshot||null;
-      let directMarket=initialMarket?.report?{...initialMarket.report,__marketSnapshot:marketSnapshot}:null;
+      let directMarket=initialMarket?.report||null;
       const normalizeTicker=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
       // A short query can match a different instrument on another exchange (for example
       // "SBI" can map to an unrelated US-listed fund while web evidence resolves SBIN).
@@ -525,7 +525,7 @@
             'Resolved market snapshot request'
           );
           marketSnapshot=resolved?.snapshot||null;
-          directMarket=resolved?.report?{...resolved.report,__marketSnapshot:marketSnapshot}:null;
+          directMarket=resolved?.report||null;
           if(!directMarket)searchWarning=searchWarning||resolved?.error||'The search-resolved instrument quote is unavailable; market-dependent scenarios will be blocked.';
         }catch(e){
           directMarket=null;
@@ -561,7 +561,7 @@
           if(!directMarket)searchWarning=searchWarning||resolved?.error||'Market data unavailable for the resolved candidate.';
         }catch(e){searchWarning=searchWarning||String(e?.message||'Market snapshot unavailable');}
       }
-      marketSnapshot=directMarket?.__marketSnapshot||marketSnapshot||null;
+      marketSnapshot=marketSnapshot||null;
       if(directMarket&&marketSnapshot&&!marketSnapshot?.quality?.forecastEligible){
         directMarket={...directMarket,live:false};
         searchWarning=searchWarning||'Market data status '+String(marketSnapshot?.quality?.status||'UNAVAILABLE')+'; forecasts are blocked until the quote is verified.';
@@ -616,7 +616,7 @@
       }
       const finalMoney=scenarioSafe({...decision,marketReport});
       decision.marketReport=marketReport;
-      decision.marketSnapshot=marketSnapshot||null;
+      decision.marketSnapshotId=marketSnapshot?.snapshotId||null;
       decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
       const forecastRecord=createForecastLedgerRecord({snapshot:marketSnapshot,candidate,decision,money:finalMoney,chartAnalysis:decision.chartAnalysis});
       decision.forecastRecordId=forecastRecord.forecastId;
