@@ -16,7 +16,10 @@ assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer reso
 assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
 assert.match(server, /selectPrimaryMarketQuote\(quotes,timestampState\)/, 'market quote selection should prefer a fresh provider timestamp');
 assert.match(server, /price:winner\.price/, 'the exposed price must come from the provider named in the response');
-assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&primaryTimestampValid/, 'the execution safety gate must continue to require provider timestamp provenance');
+assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&winner\.executionEligible!==false&&primaryTimestampValid/, 'the execution safety gate must require provider timestamp provenance and explicit source eligibility');
+assert.match(server, /executionEligible:false,executionEligibilityReason:'UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'/, 'unofficial Yahoo chart equity data must remain analysis-only even when its timestamp is fresh');
+assert.match(server, /quotes\.every\(x=>x\.live!==false&&x\.executionEligible!==false\)/, 'every source contributing to an execution-approved quote must be eligible');
+assert.match(server, /UNOFFICIAL_PROVIDER_ANALYSIS_ONLY/, 'the API must explain when an unofficial provider blocks paper execution');
 assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
 assert.match(server, /createProviderResponseCache/, 'market routes should share a bounded provider-response cache');
 assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');
