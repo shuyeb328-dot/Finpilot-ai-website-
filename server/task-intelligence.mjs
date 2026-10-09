@@ -55,7 +55,7 @@ function resolveTaskType(q,assetClass){
  return 'GENERAL_RESEARCH';
 }
 function inferInstrument(q){
- const cryptoPair=String(q||'').toUpperCase().match(/\b([A-Z0-9]{2,15})\s*[/ -]\s*(USDT|USDC|USD|EUR|BTC|ETH)\b/);
+ const cryptoPair=String(q||'').toUpperCase().match(/\b([A-Z0-9]{2,15})\s*[/-]\s*(USDT|USDC|USD|EUR|BTC|ETH)\b/);
  if(cryptoPair)return {queryToken:cryptoPair[1]+'/'+cryptoPair[2],explicitSymbol:true,confidence:'MEDIUM'};
  const raw=q.match(/\b[A-Z]{1,6}(?:\.(?:NS|BO|L|TO|AX|DE|PA|HK|T|SW))?\b/g)||[];
  const stop=new Set(['I','A','AI','CEO','CFO','RSI','SMA','EMA','USD','INR','USDT','BTC','ETH','NSE','BSE','NYSE','NASDAQ','ETF','FNO','PE','CE','BUY','SELL','LIVE','TODAY','BEST','TOP','AND','THE','FOR','WITH','FROM']);
