@@ -104,7 +104,7 @@ assert.match(pageText, /function importGoogleEvidence\(\)/, 'pasted Google resea
 assert.match(pageText, /provider:'user-provided',provenance:'USER_PROVIDED'/, 'manual import must preserve user-provided provenance');
 assert.match(pageText, /User-provided research — not independently verified/, 'manual evidence must be distinguished from fetched evidence');
 assert.match(pageText, /Publication date not verified/, 'manual import must not invent publication dates');
-assert.match(pageText, /if\(!manual\)state\.lastEvidenceSync=/, 'manual import must not pretend a web source was freshly synchronized');
+assert.match(pageText, /if\(!manual\)\{state\.lastEvidenceSync=.*syncCoreBrainEvidence\(d\);\}/, 'only fetched web search results should update local freshness and sync to Core Brain; manual imports must remain separate');
 assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
 assert.match(pageText, /data-search-result-index=/, 'search result cards must be addressable for targeted retrieval updates');
 assert.match(pageText, /Article retrieval retry/, 'retry must use the safe backend retrieval endpoint rather than browser scraping');
