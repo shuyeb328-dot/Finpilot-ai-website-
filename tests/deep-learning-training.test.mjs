@@ -19,12 +19,12 @@ const api = context.window.FinPilotDeepLearning;
 assert.ok(api, 'forecast training API must load');
 assert.equal(api.version, 'DLO-1.1');
 
-function snapshot({ticker='MSFT', price=100, asOf=Date.now()-1000, verified=true, snapshotId='snap-1'}={}) {
+function snapshot({ticker='MSFT', price=100, asOf=Date.now()-1000, verified=true, snapshotId='snap-1', market='US_EQUITY'}={}) {
   const time = new Date(asOf).toISOString();
   return {
     snapshotId,
     requested: {ticker, symbol:ticker},
-    instrument: {ticker, symbol:ticker, market:'US_EQUITY', currency:'USD', symbolMatches:true},
+    instrument: {ticker, symbol:ticker, market, currency:'USD', symbolMatches:true},
     quote: {price, changePct:1.2},
     timing: {sourceAsOf:time, capturedAt:new Date().toISOString(), ageMs:1000, maxAgeMs:120000, fresh:true, providerMarkedLive:true},
     candles: {count:30},
@@ -73,6 +73,7 @@ assert.ok(report.agents.every(row=>row.count===1), 'resolved forecasts should pr
 assert.ok(report.agents.every(row=>row.brier!==null && row.brier>=0 && row.brier<=2), 'multiclass Brier scores must stay in [0,2]');
 assert.ok(report.agents.every(row=>row.logLoss!==null && row.logLoss>=0), 'log loss should be computed from the forecast probability assigned to the realized class');
 assert.ok(report.agents.every(row=>row.calibrationStatus==='INSUFFICIENT_SAMPLE'&&row.probabilitiesCalibrated===false), 'one outcome must not promote any agent to calibrated');
+assert.ok(report.maxForecastRecords>=api.agents.length*100,'retention must allow at least 100 resolved samples for every existing agent');
 assert.equal(report.persistence,'BROWSER_LOCAL_STORAGE');
 assert.equal(report.realMoneyExecution,false);
 assert.ok(report.governance.baseline.includes('chronological walk-forward'), 'benchmark must only use outcomes that predate each forecast');
@@ -82,5 +83,13 @@ const before = report.resolvedForecasts;
 const staleAttempt = api.resolveDueForecasts(staleSnapshot);
 assert.equal(staleAttempt.resolved,0,'stale provider data cannot settle forecasts');
 assert.equal(api.forecastTrainingReport().resolvedForecasts,before,'stale data must not change training outcomes');
+
+
+const cryptoSnapshot=snapshot({ticker:'BTC',price:80000,market:'CRYPTO',snapshotId:'snap-btc'});
+api.runFleet(invalidState,{marketSnapshot:cryptoSnapshot});
+const marketScoped=api.forecastTrainingReport();
+assert.ok(marketScoped.agents.every(row=>row.latestForecast?.market==='CRYPTO'), 'latest forecast must expose its market class');
+assert.ok(marketScoped.agents.every(row=>row.count===0), 'an equity outcome must not be reused as a crypto calibration sample');
+assert.ok(marketScoped.agents.every(row=>row.calibrationStatus==='INSUFFICIENT_SAMPLE'), 'market-specific cold starts remain uncalibrated even if another market has outcomes');
 
 console.log('PASS forecast training: verified-only issuance, 100% probability sums, duplicate prevention, exact ticker/horizon settlement, Brier/log-loss, walk-forward baseline, and calibration safeguards');
