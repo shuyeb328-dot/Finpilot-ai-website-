@@ -191,7 +191,8 @@ async function searchWebUncached(q,count,requested){
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
    if(p==='exa'&&process.env.EXA_API_KEY)results=await exa(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
-   if(p==='bing-news-rss')results=await bingNewsRss(q,count);\n   if(p==='google-news-rss')results=await googleNewsRss(q,count);
+   if(p==='bing-news-rss')results=await bingNewsRss(q,count);
+   if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
   }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){paidProviderBlocked=true;}continue}
  }
