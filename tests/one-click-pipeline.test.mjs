@@ -97,6 +97,13 @@ assert.match(serverText, /dataSources:diagnostics\.sources/, 'health response mu
 assert.match(serverText, /readiness:diagnostics\.dataQuality===['"]FRESH['"]\?['"]MARKET_DATA_READY['"]/, 'market data readiness must be distinct from API availability');
 assert.match(serverText, /ai:\{configured:aiConfigured,mode:aiConfigured\?['"]EXTERNAL_GATEWAY['"]:['"]DETERMINISTIC_ONLY['"]\}/, 'unconfigured external AI must be reported accurately');
 assert.match(serverText, /paidFallbackEnabled:paidSearchFallbackEnabled/, 'health response must disclose whether paid fallback is enabled');
+assert.match(serverText, /providerCooldownStatus,recordProviderFailure,recordProviderSuccess/, 'market providers must use a shared cooldown state for rate-limit recovery');
+assert.match(serverText, /const cooldownError=providerCooldownError\(source\);if\(cooldownError\)return Promise\.reject\(cooldownError\)/, 'a cooling-down provider must be skipped before issuing another outbound request');
+assert.match(serverText, /recordProviderFailure\(source,e\.message\)/, 'rate-limit and block responses must start a provider-specific cooldown');
+assert.match(serverText, /recordProviderSuccess\(source\)/, 'successful provider responses must clear prior cooldown state');
+assert.match(serverText, /activeProviderCooldowns\(now\)/, 'health diagnostics must include active provider cooldowns');
+assert.match(serverText, /providerCooldowns:diagnostics\.providerCooldowns/, 'health endpoint must expose cooldown state for operators');
+assert.match(serverText, /cooling down for about .*seconds after/, 'health warnings must explain when a provider is being temporarily skipped');
 assert.match(serverText, /const forceRefresh=u\.searchParams\.get\(['"]refresh['"]\)===['"]1['"]/, 'search endpoint must accept an explicit fresh-search request');
 assert.match(serverText, /searchWeb\(q,\{count,forceRefresh\}\)/, 'fresh-search requests must bypass the provider cache');
 assert.match(pageText, /function refreshCurrentSearch\(\)/, 'search UI must provide a refresh action');
