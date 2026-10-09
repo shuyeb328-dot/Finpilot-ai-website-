@@ -5,6 +5,10 @@ const moduleText = fs.readFileSync(new URL('../public/one-click-analysis.js', im
 const pageText = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const deepText = fs.readFileSync(new URL('../public/deep-learning-os.js', import.meta.url), 'utf8');
 const serverText = fs.readFileSync(new URL('../server/server.mjs', import.meta.url), 'utf8');
+const staticStart = serverText.indexOf('function staticFile(');
+const staticEnd = serverText.indexOf('\n}', staticStart);
+assert.ok(staticStart >= 0 && staticEnd > staticStart, 'static file handler must exist');
+const staticHandler = serverText.slice(staticStart, staticEnd);
 const launcherStart = pageText.indexOf('async function finpilotLaunch(q){');
 const launcherEnd = pageText.indexOf('function exportJSON(', launcherStart);
 assert.ok(launcherStart >= 0 && launcherEnd > launcherStart, 'single one-click launcher must exist');
@@ -52,6 +56,13 @@ assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click
 assert.match(moduleText, /runFleet\(state,\{web,candidate,marketSnapshot:window\.__fpMarketSnapshot\}\)/, 'the agent fleet must receive the same validated snapshot');
 assert.match(moduleText, /state\.forecastLedger\.unshift\(forecastRecord\)/, 'completed runs must append a forecast ledger record');
 assert.match(moduleText, /BLOCKED_UNVERIFIED_DATA/, 'unverified market data must be explicitly blocked in the forecast ledger');
+assert.match(staticHandler, /script-src[^;]*https:\/\/s3\.tradingview\.com/, 'static page CSP must permit the TradingView chart loader');
+assert.match(staticHandler, /frame-src[^;]*https:\/\/www\.tradingview\.com/, 'static page CSP must permit the TradingView chart iframe');
+assert.match(moduleText, /if\(validCandles\.length<2\)/, 'local historical candles should render even when the quote is not live');
+assert.match(moduleText, /Historical \/ delayed price series/, 'non-live candle charts must be labelled historical/delayed');
+assert.match(moduleText, /Latest reported price · non-live\/EOD/, 'EOD or delayed quotes must not be labelled verified live prices');
+assert.match(moduleText, /script\.onerror=\(\)=>showFallback/, 'failed external chart loads must produce a visible fallback instead of a blank box');
+assert.match(moduleText, /forecastEligible===true&&scenarioQuoteValid/, 'the verified live price label must require both snapshot eligibility and a fresh matching quote');
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
