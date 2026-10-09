@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const ui=fs.readFileSync(new URL('../public/autonomous-core-os.js',import.meta.url),'utf8');
+const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+assert.match(html,/\/autonomous-core-os\.js\?v=/,'main page must load the control panel');
+assert.match(ui,/\/api\/os-control-plane/,'panel must use the OS control-plane API');
+assert.match(ui,/data-expand/,'every registered OS must support a details view');
+assert.match(ui,/fpac-security-probe/,'security policy probe must be present');
+assert.match(ui,/Resolved \/ helpful/,'operator outcome feedback must be available');
+assert.match(ui,/No real-money execution/,'panel must clearly state the execution limitation');
+assert.match(ui,/t=tone/,'status classes must resolve through the defined tone mapper');
+assert.doesNotMatch(ui,/t=statusTone/,'undefined status mapper must not be referenced');
+console.log('Autonomous Core OS UI contract checks passed.');
