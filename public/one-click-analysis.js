@@ -938,6 +938,7 @@
         marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',
         marketForecastEligible:marketSnapshot?.quality?.forecastEligible===true,
         agentFleet,
+        agentTelemetry,
         time:new Date().toISOString()
       };
 
