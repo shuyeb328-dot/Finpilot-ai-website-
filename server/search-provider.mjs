@@ -165,11 +165,11 @@ async function searchWebUncached(q,count,requested){
  throw providerError('No live results were returned by the configured search provider.'+detail);
 }
 
-export async function searchWeb(q,{count=8,forceRefresh=false}={}){
+export async function searchWeb(q,{count=8,forceRefresh=false,freeOnly=false}={}){
  const query=String(q??'').replace(/\s+/g,' ').trim();
  if(!query)throw providerError('Search query is empty.');
  const safeCount=Math.min(10,Math.max(1,Math.trunc(Number(count)||8)));
- const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
+ const requested=freeOnly?'free':(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
  const baseKey=searchCacheKey(query,safeCount,requested);
  const key=baseKey;
  if(forceRefresh)SEARCH_CACHE.delete(baseKey);
