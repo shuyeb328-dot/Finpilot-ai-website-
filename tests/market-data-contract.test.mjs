@@ -11,6 +11,8 @@ assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asO
 assert.match(frontend, /END-OF-DAY · ANALYSIS ONLY/, 'historical EOD fallback must be labelled analysis-only');
 assert.match(frontend, /STALE · DO NOT TRADE/, 'stale or unknown market data must be visibly blocked from trading');
 assert.match(frontend, /DELAYED · ANALYSIS ONLY/, 'delayed market data must be labelled analysis-only');
+assert.match(frontend, /UNVERIFIED · ANALYSIS ONLY/, 'unofficial provider quotes must not be labelled LIVE · VERIFIED');
+assert.match(frontend, /UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY/, 'freshness UI must distinguish an unofficial source from a live verified quote');
 assert.match(server, /\/api\/market-data-stream/);
 assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer resolution endpoint must be registered');
 assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
@@ -20,6 +22,8 @@ assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&winner\.executi
 assert.match(server, /executionEligible:false,executionEligibilityReason:'UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'/, 'unofficial Yahoo chart equity data must remain analysis-only even when its timestamp is fresh');
 assert.match(server, /quotes\.every\(x=>x\.live!==false&&x\.executionEligible!==false\)/, 'every source contributing to an execution-approved quote must be eligible');
 assert.match(server, /UNOFFICIAL_PROVIDER_ANALYSIS_ONLY/, 'the API must explain when an unofficial provider blocks paper execution');
+assert.match(server, /report\?\.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'\?'UNTRUSTED_SOURCE'/, 'stock report gate status must never say VERIFIED_LIVE for an explicitly untrusted source');
+assert.match(server, /snapshot\.quality\.forecastEligible=false/, 'market snapshot forecast eligibility must inherit an upstream source veto');
 assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
 assert.match(server, /createProviderResponseCache/, 'market routes should share a bounded provider-response cache');
 assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');
