@@ -295,16 +295,16 @@
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
     const html=`
-      <div id="oneClickResult" class="card" style="margin-bottom:14px;border:2px solid #315efb;background:linear-gradient(180deg,#f8faff,#fff)">
+      <div id="oneClickResult" class="card" style="margin-bottom:14px;border:2px solid var(--accent);background:linear-gradient(180deg,var(--surface-2),var(--surface))">
         <div class="sectionTitle">
           <div><span class="eyebrow">Simple One-Click Analysis</span><h3 style="font-size:18px;margin-top:5px">Complete analysis · ${escLocal(q)}</h3></div>
           <span class="pill low">COMPLETE</span>
         </div>
-        <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
+        <div class="card" style="margin-bottom:12px;border:1px solid var(--accent);background:var(--surface-2)">
           <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
-        <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
+        <div class="card" style="margin-bottom:12px;border:1px solid var(--line);background:var(--surface)">
           <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'HISTORICAL SERIES':'EXTERNAL CHART')}</span></div>
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
@@ -313,7 +313,7 @@
             <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.sma20)} / ${chartPrice(report.chartAnalysis?.sma50)}</div></div>
             <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.support)} / ${chartPrice(report.chartAnalysis?.resistance)}</div></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ${chartPrice(report.chartAnalysis?.target)} · Stop scenario ${chartPrice(report.chartAnalysis?.stop)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses the valid candle series available in this run; it does not imply live quote freshness.</div></div>
+          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ${chartPrice(report.chartAnalysis?.target)} · Stop scenario ${chartPrice(report.chartAnalysis?.stop)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid var(--line);background:var(--surface-2)"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses the valid candle series available in this run; it does not imply live quote freshness.</div></div>
 
         </div>
         <div class="grid cards" style="margin-bottom:12px">
@@ -327,7 +327,7 @@
           <div class="decision"><span class="pill med">CFO · SAFETY</span><p>${escLocal(e.cfo||'No CFO view')}</p><b>${e.cfoConfidence||0}% confidence</b></div>
           <div class="decision"><span class="pill">⚖ JUDGE · FINAL</span><h2>${escLocal(e.judge||report.decision||'VERIFY')}</h2><b>${report.confidence||0}% confidence</b></div>
         </div>
-<div class="card" style="margin-top:12px;border:1px solid #d8e0ef;background:#fbfcff">
+<div class="card" style="margin-top:12px;border:1px solid var(--line);background:var(--surface-2)">
           <div class="sectionTitle"><div><span class="eyebrow">₹1,000 EXAMPLE</span><h3 style="font-size:18px;margin-top:5px">What ₹1,000 could look like</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
           <div class="notice" style="margin-bottom:10px"><b>Expected P/L timing:</b> ${escLocal(scenarioTimingLabel)}<br><span class="muted">${scenarioQuoteValid?'Scenario calculated '+formatScenarioDate(scenarioStartedAt)+' IST using quote timestamp '+formatScenarioDate(new Date(scenarioQuote.asOf))+' IST. Profit/loss can occur earlier, later, or not at all; this is a review horizon, not a forecast guarantee.':'FinPilot will not assign an expected profit/loss date without verified fresh market data.'}</span></div>
           <div class="notice ${money?.approved===true?'':'highNotice'}" style="margin-bottom:10px"><b>Exposure gate:</b> ${money?.approved===true?'CONDITIONAL · recommended scenario exposure ₹'+Number(money?.plan?.recommendedAmount||0).toLocaleString('en-IN'):'BLOCKED · recommended exposure ₹'+Number(money?.plan?.recommendedAmount||0).toLocaleString('en-IN')}.<br><span class="muted">The gain/loss cards below are hypothetical outcomes on the full ₹1,000 example, not a promise or an approved position. Do not treat the scenario amount as a trade instruction.</span></div>
@@ -346,7 +346,7 @@
           <div class="notice" style="margin-top:10px"><b>How the AI got this:</b> current risk ${money?.inputs?.risk||0} · CEO ${money?.inputs?.ceo||0}% · CFO ${money?.inputs?.cfo||0}% · Judge ${money?.inputs?.judge||0}% · evidence ${money?.inputs?.evidence||0} · market ${money?.inputs?.market||0}.<br><span class="muted">${escLocal(money?.probabilityBasis||'')}</span></div>
           <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> ${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
-<div class="card" style="margin-top:12px;border:1px solid #cfd8ea;background:#fff">
+<div class="card" style="margin-top:12px;border:1px solid var(--line);background:var(--surface)">
           <div class="sectionTitle"><div><span class="eyebrow">RISK CHECK</span><h3 style="font-size:18px;margin-top:5px">Safety and risk checks</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Safe position</span><div class="metric" style="font-size:20px">₹${v8?.position?.recommended?.toLocaleString('en-IN')||0}</div><span class="muted">of ₹${v8?.position?.requested?.toLocaleString('en-IN')||0} requested</span></div>
@@ -362,7 +362,7 @@
           <div class="notice" style="margin-top:10px"><b>Re-evaluation triggers:</b> ${v8?.triggers?.length?v8.triggers.map(escLocal).join(' · '):'No immediate trigger; continue monitoring.'}</div>
           <div class="notice" style="margin-top:8px"><b>v8 decision trace:</b> ${v8?.trace?.map(escLocal).join(' → ')||'Not available'}</div>
           <div class="muted" style="margin-top:8px">${escLocal(v8?.disclaimer||'')}</div>
-        </div>        <div class="card" style="margin-top:12px;border:2px solid #315efb;background:#f7f9ff">
+        </div>        <div class="card" style="margin-top:12px;border:2px solid var(--accent);background:var(--surface-2)">
           <div class="sectionTitle"><div><span class="eyebrow">₹1,000 RISK PLAN</span><h3 style="font-size:18px;margin-top:5px">Amount · target · stop · loss</h3></div><span class="pill ${money.plan?.approval==='CONDITIONAL'?'low':'high'}">${escLocal(money.plan?.approval||'BLOCKED')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Requested</span><div class="metric">₹${Number(money.plan?.requestedAmount||1000).toLocaleString('en-IN')}</div><span class="muted">scenario capital</span></div>

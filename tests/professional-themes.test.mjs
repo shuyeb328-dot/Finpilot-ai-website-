@@ -7,3 +7,27 @@ if(count!==4) throw new Error('Expected exactly 4 visual themes, found '+count);
 if(!html.includes("localStorage.setItem('finpilot_theme'")) throw new Error('Theme persistence missing');
 if(!html.includes("localStorage.getItem('finpilot_theme')||'obsidian'")) throw new Error('Obsidian default missing');
 console.log('professional theme tests passed');
+
+const analysis = fs.readFileSync(new URL('../public/one-click-analysis.js',import.meta.url),'utf8');
+const unsafeLightPanelStyles = [
+  'background:linear-gradient(180deg,#f8faff,#fff)',
+  'border:1px solid #315efb;background:#eef5ff',
+  'border:1px solid #cbd7ee;background:#fff',
+  'border:1px solid #d8e0ef;background:#fbfcff',
+  'border:1px solid #cfd8ea;background:#fff',
+  'border:2px solid #315efb;background:#f7f9ff'
+];
+for (const style of unsafeLightPanelStyles) {
+  if (analysis.includes(style)) throw new Error('Theme-breaking hard-coded One-Click panel style remains: '+style);
+}
+const themeAwarePanelStyles = [
+  'background:linear-gradient(180deg,var(--surface-2),var(--surface))',
+  'border:1px solid var(--accent);background:var(--surface-2)',
+  'border:1px solid var(--line);background:var(--surface)',
+  'border:1px solid var(--line);background:var(--surface-2)'
+];
+for (const style of themeAwarePanelStyles) {
+  if (!analysis.includes(style)) throw new Error('Missing theme-aware One-Click panel style: '+style);
+}
+console.log('One-Click Analysis theme contrast regression checks passed');
+
