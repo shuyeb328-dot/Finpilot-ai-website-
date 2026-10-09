@@ -831,8 +831,10 @@ async function marketDataOS(req,res,u){
    const price=Number(x?.price);
    const ok=Number.isFinite(price)&&price>0;
    const observedAt=x?.observedAt||x?._finpilotCache?.observedAt||new Date().toISOString();
-   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:x?.asOf||null,timestampType:x?.timestampType||'OBSERVATION_TIMESTAMP'});
-   if(ok)quotes.push({...x,provider:name,observedAt,latencyMs:Date.now()-t});
+   const sourceTimestamp=x?.asOf||null;
+   const timestampType=x?.timestampType||(sourceTimestamp?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP');
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:sourceTimestamp,timestampType});
+   if(ok)quotes.push({...x,provider:name,observedAt,asOf:sourceTimestamp,timestampType,latencyMs:Date.now()-t});
    return ok;
   }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
  };
@@ -850,11 +852,11 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const sourceReady=quotes.every(x=>{const ts=x.asOf||x.observedAt;return x.live!==false&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
+ const sourceReady=quotes.every(x=>{const ts=x.asOf;return x.live!==false&&x.timestampType==='PROVIDER_TIMESTAMP'&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Date.parse(ts)<=Date.now()+5000&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
  const verified=prices.length===1?sourceReady:(spreadPct<=0.75&&sourceReady);
  const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
  const status=verified?'VERIFIED':'CONFLICTING';
- const selectedAsOf=winner.asOf||winner.observedAt||null;
+ const selectedAsOf=winner.asOf||null;
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&!winner.stale&&sourceAgeMs<=EXECUTION_FRESHNESS_MS);
  const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:winner.timestampType||'OBSERVATION_TIMESTAMP',sourceAgeMs,dataFreshness:sourceAgeMs!==null?(sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH_SOURCE':'STALE_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||x.observedAt||null,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP'})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
