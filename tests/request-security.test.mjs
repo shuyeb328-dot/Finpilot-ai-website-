@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {isAllowedRequestOrigin,MAX_REQUEST_BODY_BYTES} from '../server/request-security.mjs';
+const host='finpilot-ai-8wn6.onrender.com';
+assert.equal(isAllowedRequestOrigin({origin:'https://'+host,host,requestProtocol:'https'}),true,'same-origin HTTPS writes should pass');
+assert.equal(isAllowedRequestOrigin({origin:'https://'+host,host,requestProtocol:'http'}),false,'protocol mismatch should fail');
+assert.equal(isAllowedRequestOrigin({origin:'https://attacker.example',host,requestProtocol:'https'}),false,'unlisted cross-origin requests must be denied');
+assert.equal(isAllowedRequestOrigin({origin:'https://dashboard.example',host,allowedOrigin:'https://dashboard.example',requestProtocol:'https'}),true,'one explicit configured origin can be allowed');
+assert.equal(isAllowedRequestOrigin({origin:'https://dashboard.example',host,allowedOrigin:'https://other.example',requestProtocol:'https'}),false);
+assert.equal(isAllowedRequestOrigin({origin:'null',host,requestProtocol:'https'}),false,'opaque/null origins must fail');
+assert.equal(isAllowedRequestOrigin({origin:'https://attacker.example/path',host,requestProtocol:'https'}),false,'Origin headers must not include paths');
+assert.equal(isAllowedRequestOrigin({origin:undefined,host,requestProtocol:'https'}),true,'server-to-server calls without Origin remain supported');
+assert.equal(MAX_REQUEST_BODY_BYTES,524288);
+console.log('Request security: same-origin policy, explicit CORS allowlist and payload cap contract passed.');
