@@ -22,7 +22,7 @@ export const OS_REGISTRY=[
  {id:'research-search-os',name:'Research & Search OS',domain:'RESEARCH',criticality:'MEDIUM',dependencies:['data-os','ai-security-os'],description:'Research and search readiness without treating retrieved content as instructions.',signal:'search'}
 ];
 
-const state={version:'1.0.0',mode:'MONITOR_ONLY',cycleCount:0,lastCycle:null,lastFeedbackAt:null,recentCycles:[],feedback:[],categories:{},persistence:'PROCESS_MEMORY',persistenceDetail:'Outcome feedback is held in this server process unless DATABASE_URL persistence is available.',persistenceAttempted:false};
+const state={version:'1.1.0',mode:'MONITOR_ONLY',cycleCount:0,lastCycle:null,lastFeedbackAt:null,recentCycles:[],feedback:[],categories:{},persistence:'PROCESS_MEMORY',persistenceDetail:'Outcome feedback is held in this server process unless DATABASE_URL persistence is available.',persistenceAttempted:false,shadowMetrics:{evaluations:0,claimedThresholdsMet:0,rejected:0,riskRegressionCount:0,lastEvaluatedAt:null}};
 let pool=null,storePromise=null;
 const now=()=>new Date().toISOString();
 const clean=(v,n=200)=>String(v??'').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,n);
@@ -82,8 +82,9 @@ function checkStatus(signal,obs){
  }
  if(signal==='fleet'){
   const f=obs.fleet;if(!f?.ok)return {status:'UNKNOWN',detail:'Agent fleet endpoint has not been verified.'};
-  const failed=Number(f.scheduler?.failed||0),completed=Number(f.scheduler?.completed||0),running=Number(f.scheduler?.running||0),queued=Number(f.scheduler?.queue||0);
-  return {status:failed>=5&&failed>completed?'DEGRADED':running||queued?'ACTIVE':'READY',detail:running+' running · '+queued+' queued · '+failed+' failed.',metrics:{running,queued,completed,failed}};
+  const failed=Number(f.scheduler?.failed||0),completed=Number(f.scheduler?.completed||0),running=Number(f.scheduler?.running||0),queued=Number(f.scheduler?.queue||0),total=failed+completed,failRate=total?failed/total:0;
+  const status=(failed>=5&&failed>completed)||(total>=8&&failRate>.3)?'DEGRADED':running||queued?'ACTIVE':'READY';
+  return {status,detail:running+' running · '+queued+' queued · '+completed+' completed · '+failed+' failed ('+Math.round(failRate*100)+'% observed failure rate).',metrics:{running,queued,completed,failed,failRate}};
  }
  if(signal==='data'){
   const x=obs.data;if(!x?.dataQuality)return {status:'UNKNOWN',detail:'Data quality has not been measured in this process.'};
@@ -99,18 +100,25 @@ function checkStatus(signal,obs){
  }
  if(signal==='learning'){
   const x=obs.learning;if(!x||!x.version)return {status:'UNKNOWN',detail:'Learning OS status is unavailable.'};
-  const enabled=Boolean(x.enabled),failed=Boolean(x.lastError);
-  return {status:failed?'DEGRADED':enabled?'ACTIVE':'IDLE',detail:failed?clean(x.lastError,140):enabled?'Governed research loop enabled; agent mutation remains gated.':'Learning engine available; background research is currently disabled.',metrics:{enabled,cycles:Number(x.stats?.cycles||x.cycles||0),evidenceAccepted:Number(x.stats?.evidenceAccepted||0)}};
+  const enabled=Boolean(x.enabled),failed=Boolean(x.lastError),journal=state.persistence;
+  const status=failed?'DEGRADED':journal!=='POSTGRES'?'PARTIAL':enabled?'ACTIVE':'IDLE';
+  const storageDetail=journal==='POSTGRES'?'Outcome journal persisted in PostgreSQL.':'Outcome journal is process-memory only and can be lost on restart; DATABASE_URL is not currently connected.';
+  const detail=failed?clean(x.lastError,140):((enabled?'Governed research loop enabled.':'Learning engine available; background research is disabled.')+' '+storageDetail);
+  return {status,detail,metrics:{enabled,cycles:Number(x.stats?.cycles||x.cycles||0),evidenceAccepted:Number(x.stats?.evidenceAccepted||0),feedbackRecords:state.feedback.length,feedbackCategories:Object.keys(state.categories).length,feedbackPersistence:journal,lastFeedbackAt:state.lastFeedbackAt}};
  }
  if(signal==='foundation'){
   const x=obs.health?.frontendSyntax;
   return x?.ok?{status:'PARTIAL',detail:'Server/frontend syntax checks pass. Browser foundation benchmark must be measured client-side.'}:{status:'UNKNOWN',detail:'Foundation runtime telemetry is not available.'};
  }
  if(signal==='evolution'){
-  return obs.learning?.version?{status:'PARTIAL',detail:'Governed learning is connected. Candidate promotion still requires shadow benchmarks and explicit gates.'}:{status:'UNKNOWN',detail:'Evolution gate telemetry unavailable.'};
+  const x=obs.evolution;if(!x?.ok)return {status:'UNKNOWN',detail:'Shadow evaluation telemetry has not been observed.'};
+  const evaluations=Number(x.evaluations||0),claimed=Number(x.claimedThresholdsMet||0),rejected=Number(x.rejected||0),riskRegressionCount=Number(x.riskRegressionCount||0);
+  return {status:evaluations?'ACTIVE':'READY',detail:evaluations+' submitted shadow evaluations · '+claimed+' numeric claims met thresholds · '+rejected+' rejected · '+riskRegressionCount+' risk-regression flags. Metrics are caller-supplied and unverified; no candidate code is executed or promoted.',metrics:{evaluations,claimedThresholdsMet:claimed,rejected,riskRegressionCount,metricsVerified:false,isolatedExecutionPerformed:false,automaticPromotion:false}};
  }
  if(signal==='quantum'){
-  return obs.quantum?.ok?{status:'ACTIVE',detail:'Quantum routing endpoint responded; review its decision and guard metrics.'}:{status:'PARTIAL',detail:'Quantum OS is present in the browser; a server-side health signal is not yet exposed in this snapshot.'};
+  const x=obs.quantum;if(!x?.ok)return {status:'UNKNOWN',detail:'Quantum routing telemetry has not been verified.'};
+  if(x.configured)return {status:'ACTIVE',detail:'External quantum provider is configured; classical validation and risk gates remain mandatory.',metrics:{configured:true,backend:clean(x.backend||'EXTERNAL_QUANTUM_PROVIDER',60)}};
+  return {status:'PARTIAL',detail:'External quantum provider is not configured. Only the deterministic/classical fallback is available; no quantum-advantage claim is made.',metrics:{configured:false,backend:clean(x.backend||'UNCONFIGURED',60)}};
  }
  if(signal==='policy'){
   const x=obs.policy?.policy,safe=Boolean(x&&x.execution==='HUMAN_APPROVAL_REQUIRED'&&x.moneyMovement==='BLOCKED'&&x.credentialAccess==='BLOCKED'&&x.cfoVeto==='ENFORCED');
@@ -132,7 +140,7 @@ export async function getOSControlPlaneSnapshot(observations={}){
  const statusCounts=os.reduce((acc,x)=>(acc[x.status]=(acc[x.status]||0)+1,acc),{});
  return {ok:true,version:state.version,mode:state.mode,persistence:state.persistence,persistenceDetail:state.persistenceDetail,registryVersion:'1.0.0',os,statusCounts,
   summary:{total:os.length,healthy:(statusCounts.HEALTHY||0)+(statusCounts.READY||0)+(statusCounts.ACTIVE||0),degraded:statusCounts.DEGRADED||0,unknown:statusCounts.UNKNOWN||0,reviewRequired:statusCounts.REVIEW_REQUIRED||0,guarded:statusCounts.SAFE_GATED||0,cycles:state.cycleCount,lastCycle:state.lastCycle,lastFeedbackAt:state.lastFeedbackAt},
-  learning:{feedbackCount:state.feedback.length,categories:Object.entries(state.categories).map(([category,x])=>({category,...x})),recentFeedback:state.feedback.slice(0,8),promotionPolicy:{minSamples:30,minReliability:0.8,requiresShadowBenchmark:true,automaticPromotion:false},adaptation:'Feedback adjusts bounded recommendation priorities only; it cannot alter security policy or execution gates.',shadowEvaluation:{minimumSamples:20,minimumScoreGain:2,requiresAllTestsPass:true,automaticPromotion:false,sourceMutation:false,validation:'METADATA_GATE_ONLY',execution:'NO_CANDIDATE_EXECUTION',metricsVerified:false}},
+  learning:{feedbackCount:state.feedback.length,categories:Object.entries(state.categories).map(([category,x])=>({category,...x})),recentFeedback:state.feedback.slice(0,8),promotionPolicy:{minSamples:30,minReliability:0.8,requiresShadowBenchmark:true,automaticPromotion:false},adaptation:'Feedback adjusts bounded recommendation priorities only; it cannot alter security policy or execution gates.',shadowEvaluation:{...state.shadowMetrics,minimumSamples:20,minimumScoreGain:2,requiresAllTestsPass:true,automaticPromotion:false,sourceMutation:false,validation:'METADATA_GATE_ONLY',execution:'NO_CANDIDATE_EXECUTION',metricsVerified:false}},
   policy:{autonomousModes:[...ALLOWED_MODES],safeAllowlist:[...SAFE_ACTIONS],neverAutonomous:['live money movement','placing/cancelling broker orders','credential access/export','security-policy changes','disabling risk or approval gates','unreviewed production deployments','self-modifying source code'],execution:'HUMAN_APPROVAL_REQUIRED',realMoneyExecution:'BLOCKED'}};
 }
 function categoryReliability(category){return categoryState(category).reliability}
@@ -187,6 +195,7 @@ export function evaluateShadowCandidate(input={}){
  if(evidence.length===0)blockers.push('EVIDENCE_REQUIRED');
  if(validScores&&candidate<baseline+2)blockers.push('MINIMUM_SCORE_GAIN_NOT_MET');
  const eligible=blockers.length===0;
+ state.shadowMetrics.evaluations++;if(eligible)state.shadowMetrics.claimedThresholdsMet++;else state.shadowMetrics.rejected++;if(riskRegression)state.shadowMetrics.riskRegressionCount++;state.shadowMetrics.lastEvaluatedAt=now();
  return {ok:true,candidateId:candidateId||null,status:eligible?'CLAIMED_THRESHOLDS_MET_UNVERIFIED':(blockers.some(x=>['INVALID_CANDIDATE_ID','INVALID_SCORE_RANGE','INVALID_SAMPLE_COUNT'].includes(x))?'REJECTED':'INSUFFICIENT_EVIDENCE'),baselineScore:validScores?baseline:null,candidateScore:validScores?candidate:null,scoreGain:validScores?Number((candidate-baseline).toFixed(2)):null,samples:validSamples?samples:null,testsPassed,riskRegression,evidence,blockers,automaticPromotion:false,productionMutation:false,financialExecution:false,isolatedExecutionPerformed:false,metricsVerified:false,validationMode:'CALLER_SUPPLIED_METADATA_ONLY',policy:'SHADOW_ONLY_REQUIRES_HUMAN_REVIEW',message:eligible?'Submitted claims meet the numeric gate, but tests and metrics were not independently executed or verified here. This result is not proof of a successful shadow run and cannot authorize promotion.':'Submitted claims fail the eligibility gate; address every blocker and obtain independently verifiable benchmark evidence.'};
 }
 export function setAutonomousCoreMode(mode){
@@ -200,5 +209,6 @@ export function evaluateSecurityRequest(input={}){
  if(!SAFE_ACTIONS.has(action))return {ok:true,allowed:false,status:'DENIED_NOT_ON_SAFE_ALLOWLIST',action,target,reason:'Action is not on the pre-approved read-only allowlist.',policy:'DENY_BY_DEFAULT'};
  return {ok:true,allowed:true,status:'ALLOWED_BOUNDED_READ_ONLY',action,target,reason:'This endpoint evaluates policy only; it does not execute an action.',policy:'LEAST_PRIVILEGE'};
 }
+export function getShadowEvaluationStatus(){return {ok:true,...state.shadowMetrics,metricsVerified:false,isolatedExecutionPerformed:false,automaticPromotion:false,validationMode:'CALLER_SUPPLIED_METADATA_ONLY'}};
 export function getAutonomousCoreMode(){return state.mode}
-export function resetAutonomousCoreForTests(){state.mode='MONITOR_ONLY';state.cycleCount=0;state.lastCycle=null;state.lastFeedbackAt=null;state.recentCycles=[];state.feedback=[];state.categories={};}
+export function resetAutonomousCoreForTests(){state.mode='MONITOR_ONLY';state.cycleCount=0;state.lastCycle=null;state.lastFeedbackAt=null;state.recentCycles=[];state.feedback=[];state.categories={};state.shadowMetrics={evaluations:0,claimedThresholdsMet:0,rejected:0,riskRegressionCount:0,lastEvaluatedAt:null};}
