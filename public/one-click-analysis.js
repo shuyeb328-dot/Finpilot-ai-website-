@@ -527,7 +527,7 @@
     const report=trainer.forecastTrainingReport();
     const old=document.getElementById('forecastTrainingPanel');if(old)old.remove();
     const agents=Array.isArray(report.agents)?report.agents:[];
-    const number=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
+    const number=(v,d=2)=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
     const last=report.lastForecastAttempt||null;
     let statusTitle='Warming up · probabilities are not calibrated';
     let statusText='Rule-based starting probabilities are evaluated against later outcomes. They are not presented as calibrated until outcomes mature and pass walk-forward checks.';
@@ -558,7 +558,7 @@
        '<div class="card"><span class="muted">Unique settled events</span><div class="metric">'+(Number(report.uniqueSettledEvents)||0)+'</div></div>'+
        '<div class="card"><span class="muted">Mean agent Brier</span><div class="metric">'+(avgBrier===null?'—':avgBrier.toFixed(4))+'</div><span class="muted">Lower is better · not return</span></div>'+
       '</div>'+
-      '<div class="muted" style="margin:10px 0">Prior-outcome base-rate Brier is the walk-forward benchmark for each agent. Training records are stored in this browser, not cloud-persistent. Probabilities remain uncalibrated until there are at least 100 resolved outcomes per agent, calibration error is at most 8%, and Brier beats the baseline overall and on the latest 30 outcomes. No agent is automatically promoted.</div>'+
+      '<div class="muted" style="margin:10px 0">Prior-outcome base-rate Brier is the walk-forward benchmark for each agent. Training records are stored in this browser, not cloud-persistent. Probabilities remain uncalibrated until there are at least 100 resolved outcomes per agent and market class, calibration error is at most 8%, and Brier beats the baseline overall and on the latest 30 outcomes. No agent is automatically promoted.</div>'+
       '<div style="overflow:auto"><table style="width:100%;min-width:900px;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">Agent</th><th style="text-align:left;padding:8px">Latest forecast</th><th style="text-align:left;padding:8px">Resolved</th><th style="text-align:left;padding:8px">Brier</th><th style="text-align:left;padding:8px">Baseline</th><th style="text-align:left;padding:8px">Calibration gate</th><th style="text-align:left;padding:8px">Latest outcome</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
       '<div class="muted" style="margin-top:10px">Forecast horizon: '+(Number(report.horizonDays)||1)+' day · outcome threshold: ±'+number(report.moveThresholdPct,2)+'% · verified provider quote required · research/paper evaluation only.</div>';
     box.appendChild(el);
