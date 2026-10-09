@@ -128,11 +128,11 @@ function checkStatus(signal,obs){
 }
 export async function getOSControlPlaneSnapshot(observations={}){
  await ensurePersistence();
- const os=OS_REGISTRY.map(item=>({...item,...checkStatus(item.signal,observations),observedAt:now()}));
+ const os=OS_REGISTRY.map(item=>{const health=checkStatus(item.signal,observations);return {...item,...health,adapter:item.signal,observedAt:now(),evidenceLevel:health.status==='UNKNOWN'?'NONE':health.status==='PARTIAL'?'LIMITED':'OBSERVED'};});
  const statusCounts=os.reduce((acc,x)=>(acc[x.status]=(acc[x.status]||0)+1,acc),{});
  return {ok:true,version:state.version,mode:state.mode,persistence:state.persistence,persistenceDetail:state.persistenceDetail,registryVersion:'1.0.0',os,statusCounts,
   summary:{total:os.length,healthy:(statusCounts.HEALTHY||0)+(statusCounts.READY||0)+(statusCounts.ACTIVE||0),degraded:statusCounts.DEGRADED||0,unknown:statusCounts.UNKNOWN||0,reviewRequired:statusCounts.REVIEW_REQUIRED||0,guarded:statusCounts.SAFE_GATED||0,cycles:state.cycleCount,lastCycle:state.lastCycle,lastFeedbackAt:state.lastFeedbackAt},
-  learning:{feedbackCount:state.feedback.length,categories:Object.entries(state.categories).map(([category,x])=>({category,...x})),recentFeedback:state.feedback.slice(0,8),promotionPolicy:{minSamples:30,minReliability:0.8,requiresShadowBenchmark:true,automaticPromotion:false},adaptation:'Feedback adjusts bounded recommendation priorities only; it cannot alter security policy or execution gates.'},
+  learning:{feedbackCount:state.feedback.length,categories:Object.entries(state.categories).map(([category,x])=>({category,...x})),recentFeedback:state.feedback.slice(0,8),promotionPolicy:{minSamples:30,minReliability:0.8,requiresShadowBenchmark:true,automaticPromotion:false},adaptation:'Feedback adjusts bounded recommendation priorities only; it cannot alter security policy or execution gates.',shadowEvaluation:{minimumSamples:20,minimumScoreGain:2,requiresAllTestsPass:true,automaticPromotion:false,sourceMutation:false,execution:'ISOLATED_SHADOW_ONLY'}},
   policy:{autonomousModes:[...ALLOWED_MODES],safeAllowlist:[...SAFE_ACTIONS],neverAutonomous:['live money movement','placing/cancelling broker orders','credential access/export','security-policy changes','disabling risk or approval gates','unreviewed production deployments','self-modifying source code'],execution:'HUMAN_APPROVAL_REQUIRED',realMoneyExecution:'BLOCKED'}};
 }
 function categoryReliability(category){return categoryState(category).reliability}
@@ -168,6 +168,26 @@ export async function recordOSControlFeedback(input={}){
  const record={id:'fb_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),cycleId,taskId,category:task.category,outcome,evidence:clean(input.evidence,500),reviewedBy:clean(input.reviewedBy||'operator',48),createdAt:now()};
  applyFeedback(record);const persisted=await persistFeedback(record);
  return {ok:true,record:{id:record.id,cycleId,taskId,category:record.category,outcome,createdAt:record.createdAt},category:{category:record.category,...categoryState(record.category)},persistence:state.persistence,persisted,learning:'Recommendation prioritization updated within bounded limits; security and execution policies unchanged.'};
+}
+export function evaluateShadowCandidate(input={}){
+ const candidateId=clean(input.candidateId,100);
+ const baseline=Number(input.baselineScore),candidate=Number(input.candidateScore),samples=Number(input.samples);
+ const testsPassed=input.testsPassed===true,riskRegression=input.riskRegression===true;
+ const evidence=Array.isArray(input.evidence)?input.evidence.map(x=>clean(x,160)).filter(Boolean).slice(0,10):[];
+ const validId=/^[a-zA-Z0-9._-]{3,100}$/.test(candidateId);
+ const validScores=Number.isFinite(baseline)&&Number.isFinite(candidate)&&baseline>=0&&baseline<=100&&candidate>=0&&candidate<=100;
+ const validSamples=Number.isInteger(samples)&&samples>=0&&samples<=100000;
+ const blockers=[];
+ if(!validId)blockers.push('INVALID_CANDIDATE_ID');
+ if(!validScores)blockers.push('INVALID_SCORE_RANGE');
+ if(!validSamples)blockers.push('INVALID_SAMPLE_COUNT');
+ if(validSamples&&samples<20)blockers.push('INSUFFICIENT_SHADOW_SAMPLES');
+ if(input.testsPassed!==true)blockers.push('ALL_TESTS_MUST_PASS');
+ if(riskRegression)blockers.push('RISK_REGRESSION_DETECTED');
+ if(evidence.length===0)blockers.push('EVIDENCE_REQUIRED');
+ if(validScores&&candidate<baseline+2)blockers.push('MINIMUM_SCORE_GAIN_NOT_MET');
+ const eligible=blockers.length===0;
+ return {ok:true,candidateId:candidateId||null,status:eligible?'SHADOW_ELIGIBLE_NOT_PROMOTED':(blockers.some(x=>['INVALID_CANDIDATE_ID','INVALID_SCORE_RANGE','INVALID_SAMPLE_COUNT'].includes(x))?'REJECTED':'INSUFFICIENT_EVIDENCE'),baselineScore:validScores?baseline:null,candidateScore:validScores?candidate:null,scoreGain:validScores?Number((candidate-baseline).toFixed(2)):null,samples:validSamples?samples:null,testsPassed,riskRegression,evidence,blockers,automaticPromotion:false,productionMutation:false,financialExecution:false,policy:'SHADOW_ONLY_REQUIRES_HUMAN_REVIEW',message:eligible?'Candidate meets shadow thresholds but is not promoted. Human review and separate release gates remain mandatory.':'Candidate is not eligible for promotion; address every blocker and rerun isolated tests.'};
 }
 export function setAutonomousCoreMode(mode){
  const requested=String(mode||'').toUpperCase();if(!ALLOWED_MODES.has(requested))return {ok:false,error:'MODE_NOT_ALLOWED',allowed:[...ALLOWED_MODES]};
