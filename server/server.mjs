@@ -309,7 +309,7 @@ async function directProviderJson(url,source='provider',timeoutMs=8000){
  return PROVIDER_RESPONSE_CACHE.get(url,async()=>{
   const started=Date.now();
   try{
-   const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
+   const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
    if(!r.ok)throw new Error(`HTTP_${r.status}`);
    qualityUpdate(source,true,Date.now()-started);
    return await r.json();
