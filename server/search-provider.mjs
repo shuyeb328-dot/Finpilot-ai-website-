@@ -165,17 +165,19 @@ async function searchWebUncached(q,count,requested){
  throw providerError('No live results were returned by the configured search provider.'+detail);
 }
 
-export async function searchWeb(q,{count=8}={}){
+export async function searchWeb(q,{count=8,forceRefresh=false}={}){
  const query=String(q??'').replace(/\s+/g,' ').trim();
  if(!query)throw providerError('Search query is empty.');
  const safeCount=Math.min(10,Math.max(1,Math.trunc(Number(count)||8)));
  const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
- const key=searchCacheKey(query,safeCount,requested);
- if(SEARCH_CACHE_TTL_MS>0){
+ const baseKey=searchCacheKey(query,safeCount,requested);
+ const key=baseKey;
+ if(forceRefresh)SEARCH_CACHE.delete(baseKey);
+ if(!forceRefresh&&SEARCH_CACHE_TTL_MS>0){
   trimSearchCache();
-  const hit=SEARCH_CACHE.get(key);
+  const hit=SEARCH_CACHE.get(baseKey);
   if(hit&&hit.expiresAt>Date.now()){
-   SEARCH_CACHE.delete(key);SEARCH_CACHE.set(key,hit);
+   SEARCH_CACHE.delete(baseKey);SEARCH_CACHE.set(baseKey,hit);
    const cacheAgeMs=Math.max(0,Date.now()-hit.fetchedAtMs);
    return {...hit.data,live:false,cached:true,originalLive:hit.data.live===true,
     freshness:'CACHED',cacheAgeMs,
@@ -193,7 +195,7 @@ export async function searchWeb(q,{count=8}={}){
   const data=await request;
   if(SEARCH_CACHE_TTL_MS>0&&Array.isArray(data.results)&&data.results.length){
    const fetchedAtMs=Date.now();
-   SEARCH_CACHE.set(key,{data:{...data},fetchedAtMs,expiresAt:fetchedAtMs+SEARCH_CACHE_TTL_MS});
+   SEARCH_CACHE.set(baseKey,{data:{...data},fetchedAtMs,expiresAt:fetchedAtMs+SEARCH_CACHE_TTL_MS});
    trimSearchCache();
   }
   return data;
