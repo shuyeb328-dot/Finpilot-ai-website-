@@ -171,7 +171,7 @@ export async function searchWeb(q,{count=8,forceRefresh=false}={}){
  const safeCount=Math.min(10,Math.max(1,Math.trunc(Number(count)||8)));
  const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
  const baseKey=searchCacheKey(query,safeCount,requested);
- const key=forceRefresh?baseKey+'|force-refresh':baseKey;
+ const key=baseKey;
  if(forceRefresh)SEARCH_CACHE.delete(baseKey);
  if(!forceRefresh&&SEARCH_CACHE_TTL_MS>0){
   trimSearchCache();
