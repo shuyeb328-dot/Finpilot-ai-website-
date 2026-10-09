@@ -192,4 +192,13 @@ assert.match(marketOsText, /age>=-30000&&age<=90000/, 'dashboard LIVE label must
 assert.match(marketOsText, /x\.executionEligible===true&&String\(x\.sourceTimestampType\|\|x\.timestampType\|\|''\)\.toUpperCase\(\)==='PROVIDER_TIMESTAMP'/, 'fallback polling must require the same provider timestamp gate as the stream');
 assert.match(marketOsText, /'UNVERIFIED · ANALYSIS ONLY'/, 'recent but unverified data must not be labelled live');
 
+
+assert.match(pageText, /function syncCoreBrainEvidence\(d\)/, 'real search evidence should also be sent to the server Core Brain ledger');
+assert.match(pageText, /syncCoreBrainEvidence\(d\);/, 'server evidence sync must run after non-manual search ingestion');
+assert.match(pageText, /retrievalStatus:retrieved\?'RETRIEVED':'SNIPPET_ONLY'/, 'retrieved article text must remain distinct from search snippets in the server ledger');
+assert.match(serverText, /engine:'evidence-fusion-v4500'/, 'Core Brain evidence ledger must report normalized, deduplicated evidence telemetry');
+assert.match(serverText, /unknownTimestampEvidence:EVIDENCE_LEDGER\.filter/, 'evidence status must report unknown publication timestamps rather than silently calling them fresh');
+assert.match(serverText, /remember\(name,\{decision:recommendation,lesson:challenge\}\)/, 'actual deterministic agent runs must contribute to agent memory telemetry');
+assert.match(serverText, /AGENT_MEMORY\.size>=100/, 'agent-memory telemetry must have a bounded number of agent buckets');
+
 console.log('one-click-pipeline: contract checks passed');
