@@ -485,7 +485,9 @@ function safeExecutionPlan(body){
 }
 function performance(req,res){return send(res,200,{ok:true,version:'7.0',uptimeMs:Date.now()-PERF.started,requests:PERF.requests,cacheHits:PERF.cacheHits,errors:PERF.errors,agentRuns:PERF.agentRuns,queueSize:EXECUTION_QUEUE.size,cacheEntries:RESPONSE_CACHE.size,features:['parallel-agent-orchestration','short-lived-market-cache','request-tracing','latency-headers','approval-gated-execution-plan','SSE decision stream']})}
 async function agentBatch(req,res){
- const started=Date.now(), x=await body(req); const names=Array.isArray(x.agents)&&x.agents.length?x.agents:['Bull','Bear','Risk','CFO','CEO'];
+ const started=Date.now(), x=await body(req);
+ const supplied=Array.isArray(x.agents)&&x.agents.length?x.agents:['Bull','Bear','Risk','CFO','CEO'];
+ const names=supplied.slice(0,12).map(name=>clean(name,64)||'Unknown');
  PERF.agentRuns+=names.length;
  const surplus=Number(x.income||0)-Number(x.spending||0), reserve=Number(x.emergency||0)/Math.max(1,Number(x.spending||0));
  const results=await Promise.all(names.map(async name=>{
@@ -495,9 +497,10 @@ async function agentBatch(req,res){
    else if(name==='Risk'){view='Risk constraints';stance=reserve<3?'HIGH RISK':'CONTROLLED';}
    else if(name==='CFO'){view='Capital discipline';stance=surplus>0&&reserve>=3?'CAPITAL AVAILABLE':'CAPITAL PROTECTED';}
    else if(name==='CEO'){view='Executive synthesis';stance=reserve<3?'WAIT':'CONDITIONAL';}
+   remember(name,{decision:stance,lesson:view});
    return {agent:name,status:'READY',latencyMs:Math.max(1,Date.now()-t),view,stance};
  }));
- return send(res,200,{ok:true,engine:'parallel-agent-orchestrator-v4100',latencyMs:Date.now()-started,results,sequence:['Bull','Bear','Risk','CFO','CEO'],parallel:true,note:'Parallel specialist preparation; CEO synthesis remains downstream. No financial transaction is executed.'});
+ return send(res,200,{ok:true,engine:'parallel-agent-orchestrator-v4200',latencyMs:Date.now()-started,results,sequence:['Bull','Bear','Risk','CFO','CEO'],parallel:true,note:'Actual deterministic specialist runs are recorded in process-memory telemetry; this is not durable training or persistent memory. No financial transaction is executed.'});
 }
 async function executionPlan(req,res){const x=await body(req);return send(res,200,{ok:true,plan:safeExecutionPlan(x),note:'Execution is deliberately approval-gated. This endpoint prepares a plan only; it cannot place a trade or transfer funds.'})}
 async function decisionStream(req,res,u){
