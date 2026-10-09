@@ -29,7 +29,7 @@ assert.match(moduleText, /const s20=positive\(market\.sma20\),s50=positive\(mark
 assert.match(moduleText, /const chartPrice=value=>Number\(value\)>0\?.*:'N\/A'/, 'missing or zero-price chart indicators should render N/A instead of ₹0.00');
 assert.match(serverText, /Equity provider returned insufficient valid OHLC candles/, 'server should reject a series after invalid candles are filtered');
 assert.match(serverText, /x\.high>=Math\.max\(x\.open,x\.close,x\.low\)/, 'server candles must pass OHLC consistency validation');
-assert.match(moduleText, /Resolved market quote request/, 'reload market data for the search-resolved instrument when symbols disagree');
+assert.match(moduleText, /Resolved market snapshot request/, 'reload market data for the search-resolved instrument when symbols disagree');
 assert.doesNotMatch(moduleText, /function mountSearchCard\(/, 'duplicate analysis launcher cards must not be injected');
 
 assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bound fetch and JSON parsing');
