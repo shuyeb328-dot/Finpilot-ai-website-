@@ -8,9 +8,9 @@ if(!html.includes("localStorage.setItem('finpilot_theme'")) throw new Error('The
 if(!html.includes("localStorage.getItem('finpilot_theme')||'obsidian'")) throw new Error('Obsidian default missing');
 
 const analysisScript = fs.readFileSync(new URL('../public/one-click-analysis.js',import.meta.url),'utf8');
-assert.doesNotMatch(analysisScript, /marketReport&&marketSnapshot&&!marketSnapshot\.quality\?\.forecastEligible\)marketReport=\{\.\.\.marketReport,live:false\}/, 'forecast tracking eligibility alone must not invalidate a fresh quote');
-assert.match(analysisScript, /symbolsMatch&&pricesMatch/, 'snapshot/report ticker and price must match before allowing scenario calculations');
-assert.match(analysisScript, /Market snapshot and report do not match/, 'mismatched snapshot/report data must remain blocked with a clear reason');
+if(/marketReport&&marketSnapshot&&!marketSnapshot\.quality\?\.forecastEligible\)marketReport=\{\.\.\.marketReport,live:false\}/.test(analysisScript)) throw new Error('Forecast tracking eligibility alone must not invalidate a fresh quote');
+if(!/symbolsMatch&&pricesMatch/.test(analysisScript)) throw new Error('Snapshot/report ticker and price must match before allowing scenario calculations');
+if(!/Market snapshot and report do not match/.test(analysisScript)) throw new Error('Mismatched snapshot/report data must remain blocked with a clear reason');
 
 console.log('professional theme tests passed');
 
