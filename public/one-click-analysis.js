@@ -294,6 +294,7 @@
     const chartPrice=value=>Number(value)>0?chartCurrencyMark+Number(value).toLocaleString(chartCurrency==='INR'?'en-IN':'en-US',{maximumFractionDigits:chartCurrency==='USD'&&Math.abs(Number(value))<1?6:2}):'N/A';
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
+    const forecastEval=report.forecastEvaluationSummary||window.FinPilotForecastEvaluation?.summarize(state.forecastLedger)||{resolved:0,eligible:0,pending:0,blocked:0,meanBrierScore:null,meanLogLoss:null,topClassAccuracyPct:null,probabilitiesCalibrated:false,calibrationStatus:'EVALUATOR_UNAVAILABLE'};
     const html=`
       <div id="oneClickResult" class="card" style="margin-bottom:14px;border:2px solid var(--accent);background:linear-gradient(180deg,var(--surface-2),var(--surface))">
         <div class="sectionTitle">
