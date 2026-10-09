@@ -614,6 +614,8 @@ async function fpFetchJson(url,options={},timeoutMs=10000,label='Request'){
 function markFinpilotSearchDirty(value){
  const q=String(value||'').trim(), rendered=String(window.__fpLastRenderedQuery||'').trim();
  if(q===rendered||window.__fpAnalysisRunning)return;
+ const oldStatus=document.getElementById('fpPipelineStatus');if(oldStatus)oldStatus.remove();
+ const runStatus=document.getElementById('fpRunStatus');if(runStatus)runStatus.remove();
  const box=document.getElementById('searchResults');
  if(box)box.innerHTML=q?'<div class="notice">Search changed. Run FinPilot to refresh evidence and analysis for <b>'+esc(q)+'</b>.</div>':'<div class="notice">Enter a query and run FinPilot. Previous results were cleared to avoid showing stale evidence.</div>';
  window.__lastSearch={query:q,results:[],provider:null,live:false};window.__lastMarketMatch=null;window.__fpLastRenderedQuery='';
@@ -621,6 +623,7 @@ function markFinpilotSearchDirty(value){
 async function doSearch(q){
  q=String(q||'').trim();if(!q)return;
  const searchSequence=window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
+ if(!window.__fpAnalysisRunning){const oldStatus=document.getElementById('fpPipelineStatus');if(oldStatus)oldStatus.remove()}
  window.__fpLastRenderedQuery='';window.__lastMarketMatch=null;
  window.__lastSearch={query:q,results:[],provider:null,live:false};
  const box=document.getElementById('searchResults');if(!box)return;
