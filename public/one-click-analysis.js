@@ -557,7 +557,7 @@
             'Candidate market snapshot request'
           );
           marketSnapshot=resolved?.snapshot||marketSnapshot;
-          directMarket=resolved?.report?{...resolved.report,__marketSnapshot:marketSnapshot}:null;
+          directMarket=resolved?.report||null;
           if(!directMarket)searchWarning=searchWarning||resolved?.error||'Market data unavailable for the resolved candidate.';
         }catch(e){searchWarning=searchWarning||String(e?.message||'Market snapshot unavailable');}
       }
