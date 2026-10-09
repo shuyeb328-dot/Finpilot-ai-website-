@@ -559,8 +559,12 @@
     };
   }
 
-  function syncClientAgentTelemetry(agentFleet,candidate,marketSnapshot){
-    if(!agentFleet||typeof agentFleet!=='object'||Array.isArray(agentFleet))return;
+  async function syncClientAgentTelemetry(agentFleet,candidate,marketSnapshot){
+    if(!agentFleet||typeof agentFleet!=='object'||Array.isArray(agentFleet)||!Object.keys(agentFleet).length){
+      const status={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',error:'AGENT_FLEET_UNAVAILABLE',recorded:0,updatedAt:new Date().toISOString()};
+      window.__finpilotAgentTelemetryStatus=status;
+      return status;
+    }
     const agents=Object.entries(agentFleet).slice(0,12).map(([agent,row])=>({
       agent:String(agent).slice(0,64),
       lesson:[
@@ -568,27 +572,43 @@
         'score='+String(Number.isFinite(Number(row?.score))?Number(row.score):'unknown'),
         'confidence='+String(Number.isFinite(Number(row?.confidence))?Number(row.confidence):'unknown'),
         'marketDataStatus='+String(row?.marketDataStatus||'UNKNOWN').slice(0,48),
+        'forecastEligible='+String(row?.forecastEligible===true),
         'candidate='+String(candidate?.ticker||'UNRESOLVED').slice(0,32),
         'snapshot='+String(row?.marketSnapshotId||marketSnapshot?.snapshotId||'NONE').slice(0,48)
       ].join('; ').slice(0,580)
-    }));
-    if(!agents.length)return;
-    fetch('/api/agent-memory',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({source:'CLIENT_REPORTED_UNVERIFIED',agents}),
-      keepalive:true
-    }).then(async response=>{
+    })).filter(x=>x.agent);
+    if(!agents.length){
+      const status={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',error:'NO_VALID_AGENT_SUMMARIES',recorded:0,updatedAt:new Date().toISOString()};
+      window.__finpilotAgentTelemetryStatus=status;
+      return status;
+    }
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),6500);
+    try{
+      const response=await fetch('/api/agent-memory',{
+        method:'POST',
+        credentials:'same-origin',
+        cache:'no-store',
+        headers:{'Content-Type':'application/json','Cache-Control':'no-store'},
+        body:JSON.stringify({source:'CLIENT_REPORTED_UNVERIFIED',agents}),
+        signal:controller.signal
+      });
       let result=null;try{result=await response.json()}catch{}
-      if(!response.ok||!result?.ok)throw new Error('agent telemetry sync rejected');
-      window.__finpilotAgentTelemetryStatus={
-        ok:true,source:'CLIENT_REPORTED_UNVERIFIED',recorded:Number(result.recorded||0),
-        warning:String(result.warning||'Client-reported telemetry only'),
+      if(!response.ok||!result?.ok||Number(result.recorded)!==agents.length){
+        throw new Error(String(result?.error||result?.warning||'AGENT_TELEMETRY_REJECTED').slice(0,160));
+      }
+      const status={
+        ok:true,source:'CLIENT_REPORTED_UNVERIFIED',recorded:Number(result.recorded),
+        expected:agents.length,warning:String(result.warning||'Client-reported telemetry only'),
         updatedAt:new Date().toISOString()
       };
-    }).catch(()=>{
-      window.__finpilotAgentTelemetryStatus={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',updatedAt:new Date().toISOString()};
-    });
+      window.__finpilotAgentTelemetryStatus=status;
+      return status;
+    }catch(e){
+      const status={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',error:e?.name==='AbortError'?'AGENT_TELEMETRY_TIMEOUT':String(e?.message||'AGENT_TELEMETRY_SYNC_FAILED').slice(0,160),recorded:0,expected:agents.length,updatedAt:new Date().toISOString()};
+      window.__finpilotAgentTelemetryStatus=status;
+      return status;
+    }finally{clearTimeout(timer);}
   }
 
   async function runFullStockAnalysis(query){
@@ -890,10 +910,12 @@
       state.marketSnapshot=window.__fpMarketSnapshot;
       stage('3/6 · Running specialist agents and the Round Table…');
       const agentFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate,marketSnapshot:window.__fpMarketSnapshot})||null;
-      // The fleet runs in the browser. Send bounded diagnostic summaries to the
-      // server only as client-reported telemetry; this is not server execution,
-      // validated training, an outcome label, or persistent memory.
-      syncClientAgentTelemetry(agentFleet,candidate,window.__fpMarketSnapshot);
+      // The fleet runs in the browser. Await a bounded sync and keep its trust label
+      // explicit; this is not server execution, validated training, or persistent memory.
+      const agentTelemetry=await syncClientAgentTelemetry(agentFleet,candidate,window.__fpMarketSnapshot);
+      if(!agentTelemetry.ok){
+        searchWarning=searchWarning||'Specialist telemetry was not recorded ('+String(agentTelemetry.error||'SYNC_FAILED')+'). Market-derived forecasts remain blocked unless independent quote checks pass.';
+      }
       // Decision Core's fourth argument is a money-formatting function, not a scenario object.
       // Passing scenarioSafe(...) here shadows the formatter and causes "money is not a function".
       const formatMoney=typeof window.FinPilotBridge?.money==='function'
@@ -916,6 +938,7 @@
         marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',
         marketForecastEligible:marketSnapshot?.quality?.forecastEligible===true,
         agentFleet,
+        agentTelemetry,
         time:new Date().toISOString()
       };
 
