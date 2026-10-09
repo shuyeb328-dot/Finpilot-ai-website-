@@ -13,6 +13,50 @@ test('production Paper Arena renders charts and only fills when market data is v
   page.on('response', res => { if (/paper-(engine|lab)\.js/.test(res.url())) scriptResponses.push({url:res.url(),status:res.status(),type:res.request().resourceType()}); });
   await page.goto('https://finpilot-ai-8wn6.onrender.com/?paperSmoke=3', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
+  // Exercise the production POST-only task router using independent asset classes.
+  const taskRouting = await page.evaluate(async () => {
+    const cases = [
+      {key:'indian',query:'Analyse IRFC for intraday trading with ₹1,000'},
+      {key:'global',query:'Analyse Tesla stock for the next 30 days'},
+      {key:'crypto',query:'Analyse BTC/USDT live'},
+      {key:'options',query:'NIFTY option chain for tomorrow expiry'}
+    ];
+    return await Promise.all(cases.map(async c => {
+      try {
+        const r = await fetch('/api/task-intelligence', {
+          method:'POST', cache:'no-store',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({query:c.query})
+        });
+        const d = await r.json();
+        return {key:c.key,status:r.status,ok:d.ok===true,query:d.plan?.query,
+          assetClass:d.plan?.assetClass,taskType:d.plan?.taskType,needsQuote:d.plan?.needsQuote,
+          requiredData:d.plan?.requiredData||[],sources:(d.plan?.sourcePlan||[]).map(s=>s.id)};
+      } catch (e) { return {key:c.key,error:String(e?.message||e)}; }
+    }));
+  });
+  console.log('TASK_ROUTING_PRODUCTION_SMOKE', JSON.stringify(taskRouting));
+  expect(taskRouting.every(x => x.status===200 && x.ok), 'Task router should return a valid plan for every supported request class').toBe(true);
+  const indianPlan = taskRouting.find(x => x.key==='indian');
+  const globalPlan = taskRouting.find(x => x.key==='global');
+  const cryptoPlan = taskRouting.find(x => x.key==='crypto');
+  const optionsPlan = taskRouting.find(x => x.key==='options');
+  expect(indianPlan.assetClass).toBe('INDIAN_EQUITY');
+  expect(indianPlan.taskType).toBe('TRADE_SCENARIO');
+  expect(indianPlan.sources).toContain('nse');
+  expect(indianPlan.sources).toContain('bse');
+  expect(indianPlan.sources).not.toContain('binance');
+  expect(globalPlan.assetClass).toBe('GLOBAL_EQUITY');
+  expect(globalPlan.sources).toContain('sec');
+  expect(globalPlan.sources).not.toContain('binance');
+  expect(cryptoPlan.assetClass).toBe('CRYPTO');
+  expect(cryptoPlan.sources).toContain('coinbase');
+  expect(cryptoPlan.sources).toContain('kraken');
+  expect(cryptoPlan.sources).toContain('binance');
+  expect(optionsPlan.assetClass).toBe('OPTIONS');
+  expect(optionsPlan.taskType).toBe('DERIVATIVES_ANALYSIS');
+  expect(optionsPlan.requiredData).toContain('contract_specification');
+
   await page.waitForTimeout(3000);
   const prePaper = await page.evaluate(() => ({ core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded) }));
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
