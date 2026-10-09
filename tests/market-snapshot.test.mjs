@@ -11,7 +11,7 @@ const goodCandles=[
 const liveEquity={
   ticker:'IRFC',name:'Indian Railway Finance Corporation',market:'INDIA_EQUITY',exchange:'NSE',currency:'INR',
   price:103,previous:101,changePct:1.98,dayHigh:104,dayLow:99,rsi:57,sma20:101,sma50:99,
-  support:99,resistance:104,live:true,asOf:'2026-10-09T05:59:30.000Z',provider:'Test provider',candles:goodCandles
+  support:99,resistance:104,live:true,asOf:'2026-10-09T05:59:30.000Z',sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'Test provider',candles:goodCandles
 };
 
 assert.equal(normalizeMarketSymbol(' irfc.ns '),'IRFC','exchange suffix should not change instrument identity');
@@ -28,6 +28,12 @@ assert.equal(valid.instrument.currency,'INR','equity currency should be preserve
 assert.equal(valid.candles.count,3,'invalid zero-price OHLC row must be removed');
 assert.equal(valid.candles.rejectedCount,1,'rejected candle count should be visible');
 assert.equal(valid.timing.ageMs,30_000,'snapshot age should be computed from source timestamp');
+const observationOnly=buildMarketSnapshot({...liveEquity,sourceTimestampType:'OBSERVATION_TIMESTAMP'},{requestedTicker:'IRFC',capturedAt});
+assert.equal(observationOnly.quality.status,'UNVERIFIED_TIMESTAMP_SOURCE','local observation time must not be treated as a provider quote timestamp');
+assert.equal(observationOnly.quality.forecastEligible,false,'observation-only quote must never pass the paper/forecast gate');
+const {sourceTimestampType:_ignoredTimestampType,...withoutTimestampType}=liveEquity;
+const missingTimestampType=buildMarketSnapshot(withoutTimestampType,{requestedTicker:'IRFC',capturedAt});
+assert.equal(missingTimestampType.quality.status,'UNVERIFIED_TIMESTAMP_SOURCE','missing timestamp provenance must fail closed');
 
 const stale=buildMarketSnapshot({...liveEquity,asOf:'2026-10-09T05:55:00.000Z'},{requestedTicker:'IRFC',capturedAt});
 assert.equal(stale.quality.status,'STALE','stale quote must be labelled');
@@ -52,7 +58,7 @@ assert.equal(crypto.instrument.market,'CRYPTO','crypto asset class should be pre
 assert.equal(crypto.instrument.currency,'USD','crypto currency should default to USD');
 assert.equal(crypto.quality.forecastEligible,true,'fresh crypto snapshot should be eligible when OHLC and quote are valid');
 
-const cryptoAlias=buildMarketSnapshot({...liveEquity,ticker:'BTC',name:'Bitcoin',market:'CRYPTO',exchange:'Kraken',currency:'USD',price:82354.5,live:true,asOf:capturedAt,provider:'Kraken public market data fallback',candles:goodCandles.slice(0,3)},{requestedTicker:'BTCUSDT',capturedAt});
+const cryptoAlias=buildMarketSnapshot({...liveEquity,ticker:'BTC',name:'Bitcoin',market:'CRYPTO',exchange:'Kraken',currency:'USD',price:82354.5,live:true,asOf:capturedAt,sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'Kraken public market data fallback',candles:goodCandles.slice(0,3)},{requestedTicker:'BTCUSDT',capturedAt});
 assert.equal(cryptoAlias.instrument.symbolMatches,true,'BTCUSDT alias should match the canonical BTC provider symbol');
 assert.equal(cryptoAlias.quality.status,'VERIFIED_LIVE','valid BTC provider data should remain forecast-eligible for BTCUSDT alias queries');
 assert.equal(cryptoAlias.quality.forecastEligible,true,'quote suffix normalization must not suppress a valid crypto snapshot');
@@ -61,4 +67,4 @@ const unavailable=buildMarketSnapshot(null,{requestedTicker:'BTC',capturedAt});
 assert.equal(unavailable.quality.status,'UNAVAILABLE','missing provider data must not create a fabricated quote');
 assert.equal(unavailable.quality.forecastEligible,false,'unavailable market data must block forecast eligibility');
 
-console.log('market-snapshot: 23 contract checks passed');
+console.log('market-snapshot: 26 contract checks passed');

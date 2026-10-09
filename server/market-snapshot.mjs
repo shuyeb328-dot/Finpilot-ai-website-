@@ -93,6 +93,8 @@ export function buildMarketSnapshot(report, options = {}) {
     status = 'INVALID_TIMESTAMP'; reasons.push('SOURCE_TIMESTAMP_MISSING_OR_INVALID');
   } else if (ageMs > maxAgeMs) {
     status = 'STALE'; reasons.push('QUOTE_OLDER_THAN_MAX_AGE');
+  } else if (String(report.sourceTimestampType || '').toUpperCase() !== 'PROVIDER_TIMESTAMP') {
+    status = 'UNVERIFIED_TIMESTAMP_SOURCE'; reasons.push('QUOTE_TIME_IS_ONLY_LOCAL_OBSERVATION_OR_CANDLE_TIME');
   } else if (report.live !== true) {
     status = 'DELAYED'; reasons.push('PROVIDER_DID_NOT_MARK_QUOTE_LIVE');
   } else if (candles.length < 2) {
