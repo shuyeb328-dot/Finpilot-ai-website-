@@ -11,7 +11,7 @@ function optionalNumber(value,name,min,max){
  return {ok:true,value:n};
 }
 function cleanText(value,maxLength){
- return String(value??'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,maxLength);
+ return String(value??'').replace(/[\x00-\x1f\x7f]/g,' ').replace(/\s+/g,' ').trim().slice(0,maxLength);
 }
 
 /**
