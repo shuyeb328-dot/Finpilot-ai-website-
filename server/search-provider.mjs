@@ -11,7 +11,7 @@ function resolveBingArticleUrl(value){
  const raw=String(value||'');
  try{
   const wrapper=new URL(raw);
-  if(!/(^|\\.)bing\\.com$/i.test(wrapper.hostname)||!/^\\/news\\/apiclick\\.aspx$/i.test(wrapper.pathname))return raw;
+  if(!/(^|\.)bing\.com$/i.test(wrapper.hostname)||!/^\/news\/apiclick\.aspx$/i.test(wrapper.pathname))return raw;
   const destination=wrapper.searchParams.get('url');
   if(!destination)return raw;
   const target=new URL(destination);
@@ -141,11 +141,11 @@ async function bingNewsRss(q,count){
   const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
   if(!r.ok)throw providerError('Bing News RSS returned HTTP '+r.status);
   const xml=await r.text(),items=[];
-  const blocks=xml.match(/<item>[^]*?<\\/item>/gi)||[];
+  const blocks=xml.match(/<item>[\s\S]*?<\/item>/gi)||[];
   for(const block of blocks.slice(0,count)){
-   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\\\s\\\\S]*?)<\\\\/'+tag+'>','i'));return m?m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim():''};
+   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim():''};
    const title=cleanText(val('title')),link=cleanText(val('link')),snippet=cleanText(val('description')),publishedAt=cleanText(val('pubDate')),source=cleanText(val('source'))||'Bing News';
-   if(/^https?:\\/\\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
+   if(/^https?:\/\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
   }
   return normalize(items,'bing-news-rss');
  }catch(e){if(e.name==='AbortError')throw providerError('Bing News RSS timed out');throw e}
