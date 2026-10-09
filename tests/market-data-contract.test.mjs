@@ -53,6 +53,6 @@ assert.match(server,/Stooq public EOD · no API key · analysis only/,'independe
 assert.match(server,/addProvider\('stooq-public',async\(\)=>\{/,'keyless Stooq source must be registered as an independent provider');
 assert.match(server,/id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback'/,'provider status must expose the keyless source as configured');
 assert.match(server,/for\(const p of providers\)\{try\{return await trackedProvider\(p.id,p.run\)/,'provider cooldown/health tracking must use explicit provider IDs, not array positions');
-assert.match(server,/live:false\};\s*\}\);\s*const sq=process\.env\.STOOQ_API_KEY/,'keyless EOD provider must never be marked live');
+assert.match(server,/provider:'Stooq public EOD · no API key · analysis only',live:false/,'keyless EOD provider must never be marked live');
 
 console.log('Market data stream contract checks passed.');
