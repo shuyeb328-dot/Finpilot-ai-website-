@@ -12,6 +12,7 @@ import {searchWeb} from './search-provider.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
+import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest} from './autonomous-core.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -1760,6 +1761,52 @@ setInterval(()=>{if(String(process.env.FINPILOT_EXA_AUTO_REFRESH||'false').toLow
 const AUTONOMOUS_LEARNING_INIT=initAutonomousLearning({searchWeb,emitEvent,audit,getSchedulerState:()=>({running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,queue:SCHEDULER.queue})});
 audit('AUTONOMOUS_LEARNING_INIT',{version:AUTONOMOUS_LEARNING_INIT.version,enabled:AUTONOMOUS_LEARNING_INIT.enabled,intervalMs:AUTONOMOUS_LEARNING_INIT.intervalMs});
 
+
+function osControlPlaneObservations(){
+ const learning=autonomousLearningStatus(),data=dataHealthDiagnostics();
+ return {
+  health:{ok:true,status:'OPERATIONAL',frontendSyntax:frontendSyntax(),search:data.search},
+  core:{ok:true,uptimeMs:Date.now()-CORE.started,memoryAgents:AGENT_MEMORY.size,evidenceLedger:EVIDENCE_LEDGER.length,marketEvents:MARKET_EVENTS.length,researchQueue:RESEARCH_QUEUE.length,decisionCache:DECISION_CACHE.size,cacheHits:CORE.cacheHits,decisions:CORE.decisions},
+  performance:{requests:PERF.requests,cacheHits:PERF.cacheHits,errors:PERF.errors,agentRuns:PERF.agentRuns},
+  fleet:{ok:true,agents:AGENT_POOL.size,scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed}},
+  data:data,
+  marketHealth:{providers:providerHealthSnapshot(),registry:globalProviderStatus()},
+  learning,
+  policy:{ok:true,policy:POLICY,autonomy:{level:AUTONOMY.level,mode:AUTONOMY.mode}},
+  security:{ok:true,blocked:SECURITY.blocked,rateLimited:SECURITY.rateLimited,events:SECURITY.events.slice(0,12),headers:['CSP','X-Content-Type-Options','X-Frame-Options','Referrer-Policy','Permissions-Policy'],secretExposure:'server-only'},
+  autonomy:{ok:true,level:AUTONOMY.level,mode:AUTONOMY.mode,cycles:AUTONOMY.cycles,policyBlocks:AUTONOMY.policyBlocks},
+  eventBus:{ok:true,events:EVENT_BUS.events.length,routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups},
+  quantum:{ok:false,note:'The browser Quantum snapshot is reported by the client panel.'}
+ };
+}
+async function osControlPlaneSnapshot(req,res){return send(res,200,await getOSControlPlaneSnapshot(osControlPlaneObservations()));}
+async function osControlPlaneCycle(req,res){
+ const plan=await runAutonomousCoreCycle(osControlPlaneObservations());
+ audit('AUTONOMOUS_CORE_CYCLE',{cycleId:plan.id,mode:plan.mode,taskCount:plan.tasks.length,actionsExecuted:plan.actionsExecuted.length});
+ emitEvent('OS_CONTROL_CYCLE',{cycleId:plan.id,mode:plan.mode,taskCount:plan.tasks.length},65);
+ return send(res,200,plan);
+}
+async function osControlPlaneFeedback(req,res){
+ const result=await recordOSControlFeedback(req._parsedBody||{});
+ if(!result.ok)return send(res,result.status||400,result);
+ audit('AUTONOMOUS_CORE_FEEDBACK',{cycleId:result.record.cycleId,taskId:result.record.taskId,outcome:result.record.outcome,category:result.record.category});
+ emitEvent('OS_LEARNING_FEEDBACK',{category:result.record.category,outcome:result.record.outcome},55);
+ return send(res,200,result);
+}
+async function osControlPlaneMode(req,res){
+ const result=setAutonomousCoreMode((req._parsedBody||{}).mode);
+ if(!result.ok)return send(res,400,result);
+ audit('AUTONOMOUS_CORE_MODE',{mode:result.mode});
+ emitEvent('OS_AUTONOMY_MODE',{mode:result.mode},70);
+ return send(res,200,result);
+}
+async function osControlPlaneSecurityCheck(req,res){
+ const result=evaluateSecurityRequest(req._parsedBody||{});
+ audit('AUTONOMOUS_SECURITY_POLICY_CHECK',{action:result.action,target:result.target,allowed:result.allowed,status:result.status});
+ if(!result.allowed)securityEvent('AUTONOMOUS_POLICY_DENIED',result.status+' · '+result.action);
+ return send(res,200,result);
+}
+
 function eventStatus(req,res){return send(res,200,{ok:true,version:'5.2',events:EVENT_BUS.events.slice(0,30),routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups,dropped:EVENT_BUS.dropped,queue:SCHEDULER.queue.length,running:SCHEDULER.running,completed:SCHEDULER.completed,failed:SCHEDULER.failed});}
 function agentFleetStatus(req,res){return send(res,200,{ok:true,version:'6.0',agents:[...AGENT_POOL.values()],scheduler:{queue:SCHEDULER.queue.length,running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,completed:SCHEDULER.completed,failed:SCHEDULER.failed},routing:'event-driven selective wakeups'});}
 function dataHealth(req,res){return send(res,200,{ok:true,version:'5.4',...DATA_HEALTH,resilience:RESILIENCE});}
@@ -1850,6 +1897,11 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/os-control-plane')return osControlPlaneSnapshot(req,res);
+  if(req.method==='POST'&&u.pathname==='/api/os-control-plane/cycle'){await body(req);return osControlPlaneCycle(req,res);}
+  if(req.method==='POST'&&u.pathname==='/api/os-control-plane/feedback'){await body(req);return osControlPlaneFeedback(req,res);}
+  if(req.method==='POST'&&u.pathname==='/api/os-control-plane/mode'){await body(req);return osControlPlaneMode(req,res);}
+  if(req.method==='POST'&&u.pathname==='/api/os-control-plane/security-check'){await body(req);return osControlPlaneSecurityCheck(req,res);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
