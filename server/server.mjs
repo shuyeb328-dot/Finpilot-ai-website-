@@ -1067,14 +1067,34 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const sourceReady=quotes.every(x=>{const ts=x.asOf;return x.live!==false&&x.timestampType==='PROVIDER_TIMESTAMP'&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Date.parse(ts)<=Date.now()+5000&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
- const verified=prices.length===1?sourceReady:(spreadPct<=0.75&&sourceReady);
- const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
- const status=verified?'VERIFIED':'CONFLICTING';
+ const priceAgreement=prices.length===1||spreadPct<=0.75;
+ const now=Date.now();
+ const timestampState=quotes.map(x=>{
+  const ts=x.asOf?Date.parse(x.asOf):NaN;
+  const valid=Number.isFinite(ts)&&ts<=now+5000;
+  const ageMs=valid?Math.max(0,now-ts):null;
+  return {provider:x.provider,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP',valid,ageMs,fresh:valid&&ageMs<=EXECUTION_FRESHNESS_MS};
+ });
+ const providerTimestampComplete=quotes.every((x,i)=>x.live!==false&&x.timestampType==='PROVIDER_TIMESTAMP'&&timestampState[i].valid);
+ const timestampsFresh=timestampState.every(x=>x.fresh);
+ const sourceReady=quotes.every((x,i)=>x.live!==false&&x.timestampType==='PROVIDER_TIMESTAMP'&&timestampState[i].fresh);
+ const verified=Boolean(priceAgreement&&sourceReady);
+ const winner=quotes.slice().sort((a,b)=>{
+  const ap=a.timestampType==='PROVIDER_TIMESTAMP'?1:0,bp=b.timestampType==='PROVIDER_TIMESTAMP'?1:0;
+  return bp-ap||a.latencyMs-b.latencyMs;
+ })[0];
+ const status=verified?'VERIFIED':!priceAgreement?'CONFLICTING':!providerTimestampComplete?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':'UNVERIFIED_SOURCE';
  const selectedAsOf=winner.asOf||null;
+ const selectedTimestampType=winner.timestampType||'OBSERVATION_TIMESTAMP';
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
- const executionReady=Boolean(verified&&winner.live!==false&&!winner.stale&&sourceAgeMs<=EXECUTION_FRESHNESS_MS);
- const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:winner.timestampType||'OBSERVATION_TIMESTAMP',sourceAgeMs,dataFreshness:sourceAgeMs!==null?(sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH_SOURCE':'STALE_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||x.observedAt||null,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP'})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
+ const executionReady=Boolean(verified&&winner.live!==false&&sourceAgeMs!==null&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&selectedTimestampType==='PROVIDER_TIMESTAMP');
+ const verificationReasons=[];
+ if(!priceAgreement)verificationReasons.push('PROVIDER_PRICE_SPREAD_EXCEEDS_0_75_PERCENT');
+ if(!providerTimestampComplete)verificationReasons.push('ONE_OR_MORE_QUOTES_LACK_PROVIDER_TIMESTAMPS');
+ if(!timestampsFresh)verificationReasons.push('ONE_OR_MORE_PROVIDER_TIMESTAMPS_ARE_STALE_OR_INVALID');
+ if(quotes.some(x=>x.live===false))verificationReasons.push('ONE_OR_MORE_PROVIDERS_MARKED_NON_LIVE');
+ if(executionReady)verificationReasons.push('PROVIDER_TIMESTAMP_AND_PRICE_CROSS_CHECK_PASSED');
+ const result={ok:true,available:true,verified:executionReady,executionEligible:executionReady,executionDecision:executionReady?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION',ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:selectedTimestampType,sourceAgeMs,dataFreshness:sourceAgeMs===null?'UNKNOWN':sourceAgeMs>EXECUTION_FRESHNESS_MS?'STALE_SOURCE':selectedTimestampType==='PROVIDER_TIMESTAMP'?'FRESH_PROVIDER_TIMESTAMP':'FRESH_OBSERVATION_ONLY',marketDataOS:{status:executionReady?'VERIFIED':status,decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',reason:executionReady?'All required data checks passed.':verificationReasons.join('; '),verificationReasons,providerTimestampComplete,priceAgreement,providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,sourceTimestampType:selectedTimestampType,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map((x,i)=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||null,observedAt:x.observedAt||null,sourceAgeMs:timestampState[i].ageMs,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP',fresh:timestampState[i].fresh})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires fresh, matching quotes with provider-sourced timestamps. Local observation time is not exchange time.'}};
  try{await archiveMarketProvenance({symbol:raw,provider:winner.provider,price:median,live:executionReady,dataFreshness:result.dataFreshness,asOf:result.asOf});}catch{}
  return send(res,200,result);
 }
