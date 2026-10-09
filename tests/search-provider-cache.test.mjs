@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 
+// Keep this offline regression test isolated even when the service has live provider keys.
+for (const key of ['EXA_API_KEY','SERPAPI_API_KEY','BRAVE_SEARCH_API_KEY','TAVILY_API_KEY','GOOGLE_SEARCH_API_KEY','GOOGLE_SEARCH_ENGINE_ID']) delete process.env[key];
 process.env.SEARCH_PROVIDER='google';
 process.env.SEARCH_CACHE_TTL_MS='60000';
 
