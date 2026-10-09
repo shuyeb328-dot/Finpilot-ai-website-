@@ -1197,7 +1197,7 @@ async function stockReport(req,res,u){
  const t=(u.searchParams.get('ticker')||'').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
  const multi=u.searchParams.get('multi')!=='0';
- const cacheKey=\`stock:\${t}:\${interval}:\${multi}\`;
+ const cacheKey='stock:'+t+':'+interval+':'+multi;
  try{
   const hit=getCached(cacheKey);
   if(hit){
