@@ -10,6 +10,9 @@ assert.match(frontend, /d\.verified&&d\.status==='LIVE'/, 'stream data must be v
 assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asOf\)\)/, 'fallback report must have explicit live flag and valid timestamp');
 assert.match(frontend, /NON-LIVE · ANALYSIS ONLY/, 'non-live fallback must be labelled analysis-only');
 assert.match(server, /\/api\/market-data-stream/);
+assert.match(server, /selectPrimaryMarketQuote\(quotes,timestampState\)/, 'market quote selection should prefer a fresh provider timestamp');
+assert.match(server, /price:winner\.price/, 'the exposed price must come from the provider named in the response');
+assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&primaryTimestampValid/, 'the execution safety gate must continue to require provider timestamp provenance');
 assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
 assert.match(server, /createProviderResponseCache/, 'market routes should share a bounded provider-response cache');
 assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');

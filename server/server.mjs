@@ -12,6 +12,7 @@ import {searchWeb} from './search-provider.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
+import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
@@ -1082,10 +1083,9 @@ async function marketDataOS(req,res,u){
   const ageMs=valid?Math.max(0,now-ts):null;
   return {provider:x.provider,timestampType:x.timestampType||'UNKNOWN_TIMESTAMP',valid,ageMs,fresh:valid&&ageMs<=EXECUTION_FRESHNESS_MS};
  });
- // Match liveCrypto's primary provider order: Binance, then Kraken, then Coinbase.
- // A later fallback with a better timestamp must not silently override the source selected by the report.
- const primaryProvider=['Binance public','Kraken public','Coinbase public'];
- const winner=primaryProvider.map(name=>quotes.find(x=>x.provider===name)).find(Boolean)||quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
+ // Prefer the configured primary that has a fresh provider-sourced timestamp.
+ // Observation-only fallbacks remain available for analysis, but cannot outrank a timestamped quote.
+ const winner=selectPrimaryMarketQuote(quotes,timestampState)||quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
  const winnerIndex=quotes.indexOf(winner);
  const primaryTimestampValid=winner.timestampType==='PROVIDER_TIMESTAMP'&&timestampState[winnerIndex]?.valid;
  const timestampsFresh=timestampState.every(x=>x.fresh);
@@ -1102,7 +1102,7 @@ async function marketDataOS(req,res,u){
  if(!timestampsFresh)verificationReasons.push('ONE_OR_MORE_PROVIDER_OBSERVATIONS_ARE_STALE_OR_INVALID');
  if(quotes.some(x=>x.live===false))verificationReasons.push('ONE_OR_MORE_PROVIDERS_MARKED_NON_LIVE');
  if(executionReady)verificationReasons.push('PRIMARY_PROVIDER_TIMESTAMP_AND_PRICE_CROSS_CHECK_PASSED');
- const result={ok:true,available:true,verified:executionReady,executionEligible:executionReady,executionDecision:executionReady?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION',ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:selectedTimestampType,sourceAgeMs,dataFreshness:sourceAgeMs===null?'UNKNOWN':sourceAgeMs>EXECUTION_FRESHNESS_MS?'STALE_SOURCE':selectedTimestampType==='PROVIDER_TIMESTAMP'?'FRESH_PROVIDER_TIMESTAMP':'FRESH_OBSERVATION_ONLY',marketDataOS:{status:executionReady?'VERIFIED':status,decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',reason:executionReady?'All required data checks passed.':'Selected provider or cross-checks did not pass the execution data gate.',verificationReasons,primaryProvider:winner.provider,primaryProviderTimestampValid:Boolean(primaryTimestampValid&&timestampState[winnerIndex]?.fresh),priceAgreement,providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,sourceTimestampType:selectedTimestampType,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map((x,i)=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||null,observedAt:x.observedAt||null,sourceAgeMs:timestampState[i].ageMs,timestampType:x.timestampType||'UNKNOWN_TIMESTAMP',fresh:timestampState[i].fresh})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires the selected primary source to have a fresh provider-sourced timestamp and price corroboration. Local observation time is not exchange time.'}};
+ const result={ok:true,available:true,verified:executionReady,executionEligible:executionReady,executionDecision:executionReady?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION',ticker:raw,price:winner.price,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:selectedTimestampType,sourceAgeMs,dataFreshness:sourceAgeMs===null?'UNKNOWN':sourceAgeMs>EXECUTION_FRESHNESS_MS?'STALE_SOURCE':selectedTimestampType==='PROVIDER_TIMESTAMP'?'FRESH_PROVIDER_TIMESTAMP':'FRESH_OBSERVATION_ONLY',marketDataOS:{status:executionReady?'VERIFIED':status,decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',reason:executionReady?'All required data checks passed.':'Selected provider or cross-checks did not pass the execution data gate.',verificationReasons,primaryProvider:winner.provider,primaryProviderTimestampValid:Boolean(primaryTimestampValid&&timestampState[winnerIndex]?.fresh),priceAgreement,providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,sourceTimestampType:selectedTimestampType,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map((x,i)=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||null,observedAt:x.observedAt||null,sourceAgeMs:timestampState[i].ageMs,timestampType:x.timestampType||'UNKNOWN_TIMESTAMP',fresh:timestampState[i].fresh})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires the selected primary source to have a fresh provider-sourced timestamp and price corroboration. Local observation time is not exchange time.'}};
  try{await archiveMarketProvenance({symbol:raw,provider:winner.provider,price:median,live:executionReady,dataFreshness:result.dataFreshness,asOf:result.asOf});}catch{}
  return send(res,200,result);
 }
