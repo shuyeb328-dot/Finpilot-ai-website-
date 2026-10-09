@@ -133,8 +133,9 @@ async function searchWebUncached(q,count,requested){
  const allowPaidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
  // Keep the default search path free: use Google News RSS first and do not call metered APIs unless explicitly enabled.
  const order=requested==='free'?['google-news-rss']:requested==='auto'&&!allowPaidFallback?['google-news-rss']:requested==='auto'?['google-news-rss','exa','serpapi','brave','tavily','google']:requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['google-news-rss'];
- const errors=[];
+ const errors=[];let paidProviderBlocked=false;
  for(const p of order){
+  if(paidProviderBlocked&&p!=='google-news-rss')continue;
   try{
    let results=[];
    if(p==='brave'&&process.env.BRAVE_SEARCH_API_KEY)results=await brave(q,count);
@@ -144,7 +145,7 @@ async function searchWebUncached(q,count,requested){
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
-  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){break;}continue}
+  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){paidProviderBlocked=true;}continue}
  }
  const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
  throw providerError('No live results were returned by the configured search provider.'+detail);
