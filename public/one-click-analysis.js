@@ -647,7 +647,21 @@
 
       stage('4/6 · Validating the shared snapshot and loading the chart…');
       let marketReport=directMarket;
-      if(marketReport&&marketSnapshot&&!marketSnapshot.quality?.forecastEligible)marketReport={...marketReport,live:false};
+      // Forecast-ledger eligibility is not the same as quote validity. Do not block a
+      // fresh matching quote merely because outcome-tracking metadata is incomplete.
+      // Still fail closed if the snapshot instrument/price disagrees with the report.
+      if(marketReport&&marketSnapshot){
+        const snapTicker=String(marketSnapshot.instrument?.ticker||marketSnapshot.ticker||'').trim().toUpperCase();
+        const reportSymbol=String(marketReport.ticker||marketReport.symbol||'').trim().toUpperCase();
+        const snapPrice=Number(marketSnapshot.quote?.price);
+        const reportPrice=Number(marketReport.price);
+        const symbolsMatch=Boolean(snapTicker&&reportSymbol&&snapTicker===reportSymbol);
+        const pricesMatch=Boolean(Number.isFinite(snapPrice)&&snapPrice>0&&Number.isFinite(reportPrice)&&reportPrice>0&&Math.abs(snapPrice-reportPrice)/reportPrice<0.02);
+        if(!symbolsMatch||!pricesMatch){
+          searchWarning=searchWarning||'Market snapshot and report do not match; quantitative plan blocked.';
+          marketReport={...marketReport,live:false};
+        }
+      }
       const reportTicker=String(marketReport?.ticker||marketReport?.symbol||'').trim().toUpperCase();
       const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
       if(marketReport&&candidateTicker&&reportTicker&&reportTicker!==candidateTicker){
