@@ -6,7 +6,8 @@ process.env.SEARCH_PROVIDER='google';
 process.env.SEARCH_CACHE_TTL_MS='60000';
 
 let fetchCalls=0;
-let emptyMode=false;\nlet wrapperMode=false;
+let emptyMode=false;
+let wrapperMode=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async url=>{
   fetchCalls++;
