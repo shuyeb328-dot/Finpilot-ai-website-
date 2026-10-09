@@ -10,6 +10,10 @@ assert.match(frontend, /d\.verified&&d\.status==='LIVE'/, 'stream data must be v
 assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asOf\)\)/, 'fallback report must have explicit live flag and valid timestamp');
 assert.match(frontend, /NON-LIVE · ANALYSIS ONLY/, 'non-live fallback must be labelled analysis-only');
 assert.match(server, /\/api\/market-data-stream/);
+assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
+assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
+assert.match(frontend, /addEventListener\('open',[\s\S]*?stopFallback\(\)/, 'healthy SSE open should stop redundant stock-report polling');
+assert.match(frontend, /else if\(!streamOpen\)startFallback\(\)/, 'fallback polling should only run while the stream is not open');
 assert.match(server, /FINPILOT_MARKET_CACHE_MS\|\|15000/);
 assert.match(server, /FINPILOT_YAHOO_COOLDOWN_MS\|\|60000/);
 
