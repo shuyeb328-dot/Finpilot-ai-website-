@@ -658,7 +658,7 @@ function importGoogleEvidence(){
  const raw=String(input?.value||'').trim();
  const status=document.getElementById('googleEvidenceImportStatus');
  if(!raw){if(status)status.innerHTML='<div class="notice">Paste at least one source link, headline, or article excerpt first.</div>';toast('Paste a Google result or article text first');return 0;}
- const maxChars=12000,content=raw.slice(0,maxChars);
+ const maxChars=8000,content=raw.slice(0,maxChars);
  const lines=content.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
  const results=[],urlPattern=/https?:\/\/[^\s<>"']+/ig;
  const seenUrls=new Set(),urlLines=new Set(),consumedLines=new Set();
@@ -684,7 +684,7 @@ function importGoogleEvidence(){
  const shown=results.map(x=>{
   const title=esc(x.title||'Pasted research'),snippet=esc(x.snippet||''),url=String(x.url||'');
   const link=url?'<a class="btn" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>':'';
-  return '<article class="searchResultCard"><div class="resultRank">U</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">USER-PROVIDED</span><span>Publication date not verified</span><span>Not independently verified</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom">'+link+'<span class="muted">Added as unverified evidence</span></div></div></article>';
+  return '<article class="searchResultCard"><div class="resultRank">U</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">USER-PROVIDED</span><span>Publication date not verified</span><span>Not independently verified</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom">'+link+'<span class="muted">User-provided · unverified</span></div></div></article>';
  }).join('');
  if(box)box.insertAdjacentHTML('afterbegin','<div class="searchAnswer"><div><span class="eyebrow">MANUAL EVIDENCE IMPORT</span><h3>'+added+' new item(s) added to the Evidence Ledger</h3><p class="muted">This material came from you. FinPilot did not retrieve or verify the linked pages or the claims.</p></div></div>'+shown);
  if(status)status.innerHTML='<div class="notice">'+added+' item(s) added as <b>user-provided, unverified evidence</b>. Duplicate URLs or identical notes were skipped.</div>';
