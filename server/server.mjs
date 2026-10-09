@@ -1181,7 +1181,9 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const priceAgreement=prices.length===1||spreadPct<=0.75;
+ const independentProviderCount=new Set(quotes.map(x=>String(x.provider||'').trim().toLowerCase()).filter(Boolean)).size;
+ const providerCorroborated=independentProviderCount>=2;
+ const priceAgreement=providerCorroborated&&spreadPct<=0.75;
  const now=Date.now();
  const timestampState=quotes.map(x=>{
   const sourceValue=x.asOf||x.observedAt||null;
@@ -1198,13 +1200,14 @@ async function marketDataOS(req,res,u){
  const timestampsFresh=timestampState.every(x=>x.fresh);
  const sourceReady=Boolean(winner.live!==false&&primaryTimestampValid&&timestampState[winnerIndex]?.fresh&&timestampsFresh&&quotes.every(x=>x.live!==false));
  const verified=Boolean(priceAgreement&&sourceReady);
- const status=verified?'VERIFIED':!priceAgreement?'CONFLICTING':!primaryTimestampValid?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':winner.live===false?'NON_LIVE_SOURCE':'UNVERIFIED_SOURCE';
+ const status=verified?'VERIFIED':!providerCorroborated?'INSUFFICIENT_INDEPENDENT_PROVIDERS':!priceAgreement?'CONFLICTING':!primaryTimestampValid?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':winner.live===false?'NON_LIVE_SOURCE':'UNVERIFIED_SOURCE';
  const selectedAsOf=winner.asOf||(winner.timestampType==='OBSERVATION_TIMESTAMP'?winner.observedAt:null);
  const selectedTimestampType=winner.timestampType||'UNKNOWN_TIMESTAMP';
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&sourceAgeMs!==null&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&selectedTimestampType==='PROVIDER_TIMESTAMP');
  const verificationReasons=[];
- if(!priceAgreement)verificationReasons.push('PROVIDER_PRICE_SPREAD_EXCEEDS_0_75_PERCENT');
+ if(!providerCorroborated)verificationReasons.push('INSUFFICIENT_INDEPENDENT_PROVIDERS');
+ if(providerCorroborated&&!priceAgreement)verificationReasons.push('PROVIDER_PRICE_SPREAD_EXCEEDS_0_75_PERCENT');
  if(!primaryTimestampValid)verificationReasons.push('SELECTED_PRIMARY_SOURCE_LACKS_PROVIDER_TIMESTAMP');
  if(!timestampsFresh)verificationReasons.push('ONE_OR_MORE_PROVIDER_OBSERVATIONS_ARE_STALE_OR_INVALID');
  if(quotes.some(x=>x.live===false))verificationReasons.push('ONE_OR_MORE_PROVIDERS_MARKED_NON_LIVE');
