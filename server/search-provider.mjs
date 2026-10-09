@@ -16,7 +16,7 @@ function normalize(items,provider){
   try{
    const u=new URL(url);u.hash='';
    for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);
-   canonical=u.toString().replace(/\\/$/,'');
+   canonical=u.toString();if(canonical.endsWith('/'))canonical=canonical.slice(0,-1);
   }catch{}
   if(seen.has(canonical))continue;
   seen.add(canonical);
