@@ -50,6 +50,16 @@ assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback 
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
 assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.match(serverText, /function gateMarketReport\(report,ticker,interval/, 'stock reports and market snapshots must use one canonical execution gate');
+assert.match(serverText, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto execution eligibility must require a provider-sourced quote timestamp');
+assert.match(serverText, /hasProviderTimestamp&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&sourceRange==='5d\/1h'/, 'equity execution eligibility must require a fresh provider timestamp, not a locally generated timestamp');
+assert.match(serverText, /executionDecision:eligible\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'market snapshots must expose the same gated paper-eligibility decision');
+assert.match(serverText, /status=verified\?'VERIFIED':!priceAgreement\?'CONFLICTING':!primaryTimestampValid\?'UNVERIFIED_TIMESTAMP'/, 'Market Data OS must explain observation-only timestamp failures instead of calling available prices unavailable');
+assert.match(serverText, /executionEligible:executionReady,executionDecision:executionReady\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'Market Data OS top-level eligibility must match its decision');
+assert.match(serverText, /function aggregateDataHealthSources\(now=Date\.now\(\)\)/, 'provider health must aggregate adapter aliases into canonical upstream providers');
+assert.match(serverText, /const providers=aggregateDataHealthSources\(now\)/, 'health quality score must count canonical providers rather than duplicate adapters');
+assert.match(serverText, /providers:providerHealthSnapshot\(\),cooldowns:diagnostics\.providerCooldowns,dataQuality:diagnostics\.dataQuality/, 'market provider health must expose real providers and cooldown diagnostics');
+assert.match(serverText, /const report=hit\.report\?gateMarketReport\(hit\.report,t,interval\):null/, 'cached reports must be rechecked for freshness before execution eligibility is returned');
 assert.match(serverText, /const baseAsset=key\.replace\(\/USDT\$\/,''\)/, 'crypto provider fallbacks must normalize BTCUSDT-style aliases before building fallback pair names');
 assert.match(serverText, /const krakenPair=baseAsset==='BTC'\?'XBTUSD':baseAsset\+'USD'/, 'Kraken fallback must use its XBT symbol for BTC aliases and the canonical base asset for other coins');
 assert.match(serverText, /const coinPair=baseAsset\+'-USD'/, 'Coinbase fallback must use a canonical BASE-USD pair rather than appending USD to USDT aliases');
