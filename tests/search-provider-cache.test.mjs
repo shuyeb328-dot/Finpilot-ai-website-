@@ -14,7 +14,7 @@ globalThis.fetch=async url=>{
   await new Promise(resolve=>setTimeout(resolve,15));
   const xml=emptyMode
     ? '<rss><channel></channel></rss>'
-    : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item></channel></rss>';
+    : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item><item><title>Duplicate tracking variant</title><link>https://example.com/finpilot-quota-test?utm_source=test#article</link><description>Duplicate story with tracking parameters.</description><source>Another Source</source></item></channel></rss>';
   return {ok:true,status:200,text:async()=>xml};
 };
 
@@ -26,6 +26,7 @@ try{
   ]);
   assert.equal(fetchCalls,1,'identical in-flight queries should share one upstream fetch');
   assert.equal(first.results.length,1);
+  assert.equal(first.results[0].url,'https://example.com/finpilot-quota-test','keep the clean source URL when duplicate tracking variants exist');
   assert.equal(first.live,true);
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
