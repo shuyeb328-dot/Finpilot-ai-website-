@@ -355,7 +355,11 @@
     const runId=++activeRunId;
     window.__fpAnalysisRunning=true;
     window.__fpActiveAnalysisQuery=query;
-    try{if(typeof window.show==='function')window.show('search')}catch{}
+    try{
+      if(typeof window.show==='function'&&!document.getElementById('search')?.classList.contains('active'))window.show('search');
+    }catch{}
+    const queryInput=document.getElementById('searchQuery');
+    if(queryInput)queryInput.value=query;
     const box=document.getElementById('searchResults');
     if(box)box.innerHTML='';
     window.__lastSearch={query,results:[],provider:null,live:false};
