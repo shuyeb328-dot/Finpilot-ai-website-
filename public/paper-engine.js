@@ -529,7 +529,7 @@
       const grossWins=outcomes.filter(d=>d.netPnl>0).reduce((n,d)=>n+d.netPnl,0);
       const grossLosses=Math.abs(outcomes.filter(d=>d.netPnl<0).reduce((n,d)=>n+d.netPnl,0));
       const profitFactor=grossLosses>0?grossWins/grossLosses:(grossWins>0?null:0);
-      const executionScore=avg(g.executionScores),coverage=g.fills?+(g.decisionLinked/g.fills*100).toFixed(1):0;
+      const executionScore=avg(g.executionScores),decisionOutcomeScore=decisionAccuracy,coverage=g.fills?+(g.decisionLinked/g.fills*100).toFixed(1):0;
       const qualityParts=[];if(executionScore!=null)qualityParts.push({score:executionScore,weight:60});if(decisionAccuracy!=null)qualityParts.push({score:decisionAccuracy,weight:40});
       const combinedScore=qualityParts.length?+(qualityParts.reduce((n,x)=>n+x.score*x.weight,0)/qualityParts.reduce((n,x)=>n+x.weight,0)).toFixed(1):null;
       const sampleReady=g.scoredFills>=30&&g.closedOutcomes>=30&&g.decisionLinked>=30;
