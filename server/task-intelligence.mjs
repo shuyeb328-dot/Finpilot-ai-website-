@@ -12,7 +12,7 @@ const SOURCE_CATALOG = [
   {id:'tej-eod',name:'TejHQ EOD',assetClasses:['INDIAN_EQUITY'],dataTypes:['historical_ohlcv'],tier:'AGGREGATOR',url:'https://api.tejhq.dev/',liveCapability:'END_OF_DAY',notes:'Historical/EOD fallback only; never label as live.'}
 ];
 const SOURCE_IDS = {
-  INDIAN_EQUITY:['nse','bse','issuer','yahoo','web-search'], INDIAN_INDEX:['nse','bse','yahoo','web-search'],
+  INDIAN_EQUITY:['nse','bse','issuer','yahoo','tej-eod','web-search'], INDIAN_INDEX:['nse','bse','yahoo','web-search'],
   GLOBAL_EQUITY:['issuer','sec','yahoo','web-search'], GLOBAL_INDEX:['yahoo','web-search'],
   CRYPTO:['coinbase','kraken','binance','yahoo','web-search'], OPTIONS:['nse','bse','web-search'],
   FUTURES:['nse','bse','web-search'], FOREX:['yahoo','web-search'], COMMODITY:['yahoo','web-search'],
