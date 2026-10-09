@@ -1,4 +1,4 @@
-/* TradingView companion for FinPilot's simulated trading workspace.
+/* TradingView companion for FinPilot&#39;s simulated trading workspace.
    Charts are display-only: the widget does not expose a quote feed or place orders. */
 (function(){
   'use strict';
