@@ -14,7 +14,62 @@
   loadQuantumControlPlane();
   let rawDoSearch = null;
   let running = false;
-  const withTimeout=(promise,ms,label)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+' timed out after '+Math.round(ms/1000)+'s')),ms))]);
+  let activeRunId = 0;
+
+  const withTimeout=(promise,ms,label)=>{
+    let timer;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timed out after '+Math.round(ms/1000)+'s')),ms);})
+    ]).finally(()=>clearTimeout(timer));
+  };
+
+  async function fetchJsonBounded(url,options={},ms=12000,label='Request'){
+    const controller=new AbortController();
+    let timer;
+    const operation=(async()=>{
+      const response=await fetch(url,{...options,signal:controller.signal});
+      let data;
+      try{data=await response.json();}
+      catch(e){throw new Error(label+' returned invalid JSON');}
+      if(!response.ok)throw new Error(data?.error||label+' failed (HTTP '+response.status+')');
+      return data;
+    })();
+    try{
+      return await Promise.race([
+        operation,
+        new Promise((_,reject)=>{timer=setTimeout(()=>{
+          controller.abort();
+          reject(new Error(label+' timed out after '+Math.round(ms/1000)+'s'));
+        },ms);})
+      ]);
+    }finally{
+      clearTimeout(timer);
+      controller.abort();
+    }
+  }
+
+  function updateAnalysisStatus(message,mode='running'){
+    let el=document.getElementById('fpPipelineStatus');
+    if(!el){
+      el=document.createElement('div');
+      el.id='fpPipelineStatus';
+      el.className='notice';
+      el.setAttribute('role','status');
+      el.setAttribute('aria-live','polite');
+      el.style.cssText='margin:12px 0;padding:12px;border-radius:10px;display:block;';
+      const host=document.querySelector('.searchCommand');
+      const results=document.getElementById('searchResults');
+      if(host&&results)host.insertBefore(el,results);
+      else document.body.insertBefore(el,document.body.firstChild);
+    }
+    el.style.display='block';
+    el.dataset.state=mode;
+    const heading=mode==='complete'?'Analysis complete':mode==='error'?'Analysis stopped':mode==='busy'?'Analysis already running':'FinPilot analysis';
+    el.innerHTML='<b>'+escLocal(heading)+'</b><div style="margin-top:4px">'+escLocal(message)+'</div>';
+    const top=document.getElementById('fpRunStatus');
+    if(top)top.innerHTML='<b>'+escLocal(heading)+'</b><br><span>'+escLocal(message)+'</span>';
+  }
 
   function escLocal(v){
     return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -287,91 +342,205 @@
 
   async function runFullStockAnalysis(query){
     query=String(query||'').trim();
-    if(!query||running)return;
+    if(!query){
+      updateAnalysisStatus('Enter a stock, crypto symbol, company or finance question before running analysis.','error');
+      return {ok:false,error:'EMPTY_QUERY'};
+    }
+    if(running){
+      updateAnalysisStatus('The current analysis is still running. Wait for it to finish before starting another run.','busy');
+      return {ok:false,error:'ANALYSIS_BUSY'};
+    }
+
     running=true;
+    const runId=++activeRunId;
+    window.__fpAnalysisRunning=true;
+    window.__fpActiveAnalysisQuery=query;
     try{if(typeof window.show==='function')window.show('search')}catch{}
     const box=document.getElementById('searchResults');
-    if(box)box.insertAdjacentHTML('afterbegin','<div id="oneClickProgress" class="notice" style="margin-bottom:14px"><b>⚡ FinPilot Analysis</b><br><span id="fpStage">Connecting to live evidence and market data…</span></div>');
-    const stage=t=>{const el=document.getElementById('fpStage');if(el)el.textContent=t};
+    if(box)box.innerHTML='';
+    window.__lastSearch={query,results:[],provider:null,live:false};
+    window.__lastMarketMatch=null;
+    window.__fpLastRenderedQuery='';
+
+    const stage=t=>{
+      if(runId!==activeRunId)return;
+      updateAnalysisStatus(t,'running');
+    };
+
     try{
       let searchWarning='';
-      stage('1/6 · Searching live web evidence…');
+      stage('1/6 · Searching live evidence for “'+query+'”…');
+
       const searchPromise=(async()=>{
         try{
           const search=ensureRawSearch();
-          await withTimeout(search(query),15000,'Web search');
-          return window.__lastSearch||{results:[],provider:null,live:false};
+          await withTimeout(search(query),16000,'Web search');
+          const result=window.__lastSearch||{query,results:[],provider:null,live:false};
+          if(result.query&&String(result.query).trim()!==query){
+            throw new Error('Search returned results for a different query. Please retry.');
+          }
+          return result;
         }catch(e){
-          searchWarning=String(e?.message||'Live web search unavailable');
-          window.__lastSearch={results:[],provider:null,live:false};
+          const message=String(e?.message||'Live web search unavailable');
+          window.__lastSearch={query,results:[],provider:null,live:false,error:message};
           return window.__lastSearch;
         }
       })();
-      const marketDirectPromise=(async()=>{
-        const raw=String(query).toUpperCase().trim().replace(/[^A-Z0-9._-]/g,'');
-        if(!raw)return null;
+
+      const directMarketPromise=(async()=>{
+        const raw=String(query).trim().toUpperCase();
+        if(!/^(?:[A-Z][A-Z0-9]{0,5})(?:\.(?:NS|BO))?$/.test(raw))return null;
         try{
-          const d=await withTimeout((async()=>{const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});return await r.json()})(),12000,'Market quote request');
+          const d=await fetchJsonBounded(
+            '/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),
+            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+            12000,
+            'Market quote request'
+          );
           return d?.ok&&d?.report?d.report:null;
-        }catch{return null}
+        }catch(e){
+          return null;
+        }
       })();
+
       const search=await searchPromise;
-      stage('2/6 · Ranking candidates and refreshing Financial Brain…');
+      if(runId!==activeRunId)return {ok:false,error:'RUN_REPLACED'};
+      searchWarning=search?.error||'';
+      stage('2/6 · Ranking candidates and refreshing the Financial Brain…');
+
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
-      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/i.test(query);
+      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL|CANDIDATES|MARKET)\b/i.test(query);
+
       if(!candidate&&broadRequest){
         try{
-          const picks=await withTimeout((async()=>{const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});return await rp.json()})(),10000,'Market scan');
+          const picks=await fetchJsonBounded('/api/market-picks?limit=5',{cache:'no-store'},10000,'Market scan');
           const top=picks?.candidates?.[0];
-          if(top)candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
-        }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable')}
+          if(top){
+            candidate={
+              ticker:top.ticker,
+              name:top.name,
+              confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),
+              score:top.score,
+              evidenceMentions:0,
+              positive:Number(top.changePct||0)>0?1:0,
+              negative:Number(top.changePct||0)<0?1:0,
+              method:'Live market scan',
+              reason:'Top scan score '+Number(top.score||0)+'/100; session move '+Number(top.changePct||0).toFixed(2)+'%; RSI '+Number(top.rsi||0).toFixed(1)+'.',
+              disclaimer:picks.disclaimer||'Market-scan candidate; verify current broker/exchange data.'
+            };
+          }
+        }catch(e){
+          searchWarning=searchWarning||String(e?.message||'Market scan unavailable');
+        }
       }
-      const directMarket=await marketDirectPromise;
-      if(directMarket&&!candidate&&directMarket.ticker)candidate={ticker:directMarket.ticker,name:directMarket.name,confidence:82,score:82,evidenceMentions:0,positive:0,negative:0,method:'Verified market symbol',reason:'Direct verified market record matched the requested symbol.',disclaimer:'Market-data match; not a guaranteed trade.'};
-      stage('3/6 · Running specialist agents and Round Table…');
-      const learnedFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate})||null;
+
+      const directMarket=await directMarketPromise;
+      if(directMarket&&!candidate&&directMarket.ticker){
+        candidate={
+          ticker:directMarket.ticker,
+          name:directMarket.name,
+          confidence:82,
+          score:82,
+          evidenceMentions:0,
+          positive:0,
+          negative:0,
+          method:'Verified market symbol',
+          reason:'A market report matched the requested symbol.',
+          disclaimer:'Market-data match; not a guaranteed trade.'
+        };
+      }
+
+      stage('3/6 · Running specialist agents and the Round Table…');
+      window.FinPilotDeepLearning?.runFleet(state,{web,candidate});
       const preMoney=scenarioSafe({risk:50,confidence:50,webSignal:web,candidate});
       const core=FinPilotDecisionCore.computeExecutiveDecision(state,cycle.findings,web,preMoney,sourceAge);
       const decision={
-        decision:core.decision,summary:core.summary,risk:core.risk,confidence:core.confidence,
-        findings:cycle.findings.map(f=>f.domain),voices:core.voices,
-        evidenceIds:state.evidence.map(e=>e.id),evidenceFreshness:core.evidenceFreshness,
-        webSignal:core.webSignal,executive:core.executive,candidate,time:new Date().toISOString()
+        decision:core.decision,
+        summary:core.summary,
+        risk:core.risk,
+        confidence:core.confidence,
+        findings:cycle.findings.map(f=>f.domain),
+        voices:core.voices,
+        evidenceIds:state.evidence.map(e=>e.id),
+        evidenceFreshness:core.evidenceFreshness,
+        webSignal:core.webSignal,
+        executive:core.executive,
+        candidate,
+        time:new Date().toISOString()
       };
+
       state.decision=decision;
       state.decisionHistory.unshift(decision);
       state.decisionHistory=state.decisionHistory.slice(0,50);
       const paper=buildPaperCouncil(query,web);
-      if(window.FinPilotDeepLearning?.learnFromDecision)window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
-      state.memory.push({title:'One-click full stock analysis',text:`${query}: ${decision.decision}`,time:new Date().toLocaleTimeString()});
+      if(window.FinPilotDeepLearning?.learnFromDecision){
+        window.FinPilotDeepLearning.learnFromDecision(state,{...decision,candidate});
+      }
+      state.memory.push({title:'One-click full stock analysis',text:query+': '+decision.decision,time:new Date().toLocaleTimeString()});
       save();
-      stage('4/6 · Loading verified technical chart and indicators…');
+
+      stage('4/6 · Validating market data and loading the chart…');
       let marketReport=directMarket;
-      try{
-        const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
-        if(symbol&&!marketReport){
-          const md=await withTimeout((async()=>{const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});return await mr.json()})(),12000,'Chart data request');
+      if(!marketReport&&candidate?.ticker){
+        try{
+          const md=await fetchJsonBounded(
+            '/api/stock-report?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
+            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+            12000,
+            'Chart data request'
+          );
           if(md?.ok&&md?.report)marketReport=md.report;
-          else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
+          else searchWarning=searchWarning||(md?.error||'Market chart data is unavailable');
+        }catch(e){
+          searchWarning=searchWarning||String(e?.message||'Chart data unavailable');
         }
-      }catch(e){searchWarning=searchWarning||'Chart data unavailable'}
+      }
+
+      const reportTicker=String(marketReport?.ticker||marketReport?.symbol||'').trim().toUpperCase();
+      const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
+      if(marketReport&&candidateTicker&&reportTicker&&reportTicker!==candidateTicker){
+        searchWarning=searchWarning||'Market report symbol mismatch; quantitative plan blocked.';
+        marketReport={...marketReport,live:false};
+      }
       const finalMoney=scenarioSafe({...decision,marketReport});
       decision.marketReport=marketReport;
       decision.chartAnalysis=buildChartAnalysis(marketReport,finalMoney,candidate);
-      stage('5/6 · Calculating ₹1,000 risk plan and CEO/CFO/Judge…');
+
+      stage('5/6 · Reconciling CEO, CFO, Judge and risk gates…');
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
-      if(marketReport){publishEquitySnapshot(marketReport);setTimeout(mountTradingViewFallbacks,60)}
-      stage('6/6 · Complete — decision stack restored.');
-      setTimeout(()=>{const progress=document.getElementById('oneClickProgress');if(progress)progress.remove()},250);
-      toast((searchWarning?'Market fallback used · ':'')+'analysis complete · chart + risk plan + council updated');
+      if(marketReport){
+        publishEquitySnapshot(marketReport);
+        setTimeout(mountTradingViewFallbacks,60);
+      }
+
+      stage('6/6 · Complete. Review source freshness and risk gates before acting.');
+      updateAnalysisStatus(
+        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' Query: '+query,
+        'complete'
+      );
+      window.__fpLastRenderedQuery=query;
+      toast((searchWarning?'Completed with warning · ':'')+'analysis complete · verify data freshness');
+      return {ok:true,query,candidate:candidate?.ticker||null,marketData:Boolean(marketReport),warning:searchWarning||null};
     }catch(e){
-      const progress=document.getElementById('oneClickProgress');
-      if(progress)progress.innerHTML='<b>Analysis stopped.</b> '+escLocal(e?.message||'Unknown error');
-      toast('Full analysis failed');
-    }finally{running=false}
+      const message=String(e?.message||'Unknown analysis error');
+      updateAnalysisStatus(message,'error');
+      const boxNow=document.getElementById('searchResults');
+      if(boxNow){
+        const old=boxNow.querySelector('#oneClickFailure');
+        if(old)old.remove();
+        boxNow.insertAdjacentHTML('afterbegin','<div id="oneClickFailure" class="notice highNotice" role="alert"><b>Analysis stopped safely</b><br>'+escLocal(message)+'<br><span class="muted">No real order was placed. Retry after verifying data/provider status.</span></div>');
+      }
+      toast('Analysis stopped · '+message);
+      return {ok:false,error:message};
+    }finally{
+      if(runId===activeRunId){
+        running=false;
+        window.__fpAnalysisRunning=false;
+      }
+    }
   }
 
   function mountSearchActions(){
@@ -384,19 +553,6 @@
       searchForm.appendChild(b);
     }
   }
-
-  function mountSearchCard(q){
-    const box=document.getElementById('searchResults');
-    if(!box||document.getElementById('oneClickLauncher'))return;
-    const d=document.createElement('div');
-    d.id='oneClickLauncher';d.className='decision';
-    d.style.marginBottom='14px';
-    d.innerHTML='<div class="sectionTitle"><div><span class="eyebrow">Decision automation</span><h3>Run the entire analysis in one click</h3></div><span class="pill low">SEARCH READY</span></div><p class="muted">Uses the live search evidence you just fetched, refreshes the Financial Brain, runs the full agent fleet, reconciles CEO + CFO + Judge, updates Action Center, and runs the final virtual check.</p><div class="action"><button class="btn primary" type="button">⚡ ⚡ Analyze</button><button class="btn" type="button">Open Evidence Ledger</button></div>';
-    d.querySelector('.btn.primary').onclick=()=>window.finpilotLaunch?.(q)||runFullStockAnalysis(q);
-    d.querySelectorAll('.btn')[1].onclick=()=>show('evidence');
-    box.prepend(d);
-  }
-
 
   function installProductionDiagnostics(){
     if(window.__finpilotDiagnosticsInstalled)return;
@@ -426,13 +582,7 @@
   }
 
   function install(){
-    if(!rawDoSearch && typeof window.doSearch==='function'){
-      rawDoSearch=window.doSearch;
-      window.doSearch=async function(q){
-        await rawDoSearch(q);
-        mountSearchCard(q);
-      };
-    }
+    if(!rawDoSearch&&typeof window.doSearch==='function')rawDoSearch=window.doSearch;
     mountSearchActions();
   }
   window.runFullStockAnalysis=runFullStockAnalysis;
@@ -444,11 +594,9 @@
     try{
       install();
       installProductionDiagnostics();
-      const q=document.getElementById('searchQuery')?.value||document.getElementById('globalSearch')?.value||'';
-      const box=document.getElementById('searchResults');
-      if(q&&box&&!document.getElementById('oneClickLauncher'))mountSearchCard(q);
       if(rawDoSearch)clearInterval(fpInstallTimer);
     }catch(e){}
   },500);
+
   injectMarketChartStyles();
 })();
