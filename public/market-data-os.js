@@ -15,6 +15,7 @@ function panel(){
 function classifyFreshness(d){
  const type=String(d.dataFreshness||d.sourceTimestampType||d.timestampType||'').toUpperCase();
  if(type.includes('END_OF_DAY')||type.includes('EOD')||type.includes('HISTORICAL'))return 'END-OF-DAY';
+ if(d.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY')return 'UNVERIFIED';
  if(d.live===true)return 'LIVE';
  const stamp=d.time||d.asOf||d.timestamp;
  const ms=stamp?Date.parse(stamp):NaN;
@@ -27,7 +28,7 @@ function classifyFreshness(d){
  return 'STALE';
 }
 function freshnessText(label){
- return label==='END-OF-DAY'?'END-OF-DAY · ANALYSIS ONLY':label==='DELAYED'?'DELAYED · ANALYSIS ONLY':label==='STALE'?'STALE · DO NOT TRADE':'LIVE · VERIFIED';
+ return label==='END-OF-DAY'?'END-OF-DAY · ANALYSIS ONLY':label==='DELAYED'?'DELAYED · ANALYSIS ONLY':label==='UNVERIFIED'?'UNVERIFIED · ANALYSIS ONLY':label==='STALE'?'STALE · DO NOT TRADE':'LIVE · VERIFIED';
 }
 function draw(d){
  const e=panel(); if(!e)return;
@@ -84,12 +85,12 @@ async function fallbackPoll(){
   const d=await r.json();
   if(d?.ok&&d.report){
    const x=d.report,price=Number(x.price),asOf=x.asOf||null;
-   const fresh=Boolean(x.live===true&&asOf&&Number.isFinite(Date.parse(asOf))&&Date.now()-Date.parse(asOf)<=90000);
+   const fresh=Boolean(x.live===true&&x.executionEligible!==false&&asOf&&Number.isFinite(Date.parse(asOf))&&Date.now()-Date.parse(asOf)<=90000);
    if(Number.isFinite(price)&&price>0){
     const sourceType=String(x.sourceTimestampType||x.timestampType||'').toUpperCase();
     const dataFreshness=String(x.dataFreshness||'').toUpperCase();
-    const freshness=dataFreshness.includes('END_OF_DAY')||dataFreshness==='EOD'||sourceType.includes('HISTORICAL_EOD')?'END-OF-DAY':fresh?'LIVE':classifyFreshness({live:false,time:asOf,sourceTimestampType:sourceType,dataFreshness});
-    draw({ticker:x.ticker,price,changePct:Number(x.changePct||0),high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:asOf||'Unknown timestamp',live:fresh,freshness,sourceTimestampType:sourceType,dataFreshness,cloudStored:false});
+    const freshness=dataFreshness.includes('END_OF_DAY')||dataFreshness==='EOD'||sourceType.includes('HISTORICAL_EOD')?'END-OF-DAY':fresh?'LIVE':classifyFreshness({live:false,time:asOf,sourceTimestampType:sourceType,dataFreshness,executionEligibilityReason:x.executionEligibilityReason});
+    draw({ticker:x.ticker,price,changePct:Number(x.changePct||0),high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:asOf||'Unknown timestamp',live:fresh,freshness,sourceTimestampType:sourceType,dataFreshness,executionEligible:x.executionEligible,executionEligibilityReason:x.executionEligibilityReason,cloudStored:false});
    }
   }
  }catch{}
