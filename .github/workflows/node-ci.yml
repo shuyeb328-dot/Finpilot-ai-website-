@@ -72,6 +72,7 @@ jobs:
           grep -qi 'Content-Security-Policy:.*frame-src.*www.tradingview.com' /tmp/local-page-headers
           echo "FinPilot server, market snapshot, and chart policy smoke tests passed"
       - name: Production health and search smoke test
+        if: github.event_name != 'pull_request'
         run: |
           set -e
           # Render free instances can be cold-starting or rolling over during this check.
