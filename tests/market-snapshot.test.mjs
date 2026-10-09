@@ -54,4 +54,4 @@ const unavailable=buildMarketSnapshot(null,{requestedTicker:'BTC',capturedAt});
 assert.equal(unavailable.quality.status,'UNAVAILABLE','missing provider data must not create a fabricated quote');
 assert.equal(unavailable.quality.forecastEligible,false,'unavailable market data must block forecast eligibility');
 
-console.log('market-snapshot: 24 contract checks passed');
+console.log('market-snapshot: 23 contract checks passed');
