@@ -1,4 +1,7 @@
 import http from 'node:http';
+import https from 'node:https';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import {URL} from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -235,6 +238,150 @@ async function cloudKnowledge(req,res,u){
   return send(res,200,{ok:true,cloud:true,totalSources:count.rows[0]?.n||0,items:r.rows});
  }catch(e){return send(res,200,{ok:true,cloud:false,items:[],error:e.message})}
 }
+
+const RESEARCH_FETCH_CACHE=new Map();
+const RESEARCH_FETCH_CACHE_TTL_MS=10*60*1000;
+const RESEARCH_FETCH_MAX_BYTES=450*1024;
+const RESEARCH_FETCH_MAX_TEXT=15000;
+function isPublicResearchIp(ip){
+ const family=net.isIP(ip);
+ if(family===4){
+  const p=ip.split('.').map(Number),a=p[0],b=p[1],d=p[2];
+  if(a===0||a===10||a===127||a>=224)return false;
+  if(a===169&&b===254)return false;
+  if(a===172&&b>=16&&b<=31)return false;
+  if(a===192&&b===168)return false;
+  if(a===100&&b>=64&&b<=127)return false;
+  if(a===192&&b===0&&(d===0||d===2))return false;
+  if(a===192&&b===88&&d===99)return false;
+  if(a===198&&(b===18||b===19||b===51))return false;
+  if(a===203&&b===0&&d===113)return false;
+  return true;
+ }
+ if(family===6){
+  const x=ip.toLowerCase();
+  if(x==='::'||x==='::1'||x.startsWith('::ffff:'))return false;
+  const first=parseInt(x.split(':')[0]||'0',16);
+  return first>=0x2000&&first<=0x3fff&&!x.startsWith('2001:db8:')&&!x.startsWith('2001:10:');
+ }
+ return false;
+}
+function safeResearchUrl(raw){
+ let u;
+ try{u=new URL(String(raw||''))}catch{throw new Error('Invalid source URL')}
+ if(u.protocol!=='https:')throw new Error('Only public HTTPS article links are supported');
+ if(u.username||u.password)throw new Error('URLs with embedded credentials are not allowed');
+ if(!u.hostname||net.isIP(u.hostname)||/(^|\.)(localhost|local|internal|test|invalid)$/i.test(u.hostname))throw new Error('Private or non-public hostnames are not allowed');
+ if(u.hostname.length>253||u.href.length>2048)throw new Error('Source URL is too long');
+ u.hash='';
+ return u;
+}
+function researchHtmlAttr(tag,name){
+ const re=new RegExp('(?:^|\\\\s)'+name+'\\\\s*=\\\\s*(?:"([^"]*)"|\\\\\\'([^\\\\\\']*)\\\\\\'|([^\\\\s>]+))','i');
+ const m=String(tag||'').match(re);return m?(m[1]??m[2]??m[3]??'').trim():'';
+}
+function decodeResearchHtml(s){
+ return String(s||'')
+ .replace(/&#x([0-9a-f]+);?/gi,(_,v)=>{const n=parseInt(v,16);return n>0&&n<=0x10ffff?String.fromCodePoint(n):' '})
+ .replace(/&#([0-9]+);?/g,(_,v)=>{const n=Number(v);return n>0&&n<=0x10ffff?String.fromCodePoint(n):' '})
+ .replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&apos;/gi,"'").replace(/&#39;/g,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>')
+ .replace(/&(?:copy|reg|trade|mdash|ndash|hellip);/gi,m=>({'&copy;':'©','&reg;':'®','&trade;':'™','&mdash;':'—','&ndash;':'–','&hellip;':'…'}[m.toLowerCase()]||' '));
+}
+function extractResearchPage(html,baseUrl,contentType){
+ const all=String(html||'');
+ const meta=[...all.matchAll(/<meta\b[^>]*>/gi)].map(m=>m[0]);
+ const metaValue=(names)=>{
+  for(const tag of meta){
+   const key=(researchHtmlAttr(tag,'property')||researchHtmlAttr(tag,'name')||researchHtmlAttr(tag,'itemprop')).toLowerCase();
+   if(names.includes(key)){const val=researchHtmlAttr(tag,'content');if(val)return decodeResearchHtml(val).trim()}
+  }return '';
+ };
+ const tags=[...all.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title>/gi)];
+ const title=metaValue(['og:title','twitter:title'])||decodeResearchHtml(tags[0]?.[1]||'').replace(/\s+/g,' ').trim();
+ const description=metaValue(['description','og:description','twitter:description']).slice(0,1200);
+ const publishedAt=metaValue(['article:published_time','datepublished','datepublished','pubdate','parsely-pub-date','date']);
+ const canonicalTag=all.match(/<link\b[^>]*\brel\s*=\s*["'][^"']*canonical[^"']*["'][^>]*>/i);
+ let canonicalUrl=baseUrl;
+ if(canonicalTag){const href=researchHtmlAttr(canonicalTag[0],'href');if(href){try{const candidate=new URL(href,baseUrl);if(candidate.protocol==='https:'&&!candidate.username&&!candidate.password)canonicalUrl=candidate.href}catch{}}}
+ const articleBlocks=[...all.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi)].map(m=>m[1]);
+ const mainBlocks=[...all.matchAll(/<main\b[^>]*>([\s\S]*?)<\/main>/gi)].map(m=>m[1]);
+ const chosen=(articleBlocks.sort((a,b)=>b.length-a.length)[0]||mainBlocks.sort((a,b)=>b.length-a.length)[0]||((all.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)||[])[1])||all);
+ const text=decodeResearchHtml(chosen
+  .replace(/<(script|style|noscript|svg|canvas|iframe|form|nav|footer|header|aside|button|select|textarea|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,' ')
+  .replace(/<!--[\s\S]*?-->/g,' ')
+  .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/section|\/article|\/main)\b[^>]*>/gi,'\n')
+  .replace(/<[^>]+>/g,' ')
+ ).replace(/[ \t\f\v]+/g,' ').replace(/\n\s+/g,'\n').replace(/\n{3,}/g,'\n\n').trim().slice(0,RESEARCH_FETCH_MAX_TEXT);
+ return {title:title.slice(0,300),description,canonicalUrl,publishedAt,text,contentType};
+}
+async function fetchResearchHttps(rawUrl){
+ let current=safeResearchUrl(rawUrl),lastContentType='';
+ for(let hop=0;hop<=4;hop++){
+  current=safeResearchUrl(current.href);
+  let addresses;
+  try{addresses=await dns.lookup(current.hostname,{all:true,verbatim:true})}catch{throw new Error('Source hostname could not be resolved')}
+  if(!addresses.length||addresses.some(a=>!isPublicResearchIp(a.address)))throw new Error('Source resolved to a private or non-public network address');
+  const chosen=addresses[0];
+  const result=await new Promise((resolve,reject)=>{
+   let done=false,total=0;const chunks=[];
+   const finish=(err,val)=>{if(done)return;done=true;clearTimeout(kill);err?reject(err):resolve(val)};
+   const options={
+    protocol:'https:',hostname:current.hostname,port:current.port||443,
+    path:current.pathname+current.search,method:'GET',agent:false,rejectUnauthorized:true,
+    servername:current.hostname,maxHeaderSize:16*1024,
+    lookup:(host,opts,cb)=>{if(opts&&opts.all)cb(null,[{address:chosen.address,family:chosen.family}]);else cb(null,chosen.address,chosen.family)},
+    headers:{'User-Agent':'FinPilotResearchFetcher/1.0 (+https://finpilot-ai-8wn6.onrender.com)','Accept':'text/html,application/xhtml+xml,text/plain;q=0.8','Accept-Encoding':'identity'}
+   };
+   const request=https.request(options,response=>{
+    const status=Number(response.statusCode||0);
+    if(status>=300&&status<400&&response.headers.location){response.resume();return finish(null,{redirect:response.headers.location,status})}
+    lastContentType=String(response.headers['content-type']||'').split(';')[0].toLowerCase();
+    if(status<200||status>=300){response.resume();return finish(new Error('Publisher returned HTTP '+status))}
+    if(!['text/html','application/xhtml+xml','text/plain'].includes(lastContentType)){response.resume();return finish(new Error('Source is not a readable HTML or text page'))}
+    response.on('data',chunk=>{
+     total+=chunk.length;
+     if(total>RESEARCH_FETCH_MAX_BYTES){request.destroy();return finish(new Error('Source page exceeds the retrieval size limit'))}
+     chunks.push(chunk);
+    });
+    response.on('error',err=>finish(err));
+    response.on('end',()=>finish(null,{status,html:Buffer.concat(chunks).toString('utf8'),contentType:lastContentType}));
+   });
+   const kill=setTimeout(()=>request.destroy(new Error('Source retrieval timed out')),7000);
+   request.on('error',err=>finish(err));
+   request.end();
+  });
+  if(result.redirect){
+   if(hop===4)throw new Error('Source redirected too many times');
+   current=new URL(result.redirect,current);continue;
+  }
+  return {finalUrl:current.href,html:result.html,contentType:result.contentType||lastContentType};
+ }
+ throw new Error('Could not retrieve source page');
+}
+async function researchFetch(req,res,u){
+ const raw=(u.searchParams.get('url')||'').trim();
+ if(!raw)return send(res,400,{ok:false,error:'MISSING_SOURCE_URL'});
+ if(raw.length>2048)return send(res,400,{ok:false,error:'SOURCE_URL_TOO_LONG'});
+ let normalized;
+ try{normalized=safeResearchUrl(raw)}catch(e){return send(res,400,{ok:false,error:'SOURCE_URL_REJECTED',message:e.message})}
+ const key=normalized.href,cachedPage=RESEARCH_FETCH_CACHE.get(key),now=Date.now();
+ if(cachedPage&&cachedPage.expiresAt>now)return send(res,200,{ok:true,...cachedPage.data,cached:true,cacheAgeMs:now-cachedPage.cachedAt});
+ if(cachedPage)RESEARCH_FETCH_CACHE.delete(key);
+ try{
+  const fetched=await fetchResearchHttps(key);
+  const page=extractResearchPage(fetched.html,fetched.finalUrl,fetched.contentType);
+  if(!page.title&&!page.text)return send(res,422,{ok:false,error:'NO_READABLE_CONTENT',message:'The publisher returned a page but no readable article text could be extracted.',finalUrl:fetched.finalUrl});
+  const data={provider:'safe-public-page-fetcher',requestedUrl:key,finalUrl:fetched.finalUrl,canonicalUrl:page.canonicalUrl,title:page.title,description:page.description,publishedAt:page.publishedAt||null,text:page.text,contentType:fetched.contentType,extractedAt:new Date().toISOString(),retrievalStatus:page.text.length>=80?'RETRIEVED':'PARTIAL',textLength:page.text.length,warning:page.text.length<80?'Only a short excerpt was available; verify directly on the publisher page.':null};
+  RESEARCH_FETCH_CACHE.set(key,{data,cachedAt:Date.now(),expiresAt:Date.now()+RESEARCH_FETCH_CACHE_TTL_MS});
+  while(RESEARCH_FETCH_CACHE.size>150)RESEARCH_FETCH_CACHE.delete(RESEARCH_FETCH_CACHE.keys().next().value);
+  return send(res,200,{ok:true,...data,cached:false,cacheAgeMs:0});
+ }catch(e){
+  const message=String(e?.message||'Source could not be retrieved').slice(0,220);
+  const code=/private|non-public|credential|HTTPS|hostname|invalid|URL|too long/i.test(message)?'SOURCE_URL_REJECTED':/HTTP \d+|not a readable|size limit|too many times/i.test(message)?'SOURCE_BLOCKED_OR_UNSUPPORTED':/timed out/i.test(message)?'SOURCE_TIMEOUT':'SOURCE_UNAVAILABLE';
+  return send(res,200,{ok:false,error:code,requestedUrl:key,message:'FinPilot could not safely retrieve this page. Open the source directly; the search snippet remains available.',retrievalStatus:'UNAVAILABLE'});
+ }
+}
+
 async function search(req,res,u){
  const q=(u.searchParams.get('q')||'').trim();
  const count=Math.min(10,Math.max(1,Number(u.searchParams.get('count')||8)));
@@ -1407,6 +1554,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/research/fetch')return researchFetch(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
