@@ -50,22 +50,29 @@ function start(t){
  stopFallback();
  panel();
  window.fpES=new EventSource('/api/market-data-stream?ticker='+encodeURIComponent(st.ticker)+'&interval=1m');
- window.fpES.addEventListener('open',()=>{streamOpen=true;stopFallback();});
+ // An open SSE connection is not proof that market data is flowing. Keep the
+ // independent HTTP fallback active until a valid, verified market event arrives.
+ window.fpES.addEventListener('open',()=>{startFallback();});
  window.fpES.addEventListener('market',ev=>{
-  streamOpen=true;stopFallback();
   try{
    const d=JSON.parse(ev.data);
-   const live=Boolean(d.verified&&d.status==='LIVE'&&Number.isFinite(Number(d.price))&&Number(d.price)>0);
+   const live=Boolean(d.verified&&d.status==='LIVE'&&Number.isFinite(Number(d.price))&&Number(d.price)>0&&d.asOf&&Number.isFinite(Date.parse(d.asOf)));
    if(live){
-    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:Boolean(d.cloudStored)});
+    streamOpen=true;stopFallback();
+    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf,asOf:d.asOf,live:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',timestampType:'PROVIDER_TIMESTAMP',freshness:'LIVE',cloudStored:Boolean(d.cloudStored)});
    }else{
+    streamOpen=false;startFallback();
     const n=$('liveMarketStatus');if(n)n.textContent=d.status==='STALE'?'STALE · ANALYSIS ONLY':'DATA UNAVAILABLE';
     const f=$('liveMarketFresh');if(f)f.textContent=d.status==='STALE'?'STALE':'UNAVAILABLE';
     const m=$('liveMarketMeta');if(m)m.textContent=d.error||'Waiting for a fresh, verified quote';
    }
   }catch{
+   streamOpen=false;startFallback();
    const n=$('liveMarketStatus');if(n)n.textContent='DEGRADED';
   }
+ });
+ window.fpES.addEventListener('status',ev=>{
+  try{const d=JSON.parse(ev.data);streamOpen=false;startFallback();const n=$('liveMarketStatus');if(n)n.textContent=d.status==='STALE'?'STALE · ANALYSIS ONLY':'DATA UNAVAILABLE';const m=$('liveMarketMeta');if(m)m.textContent=d.error||'Provider unavailable; trying fallback';}catch{startFallback();}
  });
  window.fpES.onerror=()=>{
   streamOpen=false;
