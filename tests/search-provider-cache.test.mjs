@@ -39,6 +39,16 @@ try{
   assert.ok(cached.cacheAgeMs>=0);
   assert.equal(cached.results.length,1);
 
+  // An explicit user refresh bypasses the successful-result cache and replaces it on success.
+  const forced=await searchWeb('FINPILOT quota cache test',{count:3,forceRefresh:true});
+  assert.equal(fetchCalls,2,'forceRefresh must make a new free-source request instead of reusing cache');
+  assert.equal(forced.live,true,'forced refresh should preserve the provider live flag');
+  assert.equal(forced.cached,false,'forced refresh must not label the new fetch cached');
+  const updatedCache=await searchWeb('finpilot quota cache test',{count:3});
+  assert.equal(fetchCalls,2,'successful forced refresh should repopulate the normal query cache');
+  assert.equal(updatedCache.cached,true,'the result of a successful refresh should become cacheable');
+
+
   emptyMode=true;
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
   const afterOneFailure=fetchCalls;
