@@ -40,8 +40,7 @@ function start(t){
    const d=JSON.parse(ev.data);
    const live=Boolean(d.verified&&d.status==='LIVE'&&Number.isFinite(Number(d.price))&&Number(d.price)>0);
    if(live){
-    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:false});
-    fetch('/api/market-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,live:true})}).catch(()=>{});
+    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:Boolean(d.cloudStored)});
    }else{
     const n=$('liveMarketStatus');if(n)n.textContent=d.status==='STALE'?'STALE · ANALYSIS ONLY':'DATA UNAVAILABLE';
     const f=$('liveMarketFresh');if(f)f.textContent=d.status==='STALE'?'STALE':'UNAVAILABLE';
