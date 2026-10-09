@@ -1584,9 +1584,9 @@ function evidenceFusion(req,res){
   try{
    if(url){const u=new URL(url);if(!['https:','http:'].includes(u.protocol)||u.username||u.password)url='';else{u.hash='';for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);url=u.href;}}
   }catch{url='';}
-  const title=String(row.title||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,220);
-  const query=String(row.query||'').replace(/[\\u0000-\\u001f\\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,200);
-  const snippet=String(row.snippet||row.text||'').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g,' ').slice(0,1200);
+  const title=String(row.title||'').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,220);
+  const query=String(row.query||'').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\\s+/g,' ').trim().slice(0,200);
+  const snippet=String(row.snippet||row.text||'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,' ').slice(0,1200);
   if(!title&&!snippet&&!url){invalidDiscarded++;continue;}
   const fingerprint=url||[query,title,snippet.slice(0,100)].join('|');
   if(seen.has(fingerprint)||existing.has(fingerprint)){duplicatesSuppressed++;continue;}
