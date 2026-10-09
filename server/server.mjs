@@ -14,6 +14,7 @@ import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_
 import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
+import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -461,13 +462,14 @@ const CRYPTO_ASSETS={BTC:'BTCUSDT',BTCUSDT:'BTCUSDT',ETH:'ETHUSDT',ETHUSDT:'ETHU
 const TIMEFRAMES={'15m':'15m','1h':'1h','4h':'4h','1d':'1d'};
 async function directProviderJson(url,source='provider',timeoutMs=8000){
  return PROVIDER_RESPONSE_CACHE.get(url,async()=>{
+  const cooldownError=providerCooldownError(source);if(cooldownError)throw cooldownError;
   const started=Date.now();
   try{
    const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
    if(!r.ok)throw new Error(`HTTP_${r.status}`);
-   qualityUpdate(source,true,Date.now()-started);
+   qualityUpdate(source,true,Date.now()-started);recordProviderSuccess(source);
    return await r.json();
-  }catch(e){qualityUpdate(source,false,Date.now()-started,e.message);throw e;}
+  }catch(e){qualityUpdate(source,false,Date.now()-started,e.message);recordProviderFailure(source,e.message);throw e;}
  });
 }
 async function liveCrypto(t, interval='1h', multi=true){
@@ -1444,7 +1446,8 @@ async function runAgentJob(job){const a=AGENT_POOL.get(job.agentId);if(!a)return
  audit('AGENT_WAKE',{agent:a.name,trigger:job.trigger.type,result,evidenceScore});
 }
 function qualityUpdate(source,ok,latency,error){const x=DATA_HEALTH.sources[source]??={};if(ok){x.status='HEALTHY';x.latencyMs=latency;x.lastSuccess=new Date().toISOString();x.lastError=null}else{x.status='DEGRADED';x.lastError=error;x.latencyMs=latency;RESILIENCE.providerFailures++;RESILIENCE.lastIncident=new Date().toISOString();}const vals=Object.values(DATA_HEALTH.sources);DATA_HEALTH.qualityScore=Math.round(vals.reduce((n,v)=>n+(v.status==='HEALTHY'?100:v.status==='DEGRADED'?45:0),0)/Math.max(1,vals.length));DATA_HEALTH.freshness=DATA_HEALTH.qualityScore>=90?'FRESH':DATA_HEALTH.qualityScore>=50?'DEGRADED':'STALE';DATA_HEALTH.updatedAt=new Date().toISOString();if(!ok)emitEvent('DATA_QUALITY_ALERT',{source,error},95);}
-function resilientFetch(url,source='provider',timeoutMs=7000){if(RESILIENCE.circuitOpen)return Promise.reject(new Error('PROVIDER_CIRCUIT_OPEN'));const started=Date.now();return Promise.race([fetch(url),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]).then(async r=>{const t=Date.now()-started;if(!r.ok)throw new Error(`HTTP_${r.status}`);qualityUpdate(source,true,t);return r}).catch(async e=>{qualityUpdate(source,false,Date.now()-started,e.message);if(RESILIENCE.providerFailures>=5){RESILIENCE.circuitOpen=true;setTimeout(()=>{RESILIENCE.circuitOpen=false;RESILIENCE.providerFailures=0;},Math.min(30000,RESILIENCE.backoffMs*4));}throw e;});}
+function providerCooldownError(source){const c=providerCooldownStatus(source);return c&&c.active?new Error(`PROVIDER_COOLDOWN_ACTIVE:${source}:RETRY_AFTER_${Math.ceil(c.retryAfterMs/1000)}S`):null;}
+function resilientFetch(url,source='provider',timeoutMs=7000){const cooldownError=providerCooldownError(source);if(cooldownError)return Promise.reject(cooldownError);if(RESILIENCE.circuitOpen)return Promise.reject(new Error('PROVIDER_CIRCUIT_OPEN'));const started=Date.now();return Promise.race([fetch(url),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]).then(async r=>{const t=Date.now()-started;if(!r.ok)throw new Error(`HTTP_${r.status}`);qualityUpdate(source,true,t);recordProviderSuccess(source);return r}).catch(async e=>{qualityUpdate(source,false,Date.now()-started,e.message);recordProviderFailure(source,e.message);if(RESILIENCE.providerFailures>=5){RESILIENCE.circuitOpen=true;setTimeout(()=>{RESILIENCE.circuitOpen=false;RESILIENCE.providerFailures=0;},Math.min(30000,RESILIENCE.backoffMs*4));}throw e;});}
 
 // Exa Intelligence Layer: web research is evidence-only and never allowed to fabricate market numbers.
 let EXA_LAST_RUN=0, EXA_RUNNING=false, EXA_CACHE=[];
@@ -1549,6 +1552,8 @@ function dataHealthDiagnostics(){
  const weights={HEALTHY:100,STALE:50,DEGRADED:35,UNKNOWN:0};
  const dataQualityScore=sources.length?Math.round(sources.reduce((sum,x)=>sum+(weights[x.status]??0),0)/sources.length):0;
  const warnings=[];
+ const cooldowns=activeProviderCooldowns(now);
+ for(const cooldown of cooldowns)warnings.push(cooldown.source+' provider is cooling down for about '+Math.ceil(cooldown.retryAfterMs/1000)+' seconds after '+cooldown.kind+'; FinPilot will skip it temporarily and try available fallback providers.');
  if(allUnknown)warnings.push('No successful market-provider check has been recorded since this process started. Run a market lookup to measure source health.');
  for(const x of sources){
   if(x.status==='STALE')warnings.push(x.name+' last succeeded '+Math.round((x.lastSuccessAgeMs||0)/1000)+' seconds ago; refresh the market data before relying on it.');
@@ -1562,7 +1567,7 @@ function dataHealthDiagnostics(){
   dataQuality,dataQualityScore,
   updatedAt:DATA_HEALTH.updatedAt||null,
   staleAfterMs:DATA_HEALTH_STALE_AFTER_MS,
-  sources,warnings,
+  sources,warnings,providerCooldowns:cooldowns,
   ai:{configured:aiConfigured,mode:aiConfigured?'EXTERNAL_GATEWAY':'DETERMINISTIC_ONLY'},
   search:{providerMode:String(process.env.SEARCH_PROVIDER||'auto').toLowerCase(),freeFirst:true,paidFallbackEnabled:paidSearchFallbackEnabled}
  };
@@ -1575,7 +1580,7 @@ function health70(req,res){
   autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,
   dataQuality:diagnostics.dataQuality,dataQualityScore:diagnostics.dataQualityScore,
   dataQualityUpdatedAt:diagnostics.updatedAt,dataQualityStaleAfterMs:diagnostics.staleAfterMs,
-  dataSources:diagnostics.sources,dataQualityWarnings:diagnostics.warnings,
+  dataSources:diagnostics.sources,dataQualityWarnings:diagnostics.warnings,providerCooldowns:diagnostics.providerCooldowns,
   aiConfigured:diagnostics.ai.configured,ai:diagnostics.ai,search:diagnostics.search,
   security:'hardened',realtime:true,execution:'human-approval-gated',
   executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,
