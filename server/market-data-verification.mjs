@@ -1,31 +1,37 @@
-const PROVIDER_PRIORITY = ['Binance public', 'Kraken public', 'Coinbase public'];
+const PROVIDER_PRIORITY = {
+  CRYPTO: ['Coinbase public', 'Kraken public', 'Binance public'],
+  INDIAN_EQUITY: ['NSE India official', 'BSE India official', 'NSE public market data', 'Yahoo Finance', 'TejHQ EOD'],
+  INDIAN_INDEX: ['NSE India official', 'BSE India official', 'Yahoo Finance'],
+  GLOBAL_EQUITY: ['Official exchange', 'Yahoo Finance', 'Issuer investor relations'],
+  GLOBAL_INDEX: ['Official exchange', 'Yahoo Finance'],
+  OPTIONS: ['NSE India official', 'BSE India official', 'Broker market data'],
+  FUTURES: ['NSE India official', 'BSE India official', 'Broker market data'],
+  DEFAULT: ['Official exchange', 'NSE India official', 'BSE India official', 'Yahoo Finance', 'Coinbase public', 'Kraken public', 'Binance public']
+};
 
 function quoteHasFreshProviderTimestamp(quote, quotes, timestampState) {
   const index = quotes.indexOf(quote);
   const timestamp = timestampState?.[index];
-  return quote?.live !== false
+  return quote?.live === true
     && quote?.timestampType === 'PROVIDER_TIMESTAMP'
     && timestamp?.valid === true
     && timestamp?.fresh === true;
 }
 
 /**
- * Select the quote whose price, provider and timestamp will be reported together.
- * Prefer the normal provider priority among fresh provider-timestamped quotes.
- * If none qualifies, preserve the configured fallback order so the caller can
- * label the data honestly and let the execution gate fail closed.
+ * Choose a source only within the requested asset class. Provider priority is
+ * not a claim of availability; quote timestamp and freshness must still pass.
+ * The legacy default remains crypto-compatible for existing callers.
  */
-export function selectPrimaryMarketQuote(quotes, timestampState) {
+export function selectPrimaryMarketQuote(quotes, timestampState, options = {}) {
   if (!Array.isArray(quotes) || quotes.length === 0) return null;
-  const ordered = PROVIDER_PRIORITY
-    .map((provider) => quotes.find((quote) => quote?.provider === provider))
-    .filter(Boolean);
-  const verifiedTimeQuote = ordered.find((quote) =>
-    quoteHasFreshProviderTimestamp(quote, quotes, timestampState)
-  );
-  if (verifiedTimeQuote) return verifiedTimeQuote;
+  const assetClass = String(options.assetClass || 'CRYPTO').toUpperCase();
+  const priority = PROVIDER_PRIORITY[assetClass] || PROVIDER_PRIORITY.DEFAULT;
+  const ordered = priority.map(provider => quotes.find(quote => quote?.provider === provider)).filter(Boolean);
+  const verified = ordered.find(quote => quoteHasFreshProviderTimestamp(quote, quotes, timestampState));
+  if (verified) return verified;
   return ordered[0] || quotes.slice().sort((a, b) =>
-    (Number(a?.latencyMs) || Number.POSITIVE_INFINITY)
-    - (Number(b?.latencyMs) || Number.POSITIVE_INFINITY)
+    (Number(a?.latencyMs) || Number.POSITIVE_INFINITY) -
+    (Number(b?.latencyMs) || Number.POSITIVE_INFINITY)
   )[0] || null;
 }
