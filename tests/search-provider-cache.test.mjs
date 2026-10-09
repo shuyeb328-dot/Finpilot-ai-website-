@@ -42,7 +42,16 @@ try{
   const afterOneFailure=fetchCalls;
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
   assert.equal(fetchCalls,afterOneFailure+1,'empty/error results must not be cached');
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching');
+
+  // In auto mode, a free RSS result must win without touching a configured metered provider.
+  emptyMode=false;
+  fetchCalls=0;
+  process.env.SEARCH_PROVIDER='auto';
+  process.env.EXA_API_KEY='test-metered-key';
+  const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
+  assert.equal(freeFirst.provider,'google-news-rss');
+  assert.equal(fetchCalls,1,'free RSS should satisfy auto search before any metered provider is called');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search');
 }finally{
   globalThis.fetch=originalFetch;
 }
