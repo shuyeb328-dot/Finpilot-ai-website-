@@ -23,6 +23,10 @@ const observations={
 };
 const snap=await getOSControlPlaneSnapshot(observations);
 assert.equal(snap.os.find(x=>x.id==='main-core').status,'HEALTHY');
+assert.equal(snap.os.find(x=>x.id==='core-brain').status,'HEALTHY');
+const emptyBrain=await getOSControlPlaneSnapshot({...observations,core:{...observations.core,evidenceLedger:0,memoryAgents:0}});
+assert.equal(emptyBrain.os.find(x=>x.id==='core-brain').status,'PARTIAL','Core Brain must not claim healthy while its evidence/memory layers are empty');
+assert.match(emptyBrain.os.find(x=>x.id==='core-brain').detail,/not yet established/);
 assert.equal(snap.os.find(x=>x.id==='market-data-os').status,'DEGRADED');
 assert.equal(snap.os.find(x=>x.id==='trading-risk-os').status,'SAFE_GATED');
 assert.equal(snap.os.find(x=>x.id==='ai-security-os').status,'ACTIVE');
