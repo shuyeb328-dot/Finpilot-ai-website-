@@ -1,4 +1,5 @@
 const COOLDOWNS=new Map();
+const HALF_OPEN_PROBES=new Set();
 
 function normalizeProviderKey(source){
  const key=String(source||'provider').trim().toLowerCase();
@@ -19,8 +20,23 @@ function classifyCooldown(error){
  return null;
 }
 
+export function claimProviderRequest(source,now=Date.now()){
+ const key=normalizeProviderKey(source);
+ const state=COOLDOWNS.get(key);
+ if(!state)return null;
+ const retryAfterMs=Math.max(0,state.untilMs-now);
+ if(retryAfterMs>0)return {...state,active:true,retryAfterMs};
+ if(HALF_OPEN_PROBES.has(key))return {...state,active:true,halfOpen:true,retryAfterMs:0,reason:'RECOVERY_PROBE_IN_PROGRESS'};
+ HALF_OPEN_PROBES.add(key);
+ state.probeInFlight=true;
+ return null;
+}
+
 export function recordProviderFailure(source,error,now=Date.now()){
  const key=normalizeProviderKey(source);
+ HALF_OPEN_PROBES.delete(key);
+ const previous=COOLDOWNS.get(key);
+ if(previous)previous.probeInFlight=false;
  const policy=classifyCooldown(error);
  if(!policy)return providerCooldownStatus(key,now);
  const previous=COOLDOWNS.get(key);
@@ -45,9 +61,12 @@ export function activeProviderCooldowns(now=Date.now()){
 }
 
 export function recordProviderSuccess(source){
- COOLDOWNS.delete(normalizeProviderKey(source));
+ const key=normalizeProviderKey(source);
+ HALF_OPEN_PROBES.delete(key);
+ COOLDOWNS.delete(key);
 }
 
 export function resetProviderCooldownsForTests(){
  COOLDOWNS.clear();
+ HALF_OPEN_PROBES.clear();
 }
