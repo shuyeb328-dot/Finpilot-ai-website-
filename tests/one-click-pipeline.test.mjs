@@ -66,4 +66,4 @@ assert.match(moduleText, /forecastEligible===true&&scenarioQuoteValid/, 'the ver
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
-console.log('one-click-pipeline: 43 contract checks passed');
+console.log('one-click-pipeline: 51 contract checks passed');
