@@ -50,6 +50,9 @@ assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback 
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
 assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'health endpoint must have exactly one reachable route');
+assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
+assert.match(serverText, /status,dataQuality,dataQualityScore/, 'health endpoint must distinguish service status from data quality');
 assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
 assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
 assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click must expose one shared snapshot to the agent fleet');
