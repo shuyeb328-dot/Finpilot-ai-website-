@@ -12,6 +12,23 @@ function panel(){
  const h=document.querySelector('#dashboard .content')||document.querySelector('#dashboard')||document.querySelector('.content');if(h)h.prepend(e);
  $('liveMarketTicker').value=st.ticker;$('liveMarketTicker').onchange=x=>start(x.target.value);return e;
 }
+function classifyFreshness(d){
+ const type=String(d.dataFreshness||d.sourceTimestampType||d.timestampType||'').toUpperCase();
+ if(type.includes('END_OF_DAY')||type.includes('EOD')||type.includes('HISTORICAL'))return 'END-OF-DAY';
+ if(d.live===true)return 'LIVE';
+ const stamp=d.time||d.asOf||d.timestamp;
+ const ms=stamp?Date.parse(stamp):NaN;
+ if(Number.isFinite(ms)){
+  const age=Date.now()-ms;
+  if(age>=0&&age<=90000)return 'LIVE';
+  if(age>90000&&age<=15*60*1000)return 'DELAYED';
+ }
+ if(type.includes('DELAY'))return 'DELAYED';
+ return 'STALE';
+}
+function freshnessText(label){
+ return label==='END-OF-DAY'?'END-OF-DAY · ANALYSIS ONLY':label==='DELAYED'?'DELAYED · ANALYSIS ONLY':label==='STALE'?'STALE · DO NOT TRADE':'LIVE · VERIFIED';
+}
 function draw(d){
  const e=panel(); if(!e)return;
  const set=(sel,value)=>{const n=e.querySelector(sel);if(n)n.textContent=value;};
@@ -19,8 +36,8 @@ function draw(d){
  const p=+d.price,c=+d.changePct;
  set('#liveMarketPrice',money(p));set('#liveMarketChange',pct(c));setClass('#liveMarketChange',c>=0?'green':'red');
  set('#liveMarketHigh',money(+d.high));set('#liveMarketLow',money(+d.low));set('#liveMarketSource',d.source||'Binance public market data');
- set('#liveMarketFresh',d.live?'LIVE':'NON-LIVE');set('#liveMarketMeta','Updated '+tm(d.time));
- const q=$('liveMarketStatus');if(q){q.textContent=d.live?'● LIVE':'NON-LIVE · ANALYSIS ONLY';q.className=d.live?'pill low':'pill';}
+ const freshness=d.freshness||classifyFreshness(d);set('#liveMarketFresh',freshness);set('#liveMarketMeta','Updated '+tm(d.time));
+ const q=$('liveMarketStatus');if(q){q.textContent=freshnessText(freshness);q.className=freshness==='LIVE'?'pill low':'pill';}
  st.ticks.unshift({p:p,c:c,t:d.time});st.ticks=st.ticks.slice(0,8);
  const tape=$('liveMarketTape');if(tape)tape.innerHTML=st.ticks.map(x=>'<span><b>'+money(x.p)+'</b> <em class="'+(x.c>=0?'green':'red')+'">'+pct(x.c)+'</em> <small>'+tm(x.t)+'</small></span>').join('');
  const cloud=$('liveMarketCloud');if(cloud)cloud.textContent=d.cloudStored?'Cloud archive: STORED':'Cloud archive: collector ready';
@@ -69,11 +86,10 @@ async function fallbackPoll(){
    const x=d.report,price=Number(x.price),asOf=x.asOf||null;
    const fresh=Boolean(x.live===true&&asOf&&Number.isFinite(Date.parse(asOf))&&Date.now()-Date.parse(asOf)<=90000);
    if(Number.isFinite(price)&&price>0){
-    draw({ticker:x.ticker,price,changePct:Number(x.changePct||0),high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:asOf||'Unknown timestamp',live:fresh,cloudStored:false});
-    if(!fresh){
-     const n=$('liveMarketStatus');if(n)n.textContent='NON-LIVE · ANALYSIS ONLY';
-     const f=$('liveMarketFresh');if(f)f.textContent='DELAYED / UNKNOWN';
-    }
+    const sourceType=String(x.sourceTimestampType||x.timestampType||'').toUpperCase();
+    const dataFreshness=String(x.dataFreshness||'').toUpperCase();
+    const freshness=dataFreshness.includes('END_OF_DAY')||dataFreshness==='EOD'||sourceType.includes('HISTORICAL_EOD')?'END-OF-DAY':fresh?'LIVE':classifyFreshness({live:false,time:asOf,sourceTimestampType:sourceType,dataFreshness});
+    draw({ticker:x.ticker,price,changePct:Number(x.changePct||0),high:x.dayHigh||x.high,low:x.dayLow||x.low,source:x.provider||'FinPilot market adapter',time:asOf||'Unknown timestamp',live:fresh,freshness,sourceTimestampType:sourceType,dataFreshness,cloudStored:false});
    }
   }
  }catch{}
