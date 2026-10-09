@@ -830,18 +830,19 @@ async function marketDataOS(req,res,u){
    const x=await fn();
    const price=Number(x?.price);
    const ok=Number.isFinite(price)&&price>0;
-   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:x?.asOf||null});
-   if(ok)quotes.push({...x,provider:name,latencyMs:Date.now()-t});
+   const observedAt=x?.observedAt||x?._finpilotCache?.observedAt||new Date().toISOString();
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:x?.asOf||null,timestampType:x?.timestampType||'OBSERVATION_TIMESTAMP'});
+   if(ok)quotes.push({...x,provider:name,observedAt,latencyMs:Date.now()-t});
    return ok;
   }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
  };
  if(CRYPTO_ASSETS[raw]){
   const symbol=CRYPTO_ASSETS[raw];
-  await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf:new Date().toISOString(),live:true};});
-  await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:new Date().toISOString(),live:true};});
-  await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:new Date().toISOString(),live:true};});
+  await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');const asOf=Number(x.closeTime)>0?new Date(Number(x.closeTime)).toISOString():x?._finpilotCache?.observedAt||null;return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf,timestampType:Number(x.closeTime)>0?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
  }else{
-  await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,live:Boolean(r.live),exchange:r.exchange};});
+  await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'PROVIDER_TIMESTAMP',live:Boolean(r.live),exchange:r.exchange};});
  }
  if(!quotes.length){
   return send(res,200,{ok:true,available:false,verified:false,ticker:raw,marketDataOS:{status:'UNAVAILABLE',decision:'DO_NOT_TRADE',reason:'No provider returned a verified price.',attempts},elapsedMs:Date.now()-started});
@@ -849,13 +850,14 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const sourceReady=quotes.every(x=>x.live!==false && (!x.asOf || Math.max(0,Date.now()-Date.parse(x.asOf))<=EXECUTION_FRESHNESS_MS));
+ const sourceReady=quotes.every(x=>{const ts=x.asOf||x.observedAt;return x.live!==false&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
  const verified=prices.length===1?sourceReady:(spreadPct<=0.75&&sourceReady);
  const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
  const status=verified?'VERIFIED':'CONFLICTING';
- const sourceAgeMs=winner.asOf?Math.max(0,Date.now()-Date.parse(winner.asOf)):0;
+ const selectedAsOf=winner.asOf||winner.observedAt||null;
+ const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&!winner.stale&&sourceAgeMs<=EXECUTION_FRESHNESS_MS);
- const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:winner.asOf||new Date().toISOString(),dataFreshness:sourceAgeMs?(sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH_SOURCE':'STALE_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||null})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
+ const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:winner.timestampType||'OBSERVATION_TIMESTAMP',sourceAgeMs,dataFreshness:sourceAgeMs!==null?(sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH_SOURCE':'STALE_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||x.observedAt||null,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP'})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
  try{await archiveMarketProvenance({symbol:raw,provider:winner.provider,price:median,live:verified,dataFreshness:'REQUEST_TIME',asOf:result.asOf});}catch{}
  return send(res,200,result);
 }
