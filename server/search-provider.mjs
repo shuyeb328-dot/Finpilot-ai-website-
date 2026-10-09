@@ -8,14 +8,28 @@ async function providerFetch(url,options={}){
  finally{clearTimeout(t)}
 }
 function normalize(items,provider){
- return (items||[]).map((x,i)=>({
-  id:provider+'-'+i+'-'+Buffer.from(String(x.url||x.link||'')).toString('base64url').slice(0,12),
-  title:String(x.title||x.name||'Untitled'),
-  url:String(x.url||x.link||''),
-  snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
-  source:String(x.source?.name||x.source||provider),
-  publishedAt:x.publishedAt||x.published_date||x.date||null
- })).filter(x=>/^https?:\/\//i.test(x.url));
+ const seen=new Set(),out=[];
+ for(const [i,x] of (items||[]).entries()){
+  const url=String(x.url||x.link||'');
+  if(!/^https?:\\/\\//i.test(url))continue;
+  let canonical=url;
+  try{
+   const u=new URL(url);u.hash='';
+   for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);
+   canonical=u.toString().replace(/\\/$/,'');
+  }catch{}
+  if(seen.has(canonical))continue;
+  seen.add(canonical);
+  out.push({
+   id:provider+'-'+i+'-'+Buffer.from(url).toString('base64url').slice(0,12),
+   title:String(x.title||x.name||'Untitled'),
+   url,
+   snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
+   source:String(x.source?.name||x.source||provider),
+   publishedAt:x.publishedAt||x.published_date||x.date||null
+  });
+ }
+ return out;
 }
 function cleanText(v){
  return String(v||'')
