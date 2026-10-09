@@ -206,4 +206,15 @@ assert.match(serverText, /const names=supplied\.slice\(0,12\)\.map\(name=>clean\
 assert.match(serverText, /remember\(name,\{decision:stance,lesson:view\}\)/, 'actual parallel agent runs must be reflected in memory telemetry');
 assert.match(serverText, /durable training or persistent memory/, 'agent memory must be described honestly as process-memory telemetry until durable storage is connected');
 
+
+assert.match(moduleText, /function syncClientAgentTelemetry\(agentFleet,candidate,marketSnapshot\)/, 'actual browser-side specialist outputs should be reported after the local fleet runs');
+assert.match(moduleText, /fetch\('\/api\/agent-memory'/, 'browser-side agent telemetry should use the existing bounded server endpoint');
+assert.match(moduleText, /syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'the one-click pipeline should sync actual fleet results, not merely pending agent placeholders');
+assert.match(moduleText, /not server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
+assert.match(serverText, /source:'CLIENT_REPORTED_UNVERIFIED'/, 'client telemetry must be assigned an explicit unverified source');
+assert.match(serverText, /serverExecutedRuns:0,clientReportedRuns:0/, 'server memory entries must track server and client activity separately');
+assert.match(serverText, /serverExecutedAgentRuns,clientReportedAgentRuns/, 'Core status must report server-executed and client-reported agent counts separately');
+assert.match(serverText, /agentMemoryPersistent:false/, 'Core status must not claim process-memory agent telemetry is durable');
+assert.match(serverText, /Array\.isArray\(x\.agents\)\?x\.agents\.slice\(0,12\):\[x\]/, 'client-reported agent batches must be bounded');
+
 console.log('one-click-pipeline: contract checks passed');
