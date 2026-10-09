@@ -164,6 +164,7 @@ assert.match(moduleText, /INDEPENDENT_PROVIDER_VERIFIED/, 'the quote provenance 
 
 assert.match(moduleText, /\/api\/instrument-search\?q=/, 'unlisted company names and tickers should use live instrument-directory lookup');
 assert.match(moduleText, /function isBroadMarketRequest\(query\)/, 'only entity-free discovery requests may fall back to market picks');
+assert.match(moduleText, /SHOULD\|WHICH\|INTRADAY\|SWING/, 'natural-language discovery modifiers should not be treated as fixed stock entities');
 assert.match(moduleText, /No unambiguous instrument match was found/, 'unresolved entity requests must not silently substitute an unrelated stock');
 
 console.log('one-click-pipeline: contract checks passed');
