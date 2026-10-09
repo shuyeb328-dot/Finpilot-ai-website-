@@ -16,19 +16,18 @@ function classifyFreshness(d){
  const type=String(d.dataFreshness||d.sourceTimestampType||d.timestampType||'').toUpperCase();
  if(type.includes('END_OF_DAY')||type.includes('EOD')||type.includes('HISTORICAL'))return 'END-OF-DAY';
  if(d.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY')return 'UNVERIFIED';
- if(d.live===true)return 'LIVE';
- const stamp=d.time||d.asOf||d.timestamp;
+ const stamp=d.asOf||d.time||d.timestamp;
  const ms=stamp?Date.parse(stamp):NaN;
- if(Number.isFinite(ms)){
-  const age=Date.now()-ms;
-  if(age>=0&&age<=90000)return 'LIVE';
-  if(age>90000&&age<=15*60*1000)return 'DELAYED';
- }
+ const age=Number.isFinite(ms)?Date.now()-ms:NaN;
+ const providerTime=String(d.sourceTimestampType||d.timestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP';
+ const verified=d.executionEligible===true&&providerTime&&Number.isFinite(age)&&age>=-30000&&age<=90000&&d.live===true;
+ if(verified)return 'LIVE';
  if(type.includes('DELAY'))return 'DELAYED';
+ if(Number.isFinite(age)&&age>=-30000&&age<=15*60*1000)return 'UNVERIFIED';
  return 'STALE';
 }
 function freshnessText(label){
- return label==='END-OF-DAY'?'END-OF-DAY · ANALYSIS ONLY':label==='DELAYED'?'DELAYED · ANALYSIS ONLY':label==='UNVERIFIED'?'UNVERIFIED · ANALYSIS ONLY':label==='STALE'?'STALE · DO NOT TRADE':'LIVE · VERIFIED';
+ return label==='LIVE'?'LIVE · VERIFIED':label==='END-OF-DAY'?'END-OF-DAY · ANALYSIS ONLY':label==='DELAYED'?'DELAYED · ANALYSIS ONLY':label==='UNVERIFIED'?'UNVERIFIED · ANALYSIS ONLY':'STALE · DO NOT TRADE';
 }
 function draw(d){
  const e=panel(); if(!e)return;
@@ -85,7 +84,8 @@ async function fallbackPoll(){
   const d=await r.json();
   if(d?.ok&&d.report){
    const x=d.report,price=Number(x.price),asOf=x.asOf||null;
-   const fresh=Boolean(x.live===true&&x.executionEligible!==false&&asOf&&Number.isFinite(Date.parse(asOf))&&Date.now()-Date.parse(asOf)<=90000);
+   const quoteAge=asOf&&Number.isFinite(Date.parse(asOf))?Date.now()-Date.parse(asOf):NaN;
+   const fresh=Boolean(x.live===true&&x.executionEligible===true&&String(x.sourceTimestampType||x.timestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number.isFinite(quoteAge)&&quoteAge>=-30000&&quoteAge<=90000);
    if(Number.isFinite(price)&&price>0){
     const sourceType=String(x.sourceTimestampType||x.timestampType||'').toUpperCase();
     const dataFreshness=String(x.dataFreshness||'').toUpperCase();
