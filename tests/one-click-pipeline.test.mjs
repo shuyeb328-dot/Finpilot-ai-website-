@@ -10,6 +10,7 @@ const launcher = pageText.slice(launcherStart, launcherEnd);
 
 assert.match(moduleText, /async function fetchJsonBounded\(/, 'market fetch plus JSON parsing must have a bounded deadline');
 assert.match(moduleText, /fpPipelineStatus/, 'pipeline status must be outside the results container');
+assert.match(moduleText, /!document\.getElementById\('search'\)\?\.classList\.contains\('active'\)/, 'analysis must not re-render an already-active search view');
 assert.match(moduleText, /Analysis stopped safely/, 'a failed analysis must render a visible error');
 assert.match(moduleText, /No real order was placed/, 'analysis must remain decision support only');
 assert.doesNotMatch(moduleText, /function mountSearchCard\(/, 'duplicate analysis launcher cards must not be injected');
@@ -22,4 +23,4 @@ assert.match(pageText, /one-click-analysis\.js\?v=20261009-2/, 'rebuilt one-clic
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
-console.log('one-click-pipeline: 12 contract checks passed');
+console.log('one-click-pipeline: 13 contract checks passed');
