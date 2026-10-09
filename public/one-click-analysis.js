@@ -132,7 +132,7 @@
   function scenarioSafe(report){
     const d=report||{},m=d.marketReport||null,price=Number(m?.price),ticker=String(m?.ticker||m?.symbol||'').trim().toUpperCase();
     const requested=String(d.candidate?.ticker||d.ticker||'').trim().toUpperCase();
-    const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&(!requested||!ticker||ticker===requested)&&m.live===true&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))<=120000);
+    const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&(!requested||!ticker||ticker===requested)&&m.live===true&&m.executionEligible===true&&String(m.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))>=-30000&&(Date.now()-Date.parse(m.asOf))<=90000);
     if(!liveQuote){
       return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:0,capitalAtRisk:0,targetProfit:0,stopLoss:0,maximumLoss:0,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
     }
@@ -281,7 +281,7 @@
     const scenarioQuote=report.marketReport||null;
     const scenarioTicker=String(scenarioQuote?.ticker||scenarioQuote?.symbol||'').trim().toUpperCase();
     const requestedTicker=String(report.candidate?.ticker||report.ticker||'').trim().toUpperCase();
-    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))<=120000&&(!requestedTicker||!scenarioTicker||requestedTicker===scenarioTicker));
+    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||!scenarioTicker||requestedTicker===scenarioTicker));
     const scenarioStartedAt=new Date();
     const scenarioReviewAt=new Date(scenarioStartedAt.getTime()+scenarioDays*86400000);
     const formatScenarioDate=date=>date.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'});
@@ -602,9 +602,35 @@
         }catch(e){searchWarning=searchWarning||String(e?.message||'Market snapshot unavailable');}
       }
       marketSnapshot=marketSnapshot||null;
-      if(directMarket&&marketSnapshot&&!marketSnapshot?.quality?.forecastEligible){
-        directMarket={...directMarket,live:false};
-        searchWarning=searchWarning||'Market data status '+String(marketSnapshot?.quality?.status||'UNAVAILABLE')+'; forecasts are blocked until the quote is verified.';
+      if(directMarket&&marketSnapshot&&!marketSnapshot?.quality?.forecastEligible&&candidate?.ticker){
+        // A stale/ineligible technical snapshot does not prove the separate quote is invalid.
+        // Reconcile with Market Data OS; only a fresh provider-timestamped, cross-checked quote
+        // may unlock model probabilities. Historical candles remain labelled separately.
+        try{
+          const os=await fetchJsonBounded(
+            '/api/market-data-os?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&ts='+Date.now(),
+            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+            10000,
+            'Independent quote verification'
+          );
+          const qTicker=String(os?.ticker||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
+          const cTicker=String(candidate.ticker||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
+          const qPrice=Number(os?.price),snapPrice=Number(marketSnapshot?.quote?.price);
+          const qTime=Date.parse(os?.asOf||'');
+          const age=Number.isFinite(qTime)?Date.now()-qTime:Infinity;
+          const priceAgrees=Number.isFinite(qPrice)&&qPrice>0&&Number.isFinite(snapPrice)&&snapPrice>0&&Math.abs(qPrice-snapPrice)/snapPrice<=0.02;
+          const quoteVerified=Boolean(os?.verified===true&&os?.executionEligible===true&&qTicker&&qTicker===cTicker&&String(os?.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number.isFinite(qTime)&&age>=-30000&&age<=90000&&priceAgrees);
+          if(quoteVerified){
+            directMarket={...directMarket,ticker:candidate.ticker,price:qPrice,asOf:os.asOf,provider:os.provider||directMarket.provider,sourceTimestampType:'PROVIDER_TIMESTAMP',live:true,executionEligible:true,quoteVerification:'INDEPENDENT_PROVIDER_VERIFIED'};
+            marketSnapshot={...marketSnapshot,quote:{...(marketSnapshot.quote||{}),price:qPrice},quality:{...(marketSnapshot.quality||{}),quoteVerified:true,quoteVerification:'INDEPENDENT_PROVIDER_VERIFIED'}};
+          }else{
+            directMarket={...directMarket,live:false};
+            searchWarning=searchWarning||('Market quote remains blocked: independent provider check failed ('+String(os?.marketDataOS?.status||os?.executionDecision||'UNVERIFIED')+').');
+          }
+        }catch(e){
+          directMarket={...directMarket,live:false};
+          searchWarning=searchWarning||'Market quote remains blocked: independent provider verification unavailable.';
+        }
       }
       window.__fpMarketSnapshot=marketSnapshot?Object.freeze({...marketSnapshot}):null;
       state.marketSnapshot=window.__fpMarketSnapshot;

@@ -154,4 +154,10 @@ assert.match(moduleText, /marketForecastEligible===true&&scenarioQuoteValid/, 't
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
+
+assert.match(moduleText, /\/api\/market-data-os\?ticker=/, 'ineligible snapshots must trigger an independent quote verification attempt');
+assert.match(moduleText, /quoteVerified=Boolean\(os\?\.verified===true&&os\?\.executionEligible===true/, 'predictions may use only independently verified quotes');
+assert.match(moduleText, /sourceTimestampType\|\|'\)\.toUpperCase\(\)==='PROVIDER_TIMESTAMP'/, 'risk scenario must require provider-sourced quote time');
+assert.match(moduleText, /INDEPENDENT_PROVIDER_VERIFIED/, 'the quote provenance should be explicit in the analysis trace');
+
 console.log('one-click-pipeline: contract checks passed');
