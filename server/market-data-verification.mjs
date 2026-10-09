@@ -1,5 +1,5 @@
 const PROVIDER_PRIORITY = {
-  CRYPTO: ['Coinbase public', 'Kraken public', 'Binance public'],
+  CRYPTO: ['Binance public', 'Kraken public', 'Coinbase public'],
   INDIAN_EQUITY: ['NSE India official', 'BSE India official', 'NSE public market data', 'Yahoo Finance', 'TejHQ EOD'],
   INDIAN_INDEX: ['NSE India official', 'BSE India official', 'Yahoo Finance'],
   GLOBAL_EQUITY: ['Official exchange', 'Yahoo Finance', 'Issuer investor relations'],
