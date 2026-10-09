@@ -54,6 +54,12 @@ assert.match(serverText, /provider:'google-search-bridge',results:\[\],externalU
 assert.match(serverText, /fallback:'GOOGLE_SEARCH_BRIDGE'/, 'the search API must label its Google fallback explicitly');
 assert.match(pageText, /d\.fallback==='GOOGLE_SEARCH_BRIDGE'/, 'search UI must show the friendly fallback message');
 assert.match(pageText, /Open current results/, 'empty or unavailable web search must retain an external search link');
+assert.match(pageText, /id="googleEvidencePaste"/, 'search page must expose a mobile-friendly paste field for Google evidence');
+assert.match(pageText, /function importGoogleEvidence\(\)/, 'pasted Google research must have a wired import handler');
+assert.match(pageText, /provider:'user-provided',provenance:'USER_PROVIDED'/, 'manual import must preserve user-provided provenance');
+assert.match(pageText, /User-provided research — not independently verified/, 'manual evidence must be distinguished from fetched evidence');
+assert.match(pageText, /Publication date not verified/, 'manual import must not invent publication dates');
+assert.match(pageText, /if\(!manual\)state\.lastEvidenceSync=/, 'manual import must not pretend a web source was freshly synchronized');
 assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'health endpoint must have exactly one reachable route');
 assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
 assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must match the health endpoint version');
@@ -83,4 +89,4 @@ assert.match(moduleText, /marketForecastEligible===true&&scenarioQuoteValid/, 't
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
-console.log('one-click-pipeline: 51 contract checks passed');
+console.log('one-click-pipeline: contract checks passed');
