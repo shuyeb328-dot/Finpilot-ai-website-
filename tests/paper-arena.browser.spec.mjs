@@ -57,6 +57,45 @@ test('production Paper Arena renders charts and only fills when market data is v
   expect(optionsPlan.taskType).toBe('DERIVATIVES_ANALYSIS');
   expect(optionsPlan.requiredData).toContain('contract_specification');
 
+  // Exercise task-aware supplemental discovery against production too. These responses
+  // may contain zero RSS hits, but must never claim a headline is a verified quote.
+  const supplemental = await page.evaluate(async () => {
+    const cases = [
+      {key:'indian',query:'Analyse IRFC for intraday trading with ₹1,000',expectedHint:'NSE BSE'},
+      {key:'crypto',query:'Analyse BTC/USDT live',expectedHint:'Coinbase Kraken Binance'}
+    ];
+    return await Promise.all(cases.map(async c => {
+      try {
+        const r = await fetch('/api/task-research', {
+          method:'POST', cache:'no-store',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({query:c.query})
+        });
+        const d = await r.json();
+        return {
+          key:c.key,status:r.status,ok:d.ok===true,originalQuery:d.discovery?.originalQuery,
+          sourceRole:d.discovery?.sourceRole,query:d.discovery?.query,provider:d.discovery?.provider,
+          quoteEligible:d.discovery?.quoteEligible,executionEligible:d.discovery?.executionEligible,
+          resultCount:d.discovery?.resultCount,resultsAreDiscoveryOnly:(d.discovery?.results||[]).every(x=>x.quoteEligible===false&&x.executionEligible===false)
+        };
+      } catch(e) { return {key:c.key,error:String(e?.message||e)}; }
+    }));
+  });
+  console.log('TASK_RESEARCH_PRODUCTION_SMOKE', JSON.stringify(supplemental));
+  expect(supplemental.every(x => x.status===200 && x.ok), 'Task-aware research endpoint should return for each task').toBe(true);
+  const indianResearch = supplemental.find(x => x.key==='indian');
+  const cryptoResearch = supplemental.find(x => x.key==='crypto');
+  expect(indianResearch.sourceRole).toBe('TASK_SPECIFIC_DISCOVERY');
+  expect(indianResearch.originalQuery).toBe('Analyse IRFC for intraday trading with ₹1,000');
+  expect(indianResearch.query).toContain('NSE BSE');
+  expect(indianResearch.quoteEligible).toBe(false);
+  expect(indianResearch.executionEligible).toBe(false);
+  expect(indianResearch.resultsAreDiscoveryOnly).toBe(true);
+  expect(cryptoResearch.sourceRole).toBe('TASK_SPECIFIC_DISCOVERY');
+  expect(cryptoResearch.query).toContain('Coinbase Kraken Binance');
+  expect(cryptoResearch.quoteEligible).toBe(false);
+  expect(cryptoResearch.resultsAreDiscoveryOnly).toBe(true);
+
   await page.waitForTimeout(3000);
   const prePaper = await page.evaluate(() => ({ core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded) }));
   const diagnostics = await page.evaluate(() => ({ show: typeof window.show, nav: document.getElementById('nav')?.innerText || '', active: document.querySelector('.view.active')?.id || '' }));
