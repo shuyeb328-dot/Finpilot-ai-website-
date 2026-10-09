@@ -9,6 +9,7 @@ import 'node:process';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+import {planFinancialTask,getSourceCatalog} from './task-intelligence.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -1778,6 +1779,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
   if(req.method==='GET'&&u.pathname==='/api/research/fetch')return researchFetch(req,res,u);
+  if(req.method==='POST'&&u.pathname==='/api/task-intelligence'){await body(req);const plan=planFinancialTask(req._parsedBody||{});return send(res,200,{ok:true,plan,sourceCatalog:getSourceCatalog().map(x=>({id:x.id,name:x.name,tier:x.tier,assetClasses:x.assetClasses,dataTypes:x.dataTypes,liveCapability:x.liveCapability,url:x.url}))});}
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
