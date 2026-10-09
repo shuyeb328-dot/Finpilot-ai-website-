@@ -18,6 +18,7 @@ import {fetchNasdaqEod} from './nasdaq-eod.mjs';
 import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus} from './autonomous-core.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
+import {lookupLocalInstruments} from './instrument-directory.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
@@ -664,6 +665,14 @@ async function instrumentSearch(req,res,u){
  const count=Math.max(1,Math.min(10,Number(u.searchParams.get('count')||10)));
  if(!query)return send(res,400,{ok:false,error:'QUERY_REQUIRED'});
  if(query.length>80)return send(res,400,{ok:false,error:'QUERY_TOO_LONG'});
+ // Exact curated identity matches avoid repeat calls to rate-limited free directories.
+ // This endpoint identifies instruments only; a separate market quote gate remains mandatory.
+ const localResults=lookupLocalInstruments(query,{count});
+ if(localResults.length){
+  return send(res,200,{ok:true,query,provider:'FinPilot local instrument identity registry',cached:false,
+   fallback:true,liveQuoteValidated:false,results:localResults,
+   disclaimer:'Identity match only. This response contains no price, does not verify live market data, and cannot authorize forecasts or paper execution.'});
+ }
  const key=query.toLowerCase();
  const cached=YAHOO_INSTRUMENT_SEARCH_CACHE.get(key);
  if(cached&&Date.now()-cached.at<10*60*1000)return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:true,results:cached.results.slice(0,count)});
@@ -688,13 +697,17 @@ async function instrumentSearch(req,res,u){
     exchangeDisplay:String(x.exchDisp||x.exchange||''),
     quoteType:String(x.quoteType||'').toUpperCase(),
     typeDisplay:String(x.typeDisp||x.quoteType||''),
-    score:Number.isFinite(Number(x.score))?Number(x.score):0
+    score:Number.isFinite(Number(x.score))?Number(x.score):0,
+    identitySource:'YAHOO_FINANCE_DIRECTORY',
+    liveQuoteValidated:false
   }));
   if(results.length){
     YAHOO_INSTRUMENT_SEARCH_CACHE.set(key,{at:Date.now(),results});
     while(YAHOO_INSTRUMENT_SEARCH_CACHE.size>200)YAHOO_INSTRUMENT_SEARCH_CACHE.delete(YAHOO_INSTRUMENT_SEARCH_CACHE.keys().next().value);
   }
-  return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results});
+  return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results,
+   fallback:false,liveQuoteValidated:false,
+   disclaimer:'Directory matches identify instruments only. A separate fresh, provider-timestamped quote is required for market-dependent forecasts or paper execution.'});
  }catch(e){
   const reason=e?.name==='AbortError'?'INSTRUMENT_DIRECTORY_TIMEOUT':String(e?.message||'INSTRUMENT_DIRECTORY_UNAVAILABLE');
   return send(res,200,{ok:false,query,provider:'Yahoo Finance instrument directory',cached:false,results:[],error:reason});
