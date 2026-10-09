@@ -1,9 +1,9 @@
 const TIMEOUT_MS=Number(process.env.SEARCH_TIMEOUT_MS||8000);
 const jsonHeaders={'Accept':'application/json'};
-function providerError(message){const e=new Error(message);e.code='SEARCH_PROVIDER_UNAVAILABLE';return e}
+function providerError(message,status){const e=new Error(message);e.code='SEARCH_PROVIDER_UNAVAILABLE';if(Number.isFinite(Number(status)))e.status=Number(status);return e}
 async function providerFetch(url,options={}){
  const c=new AbortController();const t=setTimeout(()=>c.abort(),TIMEOUT_MS);
- try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw providerError(`Search provider returned HTTP ${r.status}`);return await r.json()}
+ try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw providerError(`Search provider returned HTTP ${r.status}`,r.status);return await r.json()}
  catch(e){if(e.name==='AbortError')throw providerError('Search provider timed out');throw e}
  finally{clearTimeout(t)}
 }
@@ -144,7 +144,7 @@ async function searchWebUncached(q,count,requested){
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
-  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));continue}
+  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){break;}continue}
  }
  const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
  throw providerError('No live results were returned by the configured search provider.'+detail);
