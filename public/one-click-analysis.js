@@ -460,6 +460,66 @@
     return {ticker:String(best.symbol).toUpperCase(),name:String(best.longName||best.shortName||best.symbol),confidence:82,score:78,evidenceMentions:0,positive:0,negative:0,candidates:matches.slice(0,5).map(x=>({ticker:x.symbol,name:x.longName||x.shortName||x.symbol,quoteType:x.quoteType})),method:'Live instrument directory match',reason:'Resolved from the current instrument directory for this query; market data is fetched separately.',disclaimer:'Directory match is not a live quote or investment recommendation.',instrumentProvider:data.provider||'Yahoo Finance instrument search'};
   }
 
+  function appendTaskDiscoveryEvidence(discovery, results){
+    const box=document.getElementById('searchResults');
+    if(!box)return;
+    const old=box.querySelector('#fpTaskDiscoveryEvidence');
+    if(old)old.remove();
+    const section=document.createElement('section');
+    section.id='fpTaskDiscoveryEvidence';
+    section.className='card';
+    section.style.cssText='margin-top:12px;padding:14px;display:grid;gap:10px;';
+    const title=document.createElement('h3');
+    title.textContent='Task-specific source discovery';
+    title.style.margin='0';
+    section.appendChild(title);
+    const meta=document.createElement('p');
+    meta.className='muted';
+    meta.textContent=(discovery?.assetClass||'FINANCIAL_RESEARCH')+' · '+(discovery?.taskType||'RESEARCH')+' · free '+(discovery?.provider||'news search')+' · discovery only; not a verified price';
+    section.appendChild(meta);
+    const items=Array.isArray(results)?results:[];
+    if(!items.length){
+      const empty=document.createElement('p');
+      empty.className='muted';
+      empty.textContent='No new unique task-specific results were returned. The original query results remain available above; no quote was inferred.';
+      section.appendChild(empty);
+    }
+    items.slice(0,4).forEach((item,index)=>{
+      const row=document.createElement('article');
+      row.style.cssText='border-top:1px solid var(--line);padding-top:10px;display:grid;gap:5px;';
+      const badge=document.createElement('small');
+      badge.className='muted';
+      badge.textContent='SUPPLEMENTAL DISCOVERY '+(index+1)+' · '+String(item.source||discovery?.provider||'Search provider');
+      row.appendChild(badge);
+      const link=document.createElement('a');
+      link.textContent=String(item.title||'Untitled source');
+      link.style.cssText='font-weight:650;overflow-wrap:anywhere;';
+      try{
+        const url=new URL(String(item.url||''));
+        if(url.protocol==='https:'||url.protocol==='http:'){
+          link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';
+        }else link.removeAttribute('href');
+      }catch{link.removeAttribute('href');}
+      row.appendChild(link);
+      const snippet=document.createElement('p');
+      snippet.className='muted';
+      snippet.style.margin='0';
+      snippet.textContent=String(item.snippet||'Search result only; open the source to inspect primary evidence.').slice(0,360);
+      row.appendChild(snippet);
+      const date=document.createElement('small');
+      date.className='muted';
+      date.textContent='Publication time: '+String(item.publishedAt||'not supplied by source');
+      row.appendChild(date);
+      section.appendChild(row);
+    });
+    const note=document.createElement('p');
+    note.className='muted';
+    note.style.margin='0';
+    note.textContent='Headlines and documents support research discovery only. Prices, forecasts and paper-order eligibility require a separate matching market quote with a fresh provider timestamp.';
+    section.appendChild(note);
+    box.appendChild(section);
+  }
+
   function createForecastLedgerRecord({snapshot,candidate,decision,money,chartAnalysis}={}){
     const createdAt=new Date().toISOString();
     const horizonDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
@@ -537,6 +597,9 @@
         taskPlan=routed?.plan||null;
       }catch(e){ taskPlan=null; }
       window.__fpTaskPlan=taskPlan;
+      const taskResearchPromise=taskPlan
+        ?fetchJsonBounded('/api/task-research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})},9000,'Task-specific source discovery').catch(e=>({ok:false,error:String(e?.message||'Task-specific search unavailable')}))
+        :Promise.resolve(null);
       let searchWarning='';
       stage(taskPlan?'1/6 · '+taskPlan.assetClass+' / '+taskPlan.taskType+' · selecting relevant sources…':'1/6 · Searching live evidence for “'+query+'”…');
 
@@ -571,9 +634,61 @@
         }
       })();
 
-      const search=await searchPromise;
+      let search=await searchPromise;
       if(runId!==activeRunId)return {ok:false,error:'RUN_REPLACED'};
       searchWarning=search?.error||'';
+      const taskResearch=await taskResearchPromise;
+      const discovery=taskResearch?.discovery||null;
+      let supplementalResults=[];
+      if(discovery&&Array.isArray(discovery.results)){
+        const seenUrls=new Set();
+        const canonicalUrl=value=>{
+          try{
+            const u=new URL(String(value||''));
+            if(u.protocol!=='https:'&&u.protocol!=='http:')return '';
+            u.hash='';
+            for(const key of [...u.searchParams.keys()])if(/^utm_/i.test(key)||['fbclid','gclid'].includes(key.toLowerCase()))u.searchParams.delete(key);
+            const normalized=u.toString();
+            return normalized.endsWith('/')?normalized.slice(0,-1):normalized;
+          }catch{return '';}
+        };
+        (Array.isArray(search?.results)?search.results:[]).forEach(item=>{
+          const key=canonicalUrl(item?.articleUrl||item?.url);
+          if(key)seenUrls.add(key);
+        });
+        supplementalResults=discovery.results.map(item=>({
+          ...item,
+          articleTitle:item.title||'Untitled source',
+          articleUrl:item.url||'',
+          publisherPublishedAt:item.publishedAt||null,
+          retrievedText:item.snippet||'',
+          retrievalStatus:'SEARCH_RESULT',
+          taskSpecific:true,
+          sourceRole:discovery.sourceRole||'TASK_SPECIFIC_DISCOVERY',
+          discoveryQuery:discovery.query||'',
+          quoteEligible:false,
+          executionEligible:false
+        })).filter(item=>{
+          const key=canonicalUrl(item.articleUrl);
+          if(!key||seenUrls.has(key))return false;
+          seenUrls.add(key);
+          return true;
+        });
+        search={
+          ...(search||{}),
+          query,
+          results:[...(Array.isArray(search?.results)?search.results:[]),...supplementalResults],
+          taskSpecificDiscovery:{assetClass:discovery.assetClass,taskType:discovery.taskType,query:discovery.query,provider:discovery.provider,live:discovery.live===true,cached:discovery.cached===true,resultCount:supplementalResults.length,quoteEligible:false}
+        };
+        window.__lastSearch=search;
+        if(supplementalResults.length){
+          try{ingestSearchEvidence({...search,query,results:supplementalResults});}catch{}
+        }
+        appendTaskDiscoveryEvidence(discovery,supplementalResults);
+        if(discovery.error)searchWarning=searchWarning||'Task-specific free search unavailable; original query evidence is retained.';
+      }else if(taskPlan){
+        searchWarning=searchWarning||'Task-specific source discovery could not be completed; original query evidence is retained.';
+      }
       stage('2/6 · Ranking candidates and refreshing the Financial Brain…');
 
       const cycle=buildAgentCycle();
