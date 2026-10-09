@@ -23,6 +23,11 @@ assert.match(moduleText, /FinPilotDecisionCore\.computeExecutiveDecision\(state,
 assert.match(moduleText, /typeof window\.FinPilotBridge\?\.money==='function'/, 'use the global finance formatter when available');
 assert.doesNotMatch(moduleText, /computeExecutiveDecision\(state,cycle\.findings,web,preMoney,sourceAge\)/, 'the scenario/formatter argument mismatch must not return');
 assert.match(moduleText, /normalizeTicker\(directMarket\.ticker\|\|directMarket\.symbol\)!==normalizeTicker\(candidate\.ticker\)/, 'do not render a quote for a different instrument than the resolved candidate');
+assert.match(moduleText, /function marketTrustState\(market\)/, 'market UI must derive its trust badge from timestamp provenance and the execution gate');
+assert.match(moduleText, /market\?\.executionEligible===true&&sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'UI must only label a quote VERIFIED LIVE when its provider timestamp and execution gate both pass');
+assert.match(moduleText, /FRESH OBSERVATION · UNVERIFIED/, 'observation-only quotes must display an explicit unverified status');
+assert.match(moduleText, /realtimeAvailable:trust\.verified/, 'UI real-time availability must follow the verified gate, not the raw live flag');
+assert.doesNotMatch(moduleText, /market\.live\?'LIVE DATA':'NON-LIVE DATA'/, 'UI must not label observation-only quote time as live data');
 assert.match(deepText, /\['AXISBANK','Axis Bank Limited'\]/, 'Axis Bank must be in the known instrument registry');
 assert.match(deepText, /SBI:'SBIN'/, 'SBI alias should resolve to State Bank of India ticker SBIN');
 assert.match(deepText, /const normalizePhrase=text=>/, 'instrument matching must use normalized token boundaries');
