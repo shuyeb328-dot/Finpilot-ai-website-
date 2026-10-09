@@ -933,6 +933,7 @@ function globalProviderStatus(){
   {id:'twelvedata',configured:Boolean(process.env.TWELVEDATA_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities/ETFs',mode:'licensed API key'},
   {id:'finnhub',configured:Boolean(process.env.FINNHUB_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'licensed API key'},
   {id:'alphavantage',configured:Boolean(process.env.ALPHAVANTAGE_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'API key'},
+  {id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback',coverage:'US/global securities subject to Stooq symbol coverage',mode:'public EOD · analysis only'},
   {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'},
   {id:'marketstack',configured:Boolean(process.env.MARKETSTACK_API_KEY),role:'global EOD fallback',coverage:'Worldwide exchange/ticker metadata and EOD data',mode:'free tier/API key'},
   {id:'fmp',configured:Boolean(process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY),role:'US/global fallback',coverage:'Market data plus fundamentals where plan permits',mode:'free tier/API key'}
