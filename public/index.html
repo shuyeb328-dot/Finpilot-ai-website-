@@ -648,11 +648,14 @@ async function fpFetchJson(url,options={},timeoutMs=10000,label='Request'){
 function markFinpilotSearchDirty(value){
  const q=String(value||'').trim(), rendered=String(window.__fpLastRenderedQuery||'').trim();
  if(q===rendered||window.__fpAnalysisRunning)return;
+ window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
  const oldStatus=document.getElementById('fpPipelineStatus');if(oldStatus)oldStatus.remove();
  const runStatus=document.getElementById('fpRunStatus');if(runStatus)runStatus.remove();
  const box=document.getElementById('searchResults');
  if(box)box.innerHTML=q?'<div class="notice">Search changed. Run FinPilot to refresh evidence and analysis for <b>'+esc(q)+'</b>.</div>':'<div class="notice">Enter a query and run FinPilot. Previous results were cleared to avoid showing stale evidence.</div>';
  window.__lastSearch={query:q,results:[],provider:null,live:false};window.__lastMarketMatch=null;window.__fpLastRenderedQuery='';
+ const btn=document.getElementById('searchOneClick'),hero=document.getElementById('searchHeroRunAll');
+ if(btn)btn.disabled=false;if(hero)hero.disabled=false;
 }
 function openGoogleSearch(inputId){const el=document.getElementById(inputId);const q=String(el?.value||'').trim();if(!q){if(typeof toast==='function')toast('Enter a search query first');else alert('Enter a search query first');el?.focus();return;}const url='https://www.google.com/search?q='+encodeURIComponent(q);const opened=window.open(url,'_blank','noopener,noreferrer');if(!opened){window.location.href=url;}}
 function importGoogleEvidence(){
