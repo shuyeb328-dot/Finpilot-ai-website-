@@ -159,7 +159,8 @@
     const support=positive(market.recentLow)??positive(market.support)??computedSupport;
     const target=positive(money?.upsidePct)&&price!==null?price*(1+Number(money.upsidePct)/100):resistance;
     const stop=positive(money?.downsidePct)&&price!==null?price*(1-Number(money.downsidePct)/100):support;
-    const trend=price!==null&&s20!==null&&price>=s20&&(s50===null||price>=s50)?'BULLISH TREND':'DEFENSIVE / MIXED';
+    const baseTrend=price!==null&&s20!==null&&price>=s20&&(s50===null||price>=s50)?'BULLISH TREND':'DEFENSIVE / MIXED';
+    const trend=market.live===true?baseTrend:'HISTORICAL / DELAYED · '+baseTrend;
     return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:market.ticker||market.symbol||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf,market:String(market.market||candidate?.market||'').toUpperCase(),currency:String(market.currency||(String(market.market||'').toUpperCase()==='CRYPTO'?'USD':'INR')).toUpperCase()};
   }
   function chartSvg(a){
