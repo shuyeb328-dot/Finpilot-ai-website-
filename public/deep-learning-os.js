@@ -318,12 +318,12 @@ function forecastTrainingReport(){
  const forecasts=s.forecasts;
  const resolved=forecasts.filter(x=>x.forecastStatus==='RESOLVED');
  const uniqueEvents=new Set(resolved.map(x=>[x.ticker,x.dueAt,x.settlementSnapshotId||'NO_SETTLEMENT_ID'].join('|')));
- return {version:VERSION,mode:'OUTCOME_SUPERVISED_WALK_FORWARD',persistence:'BROWSER_LOCAL_STORAGE',persistentAcrossPageReloads:true,
+ return {version:VERSION,mode:'OUTCOME_SUPERVISED_WALK_FORWARD',persistence:'BROWSER_LOCAL_STORAGE',persistentAcrossPageReloads:true,maxForecastRecords:MAX_FORECASTS,
   foundationModelTraining:false,realMoneyExecution:false,horizonDays:FORECAST_HORIZON_DAYS,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,
   forecastCount:forecasts.length,resolvedForecasts:resolved.length,pendingForecasts:forecasts.filter(x=>x.forecastStatus==='PENDING_OUTCOME').length,
   uniqueSettledEvents:uniqueEvents.size,blockedForecastAttempts:s.blockedForecastAttempts,calibratedAgentCount:agentReports.filter(x=>x.probabilitiesCalibrated).length,
   lastForecastAttempt:s.lastForecastAttempt||null,minimumCalibrationOutcomes:MIN_CALIBRATION_OUTCOMES,agents:agentReports,
-  governance:{outcomeSource:'Fresh matching provider-timestamped snapshots only',baseline:'Prior resolved outcomes captured before each forecast (chronological walk-forward)',probabilityCalibrationRequires:'At least 100 resolved outcomes per agent, calibration ECE <= 8%, and lower Brier score than the walk-forward base-rate benchmark overall and on the latest 30 outcomes.',autoPromotion:false,weightMutationFromOutcomes:false,approvalRequiredForExecution:true,
+  governance:{outcomeSource:'Fresh matching provider-timestamped snapshots only',baseline:'Prior resolved outcomes captured before each forecast (chronological walk-forward)',probabilityCalibrationRequires:'At least 100 resolved outcomes per agent and market class, calibration ECE <= 8%, and lower Brier score than the walk-forward base-rate benchmark overall and on the latest 30 outcomes.',autoPromotion:false,weightMutationFromOutcomes:false,approvalRequiredForExecution:true,
    notes:'Forecast probabilities are rule-based and uncalibrated until each agent passes the measured validation conditions. Client/browser data is not treated as a verified price. Records live in this browser localStorage and are not cloud-persistent.'}};
 }
 function runFleet(state,context){
