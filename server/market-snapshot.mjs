@@ -146,7 +146,7 @@ export function buildMarketSnapshot(report, options = {}) {
       support: positive(report?.support ?? report?.recentLow),
       resistance: positive(report?.resistance ?? report?.recentHigh)
     },
-    candles: {interval: String(options.interval || report?.interval || '1h'), count: candles.length, rawCount: rawCandles.length, rejectedCount: Math.max(0, rawCandles.length - candles.length), rows: candles},
+    candles: {interval: String(report?.interval || options.interval || '1h'), count: candles.length, rawCount: rawCandles.length, rejectedCount: Math.max(0, rawCandles.length - candles.length), rows: candles},
     provenance: {
       provider,
       dataFreshness: String(report?.dataFreshness || (report?.live === true ? 'PROVIDER_MARKED_LIVE' : 'NON_LIVE_OR_UNKNOWN')),

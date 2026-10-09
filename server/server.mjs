@@ -10,6 +10,7 @@ import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
+import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
@@ -1157,7 +1158,13 @@ async function marketDataOS(req,res,u){
   await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
  }else{
-  await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'UNKNOWN_TIMESTAMP',live:Boolean(r.live),exchange:r.exchange};});
+  const liveQuoteOk=await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'UNKNOWN_TIMESTAMP',live:Boolean(r.live),exchange:r.exchange};});
+  if(!liveQuoteOk){
+   await addAttempt('TejHQ public EOD',async()=>{
+    const r=await fetchTejHqEod(raw,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
+    return {price:r.price,changePct:r.changePct,volume:r.volume,high:r.dayHigh,low:r.dayLow,asOf:r.asOf,timestampType:r.sourceTimestampType,live:false,exchange:r.exchange,dataFreshness:r.dataFreshness};
+   });
+  }
  }
  if(!quotes.length){
   return send(res,200,{ok:true,available:false,verified:false,ticker:raw,marketDataOS:{status:'UNAVAILABLE',decision:'DO_NOT_TRADE',reason:'No provider returned a verified price.',attempts},elapsedMs:Date.now()-started});
@@ -1183,7 +1190,7 @@ async function marketDataOS(req,res,u){
  const sourceReady=Boolean(winner.live!==false&&primaryTimestampValid&&timestampState[winnerIndex]?.fresh&&timestampsFresh&&quotes.every(x=>x.live!==false));
  const verified=Boolean(priceAgreement&&sourceReady);
  const status=verified?'VERIFIED':!priceAgreement?'CONFLICTING':!primaryTimestampValid?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':winner.live===false?'NON_LIVE_SOURCE':'UNVERIFIED_SOURCE';
- const selectedAsOf=winner.asOf||winner.observedAt||null;
+ const selectedAsOf=winner.asOf||(winner.timestampType==='OBSERVATION_TIMESTAMP'?winner.observedAt:null);
  const selectedTimestampType=winner.timestampType||'UNKNOWN_TIMESTAMP';
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&sourceAgeMs!==null&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&selectedTimestampType==='PROVIDER_TIMESTAMP');
@@ -1315,12 +1322,22 @@ async function stockReport(req,res,u){
    if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
    return send(res,200,payload);
   }catch(liveErr){
-   if(t==='SBC'){
-    const sourceReport={...SBC_SERVER,live:false,executionEligible:false,sourceTimestampType:'HISTORICAL_SNAPSHOT',provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'};
+   try{
+    const sourceReport=await fetchTejHqEod(t,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
     const report=gateMarketReport(sourceReport,t,interval);
-    return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate});
+    const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,
+      warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED',
+      dataDisclaimer:sourceReport.dataDisclaimer};
+    if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
+    return send(res,200,payload);
+   }catch(eodErr){
+    if(t==='SBC'){
+     const sourceReport={...SBC_SERVER,live:false,executionEligible:false,sourceTimestampType:'HISTORICAL_SNAPSHOT',provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'};
+     const report=gateMarketReport(sourceReport,t,interval);
+     return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate});
+    }
+    throw new Error('Live equity provider failed ('+String(liveErr?.message||liveErr)+'); TejHQ EOD fallback failed ('+String(eodErr?.message||eodErr)+')');
    }
-   throw liveErr;
   }
  }catch(e){
   if(t==='BTC'||t==='BTCUSDT'){
