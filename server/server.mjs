@@ -1272,9 +1272,11 @@ function gateMarketReport(report,ticker,interval,capturedAt=new Date().toISOStri
  const upstreamAllowed=report&&report.executionEligible!==false;
  const eligible=Boolean(upstreamAllowed&&snapshot.quality.forecastEligible);
  const reasons=[...snapshot.quality.reasons];
- if(report?.executionEligible===false)reasons.unshift('UPSTREAM_EXECUTION_GATE_BLOCKED');
+ const blockReason=report?.executionEligibilityReason||'UPSTREAM_EXECUTION_GATE_BLOCKED';
+ if(report?.executionEligible===false)reasons.unshift(blockReason);
+ const status=eligible?snapshot.quality.status:report?.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'?'UNTRUSTED_SOURCE':snapshot.quality.status==='VERIFIED_LIVE'?'UPSTREAM_BLOCKED':snapshot.quality.status;
  return {...(report||{}),executionEligible:eligible,executionGate:{
-  eligible,status:snapshot.quality.status,reasons,
+  eligible,status,reasons,
   sourceTimestampType:report?.sourceTimestampType||'UNKNOWN_TIMESTAMP',
   sourceAgeMs:snapshot.timing.ageMs,maxAgeMs:snapshot.timing.maxAgeMs,checkedAt:capturedAt
  }};
@@ -1295,9 +1297,16 @@ async function marketSnapshotRoute(req,res,u){
  const capturedAt=new Date().toISOString();
  const gatedReport=payload?.report?gateMarketReport(payload.report,ticker,interval,capturedAt):null;
  const snapshot=buildMarketSnapshot(gatedReport||null,{requestedTicker:ticker,interval,capturedAt,maxAgeMs:EXECUTION_FRESHNESS_MS});
+ const upstreamBlocked=gatedReport?.executionEligible===false;
+ const gateBlockReason=gatedReport?.executionEligibilityReason||'UPSTREAM_EXECUTION_GATE_BLOCKED';
+ if(upstreamBlocked){
+  snapshot.quality.forecastEligible=false;
+  if(gatedReport.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY')snapshot.quality.status='UNTRUSTED_SOURCE';
+  else if(snapshot.quality.status==='VERIFIED_LIVE')snapshot.quality.status='UPSTREAM_BLOCKED';
+  snapshot.quality.reasons=[gateBlockReason,...snapshot.quality.reasons.filter(x=>x!==gateBlockReason)];
+ }
  const eligible=Boolean(gatedReport?.executionEligible&&snapshot.quality.forecastEligible);
  const reasons=[...snapshot.quality.reasons];
- if(gatedReport?.executionEligible===false&&!reasons.includes('UPSTREAM_EXECUTION_GATE_BLOCKED'))reasons.unshift('UPSTREAM_EXECUTION_GATE_BLOCKED');
  const report=gatedReport?{...gatedReport,executionEligible:eligible,executionGate:{...gatedReport.executionGate,eligible,status:snapshot.quality.status,reasons}}:null;
  return send(res,200,{
   ok:Boolean(payload?.ok&&report),
