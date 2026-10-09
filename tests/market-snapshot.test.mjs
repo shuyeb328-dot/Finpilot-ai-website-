@@ -67,4 +67,8 @@ const unavailable=buildMarketSnapshot(null,{requestedTicker:'BTC',capturedAt});
 assert.equal(unavailable.quality.status,'UNAVAILABLE','missing provider data must not create a fabricated quote');
 assert.equal(unavailable.quality.forecastEligible,false,'unavailable market data must block forecast eligibility');
 
+const dailyReport={...validReport,interval:'1d',candles:validReport.candles.map((x,i)=>({...x,time:new Date(Date.parse(x.time||'2026-10-01T00:00:00Z')+i*86400000).toISOString()}))};
+const dailySnapshot=buildMarketSnapshot(dailyReport,{requestedTicker:'IRFC',interval:'1h',capturedAt:'2026-10-09T10:00:00Z'});
+assert.equal(dailySnapshot.requested.interval,'1h','preserve the user's requested interval for auditability');
+assert.equal(dailySnapshot.candles.interval,'1d','daily EOD fallback candles must not be relabelled as hourly candles');
 console.log('market-snapshot: 26 contract checks passed');
