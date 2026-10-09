@@ -76,6 +76,12 @@ assert.match(pageText, /provider:'user-provided',provenance:'USER_PROVIDED'/, 'm
 assert.match(pageText, /User-provided research — not independently verified/, 'manual evidence must be distinguished from fetched evidence');
 assert.match(pageText, /Publication date not verified/, 'manual import must not invent publication dates');
 assert.match(pageText, /if\(!manual\)state\.lastEvidenceSync=/, 'manual import must not pretend a web source was freshly synchronized');
+assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
+assert.match(pageText, /data-search-result-index=/, 'search result cards must be addressable for targeted retrieval updates');
+assert.match(pageText, /Article retrieval retry/, 'retry must use the safe backend retrieval endpoint rather than browser scraping');
+assert.match(pageText, /Publisher still blocks automated retrieval; original snippet retained/, 'failed retries must preserve the original search snippet and explain the limitation');
+assert.match(pageText, /retrievalStatus==='RETRIEVED'\?'ARTICLE RETRIEVED'/, 'successful retrieval must update the visible retrieval status');
+
 assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'health endpoint must have exactly one reachable route');
 assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
 assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must match the health endpoint version');

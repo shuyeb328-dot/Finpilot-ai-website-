@@ -718,6 +718,34 @@ async function retrieveTopSearchPages(results,searchSequence){
  if(searchSequence!==window.__fpSearchSequence)return enriched;
  return enriched;
 }
+async function retryResearchSource(index){
+ const snapshot=window.__lastSearch;
+ const item=snapshot?.results?.[index];
+ if(!item||!/^https:\/\//i.test(String(item.url||'')))return;
+ const card=document.querySelector('[data-search-result-index="'+Number(index)+'"]');
+ const retry=card?.querySelector('button[onclick^="retryResearchSource"]');
+ if(retry){retry.disabled=true;retry.textContent='Retrying…'}
+ try{
+  const fetched=await fpFetchJson('/api/research/fetch?url='+encodeURIComponent(item.url),{cache:'no-store',headers:{'Cache-Control':'no-cache'}},9000,'Article retrieval retry');
+  if(window.__lastSearch!==snapshot)return;
+  let updated;
+  if(fetched?.ok&&String(fetched.text||'').trim()){
+   updated={...item,articleTitle:fetched.title||item.title,articleUrl:fetched.canonicalUrl||fetched.finalUrl||item.url,canonicalUrl:fetched.canonicalUrl||fetched.finalUrl||item.url,retrievedText:String(fetched.text).slice(0,15000),publisherPublishedAt:fetched.publishedAt||item.publishedAt||null,pageFetchedAt:fetched.extractedAt||new Date().toISOString(),retrievalStatus:fetched.retrievalStatus||'RETRIEVED',retrievalCached:fetched.cached===true,retrievedContentLength:Number(fetched.textLength)||String(fetched.text).length,retrievalMessage:fetched.warning||null};
+  }else updated={...item,retrievalStatus:'UNAVAILABLE',retrievalMessage:fetched?.message||'Publisher still blocks automated retrieval; original snippet retained'};
+  snapshot.results[index]=updated;
+  ingestSearchEvidence(snapshot);
+  if(card){
+   const meta=card.querySelector('.resultMeta'),heading=card.querySelector('h3'),paragraph=card.querySelector('p'),bottom=card.querySelector('.resultBottom');
+   if(heading)heading.textContent=updated.articleTitle||updated.title||'Untitled result';
+   if(paragraph)paragraph.textContent=String(updated.retrievedText||updated.snippet||'No snippet available').slice(0,520);
+   if(meta){const badge=meta.querySelectorAll('.sourceBadge')[1];if(badge)badge.textContent=updated.retrievalStatus==='RETRIEVED'?'ARTICLE RETRIEVED':updated.retrievalStatus==='PARTIAL'?'PARTIAL TEXT':'LINK ONLY'}
+   if(bottom){const oldNote=bottom.querySelector('.retrievalOutcome');if(oldNote)oldNote.remove();const note=document.createElement('span');note.className='muted retrievalOutcome';note.textContent=updated.retrievalStatus==='RETRIEVED'?'Retrieved now · not fact-checked':updated.retrievalMessage||'Could not retrieve; snippet retained';bottom.appendChild(note);const b=bottom.querySelector('button[onclick^="retryResearchSource"]');if(b){b.disabled=updated.retrievalStatus!=='UNAVAILABLE';b.textContent=updated.retrievalStatus==='UNAVAILABLE'?'↻ Retry retrieval':'✓ Retrieved';}}
+  }
+  const count=snapshot.results.filter(x=>x?.retrievalStatus==='RETRIEVED').length;
+  const stat=document.querySelector('#searchResults .searchAnswer .answerStats span:nth-child(2) b');if(stat)stat.textContent=count+'/'+Math.min(2,snapshot.results.length);
+  if(updated.retrievalStatus==='RETRIEVED')toast('Article retrieved and added to the Evidence Ledger');else toast('Publisher could not be retrieved; search snippet retained');
+ }catch(error){if(retry){retry.disabled=false;retry.textContent='↻ Retry retrieval'}toast('Retrieval failed: '+String(error?.message||'network error').slice(0,100));}
+}
 async function doSearch(q){
  q=String(q||'').trim();if(!q)return;
  const searchSequence=window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
@@ -760,7 +788,8 @@ async function doSearch(q){
     const retrieval=x?.retrievalStatus==='RETRIEVED'?'<span class="sourceBadge">ARTICLE RETRIEVED</span>':x?.retrievalStatus==='PARTIAL'?'<span class="sourceBadge">PARTIAL TEXT</span>':x?.retrievalStatus==='UNAVAILABLE'?'<span class="sourceBadge">LINK ONLY</span>':'<span class="sourceBadge">SEARCH RESULT</span>';
     const retrievalNote=x?.retrievalStatus==='UNAVAILABLE'?'<span class="muted">'+esc(x.retrievalMessage||'Publisher could not be fetched')+'</span>':x?.retrievalStatus==='RETRIEVED'?'<span class="muted">'+(x.retrievalCached?'Retrieved from short cache':'Fetched from public page')+' · not fact-checked</span>':'<span class="muted">Search listing, not full article text</span>';
     const relevance=Math.max(55,Math.min(99,96-i*4));
-    return '<article class="searchResultCard"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span>'+retrieval+'<span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>'+retrievalNote+'<span class="muted">Evidence saved</span></div></div></article>';
+    const retry=x?.retrievalStatus==='UNAVAILABLE'&&/^https:\/\//i.test(String(x?.url||''))?'<button class="btn" type="button" onclick="retryResearchSource('+i+')" aria-label="Retry retrieving '+title+'">↻ Retry retrieval</button>':'';
+    return '<article class="searchResultCard" data-search-result-index="'+i+'"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span>'+retrieval+'<span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>'+retry+retrievalNote+'<span class="muted">Evidence saved</span></div></div></article>';
   }).join('');
   if(searchSequence!==window.__fpSearchSequence)return;
   window.__lastMarketMatch=marketMatch;
