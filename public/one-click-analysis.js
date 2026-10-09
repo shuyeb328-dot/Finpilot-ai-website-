@@ -163,31 +163,61 @@
     return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:market.ticker||market.symbol||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf,market:String(market.market||candidate?.market||'').toUpperCase(),currency:String(market.currency||(String(market.market||'').toUpperCase()==='CRYPTO'?'USD':'INR')).toUpperCase()};
   }
   function chartSvg(a){
-    if(!a?.available||!a?.realtimeAvailable){
-      const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\\.NS$/,'');
-      if(!ticker)return '<div class="notice">No verified ticker was resolved, so FinPilot will not invent a chart.</div>';
+    const validCandles=Array.isArray(a?.candles)?a.candles.filter(r=>{
+      if(!r)return false;
+      const o=Number(r.open),h=Number(r.high),l=Number(r.low),c=Number(r.close);
+      return [o,h,l,c].every(v=>Number.isFinite(v)&&v>0)&&h>=Math.max(o,c,l)&&l<=Math.min(o,c,h);
+    }):[];
+    // Prefer a local SVG from the returned candles, including EOD/delayed series.
+    // This avoids rendering an empty chart when the third-party widget is blocked.
+    if(validCandles.length<2){
+      const ticker=String(a?.ticker||'').toUpperCase().replace(/[^A-Z0-9._-]/g,'').replace(/\.(?:NS|BO)$/,'');
+      if(!ticker)return '<div class="notice">No chart series or verified symbol was returned. FinPilot will not invent candles.</div>';
       const crypto=String(a?.market||'').toUpperCase()==='CRYPTO';
       const tvSymbol=crypto?'BINANCE:'+ticker.replace(/USDT$/,'')+'USDT':'NSE:'+ticker;
       const marketLabel=crypto?'crypto spot':'stock';
-      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>Independent chart fallback:</b> FinPilot did not receive a verified intraday candle stream for this request. The official TradingView '+marketLabel+' chart is shown without fabricating candles. Verify the provider and quote timestamp before acting.</div><div class="tv-chart" data-tv-symbol="'+escLocal(tvSymbol)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">TradingView chart · verify quote freshness before acting.</div></div>';
+      return '<div class="tv-fallback-wrap"><div class="notice" style="margin-bottom:8px"><b>No local candle series available.</b> FinPilot is requesting the official TradingView '+marketLabel+' chart. Live forecast eligibility remains separately gated by quote freshness.</div><div class="tv-chart" data-tv-symbol="'+escLocal(tvSymbol)+'"></div><div class="muted" style="font-size:10px;margin-top:5px">External chart fallback · verify quote freshness before acting.</div></div>';
     }
-    const rows=a.candles,w=760,h=260,pad=28,vals=rows.flatMap(x=>[x.low,x.high]).concat([a.sma20,a.sma50,a.support,a.resistance]).filter(Number.isFinite);
-    let lo=Math.min(...vals),hi=Math.max(...vals);if(!(hi>lo)){lo-=1;hi+=1;}
-    const x=i=>pad+(w-2*pad)*(i/Math.max(1,rows.length-1)),y=v=>h-pad-(h-2*pad)*((v-lo)/(hi-lo));
-    const path=rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(r.close).toFixed(1)).join(' ');
-    const line=(v,dash)=>Number.isFinite(v)?'<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+y(v).toFixed(1)+'" y2="'+y(v).toFixed(1)+'" stroke="'+(dash?'#94a3b8':'#cbd5e1')+'" stroke-width="1" stroke-dasharray="'+(dash?'5 4':'2 3')+'"/><text x="'+(w-pad-2)+'" y="'+(y(v)-4).toFixed(1)+'" text-anchor="end" fill="#64748b" font-size="11">'+escLocal(Number(v).toFixed(2))+'</text>':'';
-    return '<div style="overflow:auto"><svg viewBox="0 0 '+w+' '+h+'" style="width:100%;min-width:620px;height:260px;background:#f8fafc;border-radius:10px" aria-label="Verified live technical price chart">'+line(a.support,true)+line(a.resistance,true)+'<path d="'+path+'" fill="none" stroke="#315efb" stroke-width="3"/>'+line(a.sma20,false)+line(a.sma50,false)+'</svg></div>';
+    const rows=validCandles.slice(-80),w=760,h=260,pad=28;
+    const vals=rows.flatMap(x=>[Number(x.low),Number(x.high)]).concat([a?.sma20,a?.sma50,a?.support,a?.resistance, a?.price]).map(Number).filter(v=>Number.isFinite(v)&&v>0);
+    let lo=Math.min(...vals),hi=Math.max(...vals);
+    if(!(hi>lo)){lo=Math.max(.00000001,lo*.99);hi=hi*1.01;}
+    const x=i=>pad+(w-2*pad)*(i/Math.max(1,rows.length-1));
+    const y=v=>h-pad-(h-2*pad)*((v-lo)/(hi-lo));
+    const path=rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(Number(r.close)).toFixed(1)).join(' ');
+    const line=(v,dash,label)=>Number.isFinite(Number(v))&&Number(v)>0?'<line x1="'+pad+'" x2="'+(w-pad)+'" y1="'+y(Number(v)).toFixed(1)+'" y2="'+y(Number(v)).toFixed(1)+'" stroke="'+(dash?'#94a3b8':'#cbd5e1')+'" stroke-width="1" stroke-dasharray="'+(dash?'5 4':'2 3')+'"/><text x="'+(w-pad-2)+'" y="'+(y(Number(v))-4).toFixed(1)+'" text-anchor="end" fill="#64748b" font-size="11">'+escLocal(label||Number(v).toFixed(2))+'</text>':'';
+    const live=a?.realtimeAvailable===true;
+    const asOf=escLocal(a?.asOf||'timestamp unavailable');
+    const chartLabel=live?'Verified live price series':'Historical / delayed price series';
+    return '<div style="overflow:auto"><div class="muted" style="font-size:11px;margin:2px 0 6px">'+chartLabel+' · Source time: '+asOf+'</div><svg viewBox="0 0 '+w+' '+h+'" style="width:100%;min-width:620px;height:260px;background:#f8fafc;border-radius:10px" role="img" aria-label="'+chartLabel+'">'+line(a?.support,true,'Support '+Number(a?.support).toFixed(2))+line(a?.resistance,true,'Resistance '+Number(a?.resistance).toFixed(2))+'<path d="'+path+'" fill="none" stroke="#315efb" stroke-width="3"/>'+line(a?.sma20,false,'SMA20 '+Number(a?.sma20).toFixed(2))+line(a?.sma50,false,'SMA50 '+Number(a?.sma50).toFixed(2))+'</svg></div>';
   }
   function mountTradingViewFallbacks(){
     document.querySelectorAll('.tv-chart[data-tv-symbol]').forEach(el=>{
-      if(el.dataset.mounted==='1')return;
+      if(el.dataset.mounted==='1'||el.dataset.mounted==='loading')return;
       const symbol=el.dataset.tvSymbol;
-      el.dataset.mounted='1';
+      el.dataset.mounted='loading';
       el.innerHTML='<div class="tradingview-widget-container" style="height:360px;width:100%;border-radius:10px;overflow:hidden;background:#fff"><div class="tradingview-widget-container__widget" style="height:328px;width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
+      const widget=el.firstElementChild;
+      const widgetBody=widget?.querySelector('.tradingview-widget-container__widget');
+      const showFallback=message=>{
+        if(el.dataset.mounted==='fallback')return;
+        el.dataset.mounted='fallback';
+        el.innerHTML='<div class="notice" role="status"><b>Interactive chart unavailable.</b> '+escLocal(message)+' The analysis still uses only the returned market data; no candles have been fabricated.</div><p><a href="https://www.tradingview.com/chart/'+ '?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
+      };
       const script=document.createElement('script');
-      script.type='text/javascript';script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';script.async=true;
+      script.type='text/javascript';
+      script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+      script.async=true;
       script.textContent=JSON.stringify({autosize:true,symbol,interval:'60',timezone:'exchange',theme:'light',style:'1',locale:'en',allow_symbol_change:true,calendar:false,withdateranges:true,hide_side_toolbar:true,hide_top_toolbar:false,hide_volume:false,save_image:false,support_host:'https://www.tradingview.com'});
-      el.firstElementChild.appendChild(script);
+      script.onerror=()=>showFallback('The TradingView script was blocked or failed to load.');
+      widget?.appendChild(script);
+      setTimeout(()=>{
+        if(el.dataset.mounted==='loading'&&!widgetBody?.querySelector('iframe')){
+          showFallback('The widget did not create a chart frame in time.');
+        }else if(el.dataset.mounted==='loading'){
+          el.dataset.mounted='1';
+        }
+      },12000);
     });
   }
   function publishEquitySnapshot(market){
@@ -265,10 +295,10 @@
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
-          <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'EOD + TV':'TV FALLBACK')}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'HISTORICAL SERIES':'EXTERNAL CHART')}</span></div>
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
-            <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">${chartPrice(report.chartAnalysis?.price)}</div></div>
+            <div class="card"><span class="muted">${report.marketForecastEligible===true&&scenarioQuoteValid?'Verified live price':(report.chartAnalysis?.realtimeAvailable?'Live quote · plan blocked':'Latest reported price · non-live/EOD')}</span><div class="metric">${chartPrice(report.chartAnalysis?.price)}</div></div>
             <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
             <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.sma20)} / ${chartPrice(report.chartAnalysis?.sma50)}</div></div>
             <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.support)} / ${chartPrice(report.chartAnalysis?.resistance)}</div></div>
