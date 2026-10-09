@@ -197,7 +197,7 @@ function calibrationMetrics(rows){
 function agentForecastMetrics(s,agent,market=null){
  const rows=s.forecasts.filter(x=>x.agent===agent&&(!market||x.market===market)&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
  const count=rows.length;
- if(!count)return {agent,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
+ if(!count)return {agent,market:market||null,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
  const briers=rows.map(x=>brierFor(x.probabilities,x.outcome)).filter(Number.isFinite);
  const baseline=rows.map(x=>brierFor(x.baselineProbabilities,x.outcome)).filter(Number.isFinite);
  const losses=rows.map(x=>logLossFor(x.probabilities,x.outcome)).filter(Number.isFinite);
@@ -215,7 +215,7 @@ function agentForecastMetrics(s,agent,market=null){
  if(count>=MIN_CALIBRATION_OUTCOMES){
   calibrationStatus=calibrated?'PROBABILITIES_CALIBRATED':cm.ece!==null&&cm.ece>.08?'CALIBRATION_ERROR_TOO_HIGH':'NOT_BEATING_WALK_FORWARD_BASELINE';
  }
- return {agent,count,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,
+ return {agent,market:market||null,count,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,
   brier:brier===null?null:+brier.toFixed(5),baselineBrier:baselineBrier===null?null:+baselineBrier.toFixed(5),
   logLoss:avg(losses)===null?null:+avg(losses).toFixed(5),topClassAccuracy:+(top*100).toFixed(2),
   calibrationError:cm.ece===null?null:+(cm.ece*100).toFixed(2),calibrationBins:cm.bins,
@@ -304,7 +304,7 @@ function forecastTrainingReport(){
  const agentReports=AGENTS.map(agent=>{
   const latest=s.forecasts.find(x=>x.agent===agent)||null;
   const stats=agentForecastMetrics(s,agent,latest?.market||null);
-  return {...stats,latestForecast:latest?{ticker:latest.ticker,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
+  return {...stats,latestForecast:latest?{ticker:latest.ticker,market:latest.market,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
  });
  const forecasts=s.forecasts;
  const resolved=forecasts.filter(x=>x.forecastStatus==='RESOLVED');
