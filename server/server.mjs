@@ -246,7 +246,7 @@ async function search(req,res,u){
   return send(res,200,{ok:true,query:q,...d,...archive});
  }catch(e){
   const google=`https://www.google.com/search?q=${encodeURIComponent(q)}`;
-  return send(res,502,{ok:false,error:e.code||'SEARCH_PROVIDER_UNAVAILABLE',query:q,provider:null,results:[],externalUrl:google,message:e.message||'Search provider unavailable.',live:false});
+  return send(res,200,{ok:true,query:q,provider:'google-search-bridge',results:[],externalUrl:google,fallback:'GOOGLE_SEARCH_BRIDGE',warning:e.code||'SEARCH_PROVIDER_UNAVAILABLE',message:'Free news search could not return results for this request. Open Google Search to continue; results opened there are not automatically imported into FinPilot.',live:false,cached:false,freshness:'FALLBACK'});
  }
 }
 

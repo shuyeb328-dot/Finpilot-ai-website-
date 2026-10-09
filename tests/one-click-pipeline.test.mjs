@@ -50,6 +50,10 @@ assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback 
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
 assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.match(serverText, /provider:'google-search-bridge',results:\[\],externalUrl:google/, 'free search failures should return a usable external Google Search fallback instead of HTTP 502');
+assert.match(serverText, /fallback:'GOOGLE_SEARCH_BRIDGE'/, 'the search API must label its Google fallback explicitly');
+assert.match(pageText, /d\.fallback==='GOOGLE_SEARCH_BRIDGE'/, 'search UI must show the friendly fallback message');
+assert.match(pageText, /Open current results/, 'empty or unavailable web search must retain an external search link');
 assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'health endpoint must have exactly one reachable route');
 assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
 assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must match the health endpoint version');
