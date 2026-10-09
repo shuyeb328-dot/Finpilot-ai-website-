@@ -177,4 +177,8 @@ assert.match(moduleText, /sourceRole:discovery\.sourceRole/, 'supplemental resul
 assert.match(moduleText, /quoteEligible:false/, 'supplemental search results must never become market quotes');
 assert.match(moduleText, /window\.__lastSearch=search/, 'merged evidence should remain tied to the current query');
 
+assert.match(moduleText, /\/api\/research\/fetch\?url=/, 'task-specific discovery should retrieve at most one public source page');
+assert.match(moduleText, /Task-specific source page retrieval/, 'supplemental page retrieval must have an explicit bounded request label');
+assert.match(moduleText, /retrievalStatus:discovery\.pageRetrieval\?\.status/, 'retrieval status should be preserved in the analysis provenance');
+
 console.log('one-click-pipeline: contract checks passed');
