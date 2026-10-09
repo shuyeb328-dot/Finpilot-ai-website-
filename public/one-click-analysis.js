@@ -65,7 +65,7 @@
     }
     el.style.display='block';
     el.dataset.state=mode;
-    const heading=mode==='complete'?'Analysis complete':mode==='error'?'Analysis stopped':mode==='busy'?'Analysis already running':'FinPilot analysis';
+    const heading=mode==='complete'?'Analysis complete':mode==='warning'?'Analysis needs verification':mode==='error'?'Analysis stopped':mode==='busy'?'Analysis already running':'FinPilot analysis';
     el.innerHTML='<b>'+escLocal(heading)+'</b><div style="margin-top:4px">'+escLocal(message)+'</div>';
     const top=document.getElementById('fpRunStatus');
     if(top)top.innerHTML='<b>'+escLocal(heading)+'</b><br><span>'+escLocal(message)+'</span>';
@@ -667,10 +667,19 @@
         setTimeout(mountTradingViewFallbacks,60);
       }
 
-      stage('6/6 · Complete. Review source freshness and risk gates before acting.');
+      stage('6/6 · Review source freshness and risk gates before acting.');
+      const dataNeedsVerification=Boolean(
+        searchWarning ||
+        !marketReport ||
+        marketReport?.quality?.forecastEligible===false ||
+        marketSnapshot?.quality?.forecastEligible===false ||
+        /INCOMPLETE|UNAVAILABLE|STALE|BLOCKED/i.test(String(marketReport?.dataStatus||marketReport?.quality?.status||marketSnapshot?.quality?.status||''))
+      );
       updateAnalysisStatus(
-        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' Query: '+query,
-        'complete'
+        (dataNeedsVerification
+          ? 'Analysis stages finished, but verification is required. '+(searchWarning?'Provider warning: '+searchWarning+' ':'')+'Check quote freshness and candle completeness before acting.'
+          : 'All available stages finished. Verify source freshness and risk gates before acting.')+' Query: '+query,
+        dataNeedsVerification?'warning':'complete'
       );
       window.__fpLastRenderedQuery=query;
       toast((searchWarning?'Completed with warning · ':'')+'analysis complete · verify data freshness');
