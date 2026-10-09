@@ -516,9 +516,13 @@
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
-      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL|CANDIDATES|MARKET)\b/i.test(query);
+      const broadRequest=/\b(BEST|TOP|PICK|CANDIDATES|TODAY|MARKET SCAN)\b/i.test(query)
+        && !/^(?:[A-Z][A-Z0-9]{0,5})(?:\.(?:NS|BO))?$/i.test(String(query).trim());
 
-      if(!candidate&&broadRequest){
+      // For generic "pick the best stock today" prompts, web snippets may mention
+      // an unrelated index first. Prefer the dedicated market-picks endpoint, but
+      // label its output as a candidate until fresh quote/candle checks pass.
+      if(broadRequest){
         try{
           const picks=await fetchJsonBounded('/api/market-picks?limit=5',{cache:'no-store'},10000,'Market scan');
           const top=picks?.candidates?.[0];
@@ -535,6 +539,8 @@
               reason:'Top-ranked candidate in FinPilot’s available market scan (score '+Number(top.score||0)+'/100; reported session move '+Number(top.changePct||0).toFixed(2)+'%). This is not proof it is the best trade today.',
               disclaimer:picks.disclaimer||'Market-scan candidate; verify current broker/exchange data.'
             };
+          }else if(!candidate){
+            searchWarning=searchWarning||'Market scan returned no candidates; no stock can be selected safely.';
           }
         }catch(e){
           searchWarning=searchWarning||String(e?.message||'Market scan unavailable');
