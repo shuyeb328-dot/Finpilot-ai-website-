@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const S=['BTC','ETH','SOL','BNB','XRP'],st={ticker:'BTC',ticks:[]};
-let fallbackTimer=null;
+let fallbackTimer=null,streamOpen=false,fallbackBusy=false;
 const $=id=>document.getElementById(id);
 const money=v=>v==null||!isFinite(v)?'—':'$'+Number(v).toLocaleString(undefined,{maximumFractionDigits:Number(v)<10?4:2});
 const pct=v=>v==null?'—':(v>=0?'+':'')+Number(v).toFixed(2)+'%';
@@ -29,16 +29,18 @@ function start(t){
  st.ticker=S.includes(t)?t:'BTC';
  if(window.fpES)try{window.fpES.close()}catch{}
  window.fpES=null;
+ streamOpen=false;
  stopFallback();
  panel();
  window.fpES=new EventSource('/api/market-data-stream?ticker='+encodeURIComponent(st.ticker)+'&interval=1m');
+ window.fpES.addEventListener('open',()=>{streamOpen=true;stopFallback();});
  window.fpES.addEventListener('market',ev=>{
+  streamOpen=true;stopFallback();
   try{
    const d=JSON.parse(ev.data);
    const live=Boolean(d.verified&&d.status==='LIVE'&&Number.isFinite(Number(d.price))&&Number(d.price)>0);
    if(live){
-    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:false});
-    fetch('/api/market-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,live:true})}).catch(()=>{});
+    draw({ticker:d.ticker,price:d.price,changePct:d.changePct,high:d.high,low:d.low,source:d.provider||'Verified market provider',time:d.asOf||d.receivedAt,live:true,cloudStored:Boolean(d.cloudStored)});
    }else{
     const n=$('liveMarketStatus');if(n)n.textContent=d.status==='STALE'?'STALE · ANALYSIS ONLY':'DATA UNAVAILABLE';
     const f=$('liveMarketFresh');if(f)f.textContent=d.status==='STALE'?'STALE':'UNAVAILABLE';
@@ -49,11 +51,17 @@ function start(t){
   }
  });
  window.fpES.onerror=()=>{
+  streamOpen=false;
   const n=$('liveMarketStatus');if(n)n.textContent='RECONNECTING';
   startFallback();
  };
 }
+function dashboardActive(){return !!document.querySelector('#dashboard.view.active')}
 async function fallbackPoll(){
+ fallbackTimer=null;
+ if(streamOpen||!dashboardActive())return;
+ if(fallbackBusy)return;
+ fallbackBusy=true;
  try{
   const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(st.ticker)+'&interval=1h&multi=0',{cache:'no-store'});
   const d=await r.json();
@@ -69,19 +77,23 @@ async function fallbackPoll(){
    }
   }
  }catch{}
- clearTimeout(fallbackTimer);
- fallbackTimer=setTimeout(fallbackPoll,12000);
+ finally{
+  fallbackBusy=false;
+  if(!streamOpen&&dashboardActive()&&fallbackTimer===null)fallbackTimer=setTimeout(fallbackPoll,12000);
+ }
 }
-function startFallback(){if(fallbackTimer===null)fallbackPoll()}
+function startFallback(){if(fallbackTimer===null&&!streamOpen&&!fallbackBusy)fallbackTimer=setTimeout(fallbackPoll,0)}
 function stopFallback(){if(fallbackTimer!==null){clearTimeout(fallbackTimer);fallbackTimer=null}}
 function ensure(){
  const active=!!document.querySelector('#dashboard.view.active');
  if(active){
   panel();
   if(!window.fpES)start(st.ticker);
-  else startFallback();
+  else if(!streamOpen)startFallback();
+  else stopFallback();
  }else{
   if(window.fpES){try{window.fpES.close()}catch{};window.fpES=null}
+  streamOpen=false;
   stopFallback();
  }
 }
