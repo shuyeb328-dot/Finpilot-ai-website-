@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-5/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-6/, 'rebuilt one-click module must use a new asset version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
@@ -229,8 +229,8 @@ assert.match(moduleText, /SPECIALIST_FLEET_INCOMPLETE/, 'an empty or partial spe
 assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/, 'fleet execution must require a meaningful number of specialist outputs');
 assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
 assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
-assert.match(pageText, /deep-learning-os\.js\?v=20261010-5/, 'the page must cache-bust the specialist module version');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-5/, 'the page must reference the updated analysis module version');
+assert.match(pageText, /deep-learning-os\.js\?v=20261010-6/, 'the page must cache-bust the specialist module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-6/, 'the page must reference the updated analysis module version');
 
 
 assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
