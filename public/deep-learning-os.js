@@ -235,7 +235,7 @@ function settleDueForecasts(s,snapshot,nowMs=Date.now()){
   if(!Number.isFinite(due)||asOf<due||!Number.isFinite(reference)||reference<=0)continue;
   const returnPct=(currentPrice/reference-1)*100;
   const outcome=outcomeForReturn(returnPct,Number(row.moveThresholdPct)||FORECAST_MOVE_THRESHOLD_PCT);
-  row.forecastStatus='RESOLVED';row.outcome=outcome;row.actualReturnPct:+returnPct.toFixed(5);
+  row.forecastStatus='RESOLVED';row.outcome=outcome;row.actualReturnPct=+returnPct.toFixed(5);
   row.settlementPrice=currentPrice;row.settlementAsOf=new Date(asOf).toISOString();
   row.settlementSnapshotId=snapshot.snapshotId||null;row.resolvedAt=new Date(nowMs).toISOString();
   row.brierScore=brierFor(row.probabilities,outcome);row.logLoss=logLossFor(row.probabilities,outcome);
