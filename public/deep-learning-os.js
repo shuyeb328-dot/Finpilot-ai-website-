@@ -205,7 +205,7 @@ function calibrationMetrics(rows){
 function agentForecastMetrics(s,agent,market=null){
  const rows=s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
  const count=rows.length;
- if(!count)return {agent,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
+ if(!count)return {agent,marketClass:market?marketClassOf(market):null,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
  const briers=rows.map(x=>brierFor(x.probabilities,x.outcome)).filter(Number.isFinite);
  const baseline=rows.map(x=>brierFor(x.baselineProbabilities,x.outcome)).filter(Number.isFinite);
  const losses=rows.map(x=>logLossFor(x.probabilities,x.outcome)).filter(Number.isFinite);
@@ -223,7 +223,7 @@ function agentForecastMetrics(s,agent,market=null){
  if(count>=MIN_CALIBRATION_OUTCOMES){
   calibrationStatus=calibrated?'PROBABILITIES_CALIBRATED':cm.ece!==null&&cm.ece>.08?'CALIBRATION_ERROR_TOO_HIGH':'NOT_BEATING_WALK_FORWARD_BASELINE';
  }
- return {agent,count,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,
+ return {agent,marketClass:market?marketClassOf(market):null,count,pending:s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='PENDING_OUTCOME').length,
   brier:brier===null?null:+brier.toFixed(5),baselineBrier:baselineBrier===null?null:+baselineBrier.toFixed(5),
   logLoss:avg(losses)===null?null:+avg(losses).toFixed(5),topClassAccuracy:+(top*100).toFixed(2),
   calibrationError:cm.ece===null?null:+(cm.ece*100).toFixed(2),calibrationBins:cm.bins,
@@ -238,6 +238,11 @@ function settleDueForecasts(s,snapshot,nowMs=Date.now()){
  let resolved=0;
  for(const row of s.forecasts){
   if(row.forecastStatus!=='PENDING_OUTCOME'||normalizeTicker(row.ticker)!==ticker)continue;
+  const settleMarket=String(snapshot.instrument?.market||'UNKNOWN');
+  const settleCurrency=String(snapshot.instrument?.currency||'UNKNOWN').toUpperCase();
+  const settleExchange=String(snapshot.instrument?.exchange||'UNKNOWN').toUpperCase();
+  if(String(row.market||'UNKNOWN')!==settleMarket||String(row.currency||'UNKNOWN').toUpperCase()!==settleCurrency)continue;
+  if(String(row.exchange||'UNKNOWN').toUpperCase()!=='UNKNOWN'&&settleExchange!=='UNKNOWN'&&String(row.exchange).toUpperCase()!==settleExchange)continue;
   const due=Date.parse(row.dueAt||'');
   const reference=Number(row.referencePrice);
   if(!Number.isFinite(due)||asOf<due||!Number.isFinite(reference)||reference<=0)continue;
@@ -283,7 +288,7 @@ function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.
  const metrics=agentForecastMetrics(s,agentName,marketClass);
  return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),agent:agentName,ticker,market,marketClass,
   snapshotId:snapshot.snapshotId||null,createdAt,dueAt,horizonDays:horizon,referencePrice:Number(snapshot.quote.price),quoteAsOf:snapshot.timing.sourceAsOf,
-  forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,probabilities:normalized,rawProbabilities:raw,
+  forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,currency:String(snapshot.instrument?.currency||'UNKNOWN'),exchange:String(snapshot.instrument?.exchange||'UNKNOWN'),probabilities:normalized,rawProbabilities:raw,
   baselineProbabilities,priorResolvedSampleCount:sampleCount,shrinkageWeight:+shrinkageWeight.toFixed(4),
   forecastMethod:'ROLE_WEIGHTED_RULE_BASELINE_V1',probabilitiesCalibrated:metrics.probabilitiesCalibrated,calibrationStatus:metrics.calibrationStatus,
   forecastStatus:'PENDING_OUTCOME'};
