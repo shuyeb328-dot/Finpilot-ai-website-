@@ -55,6 +55,8 @@ function resolveTaskType(q,assetClass){
  return 'GENERAL_RESEARCH';
 }
 function inferInstrument(q){
+ const cryptoPair=String(q||'').toUpperCase().match(/\b([A-Z0-9]{2,15})\s*[/-]\s*(USDT|USDC|USD|EUR|BTC|ETH)\b/);
+ if(cryptoPair)return {queryToken:cryptoPair[1]+'/'+cryptoPair[2],explicitSymbol:true,confidence:'MEDIUM'};
  const raw=q.match(/\b[A-Z]{1,6}(?:\.(?:NS|BO|L|TO|AX|DE|PA|HK|T|SW))?\b/g)||[];
  const stop=new Set(['I','A','AI','CEO','CFO','RSI','SMA','EMA','USD','INR','USDT','BTC','ETH','NSE','BSE','NYSE','NASDAQ','ETF','FNO','PE','CE','BUY','SELL','LIVE','TODAY','BEST','TOP','AND','THE','FOR','WITH','FROM']);
  const symbol=raw.find(x=>!stop.has(x)&&(/[.]/.test(x)||x.length>=2));
@@ -68,5 +70,41 @@ export function planFinancialTask(input={}){
  const instrument=inferInstrument(query),needsQuote=['TRADE_SCENARIO','MARKET_DATA_ANALYSIS','FORECAST','DERIVATIVES_ANALYSIS'].includes(taskType);
  const requiredData=needsQuote?(assetClass==='OPTIONS'||assetClass==='FUTURES'?['instrument_identity','contract_specification','fresh_underlying_quote','fresh_contract_quote','provider_timestamp','currency','liquidity']:['instrument_identity','fresh_quote','provider_timestamp','currency','market_status']):taskType==='NEWS_OR_FUNDAMENTAL_RESEARCH'?['issuer_or_regulator_document','publication_date','source_url']:['query_relevant_sources','source_url','publication_date_when_available'];
  return {schemaVersion:1,query,taskType,assetClass,instrument,sourcePlan:sources.map((x,i)=>({...x,priority:i+1})),discoveryQuery:query,needsQuote,requiredData,rules:['Search results discover sources; they are not structured quotes.','Never replace an explicitly requested instrument with a different one.','Binance is a crypto-only source, never the sole source for equities or general finance.','Preserve source timestamp, retrieval timestamp, currency, exchange and provider provenance.','Mark delayed or historical observations accurately; never label local observation time as provider quote time.','If sources disagree materially or required data is missing, report the conflict and block market-dependent forecasts.'],forecastPolicy:needsQuote?'REQUIRE_VALIDATED_MARKET_DATA':'RESEARCH_ONLY',liveStatus:'NOT_FETCHED',disclaimer:'Routing plan only; no quote is fetched or certified live.'};
+}
+export function buildSupplementalDiscovery(input={}) {
+ const plan = input && input.schemaVersion === 1 && input.assetClass
+  ? input
+  : planFinancialTask(input);
+ const query = cleanQuery(plan.query);
+ const focus = cleanQuery(plan.instrument?.queryToken || query).slice(0,220);
+ const hints = {
+  INDIAN_EQUITY:'NSE BSE official exchange company announcements results filings',
+  INDIAN_INDEX:'NSE BSE official index exchange market update',
+  GLOBAL_EQUITY:'issuer investor relations SEC filings earnings results',
+  GLOBAL_INDEX:'official exchange index methodology market update',
+  CRYPTO:'crypto exchange market update Coinbase Kraken Binance',
+  OPTIONS:'NSE option chain expiry contract specifications lot size',
+  FUTURES:'NSE futures contract expiry lot size official exchange',
+  FOREX:'official central bank reference rate exchange update',
+  COMMODITY:'official exchange commodity contract report',
+  REAL_ESTATE:'official property registry regulator transaction market report',
+  FINANCIAL_RESEARCH:'official filing regulator investor relations primary source',
+  GENERAL_FINANCE:'official regulator primary source investor education'
+ };
+ const queryText=(focus+' '+(hints[plan.assetClass]||hints.GENERAL_FINANCE)).replace(/[ \t\r\n]+/g,' ').trim().slice(0,300);
+ return {
+  schemaVersion:1,
+  originalQuery:query,
+  query:queryText,
+  sourceRole:'TASK_SPECIFIC_DISCOVERY',
+  evidenceType:'HEADLINES_OR_DOCUMENT_DISCOVERY',
+  assetClass:plan.assetClass,
+  taskType:plan.taskType,
+  preferredSourceFamilies:plan.sourcePlan.map(source=>source.id),
+  discoveryOnly:true,
+  quoteEligible:false,
+  executionEligible:false,
+  disclaimer:'Supplemental search discovers headlines and documents only. It is not a live price feed and cannot unlock a market forecast or paper order.'
+ };
 }
 export function getSourceCatalog(){return SOURCE_CATALOG.map(x=>({...x,assetClasses:[...x.assetClasses],dataTypes:[...x.dataTypes]}));}

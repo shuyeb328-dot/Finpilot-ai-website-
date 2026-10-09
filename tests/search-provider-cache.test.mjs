@@ -78,6 +78,15 @@ try{
   const afterBilling=await searchWeb('FinPilot free fallback after billing error',{count:3});
   assert.equal(afterBilling.provider,'google-news-rss');
   assert.equal(fetchCalls,2,'a billing error should stop paid retries but still allow one free RSS fallback');
+  // Task-specific supplemental discovery must remain free-only even when paid fallback is enabled.
+  emptyMode=false;
+  fetchCalls=0;
+  process.env.SEARCH_PROVIDER='exa';
+  process.env.EXA_API_KEY='test-metered-key';
+  process.env.SEARCH_ALLOW_PAID_FALLBACK='true';
+  const explicitlyFree=await searchWeb('FinPilot explicit free-only supplemental discovery',{count:4,freeOnly:true,forceRefresh:true});
+  assert.equal(explicitlyFree.provider,'google-news-rss','freeOnly must override the configured metered provider');
+  assert.equal(fetchCalls,1,'freeOnly must not call metered providers');
   console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard, billing-error free fallback');
 }finally{
   globalThis.fetch=originalFetch;
