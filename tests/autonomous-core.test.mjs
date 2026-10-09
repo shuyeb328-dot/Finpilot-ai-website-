@@ -60,10 +60,14 @@ for(const action of ['place_order','move_money','disable_security','self_modify_
 assert.equal(evaluateSecurityRequest({action:'run_health_check'}).allowed,true);
 assert.equal(evaluateSecurityRequest({action:'unknown-action'}).allowed,false);
 const eligibleShadow=evaluateShadowCandidate({candidateId:'shadow-v2',baselineScore:70,candidateScore:75,samples:25,testsPassed:true,riskRegression:false,evidence:['Held-out test set','No safety regression']});
-assert.equal(eligibleShadow.status,'SHADOW_ELIGIBLE_NOT_PROMOTED');
+assert.equal(eligibleShadow.status,'CLAIMED_THRESHOLDS_MET_UNVERIFIED');
 assert.equal(eligibleShadow.automaticPromotion,false);
 assert.equal(eligibleShadow.productionMutation,false);
 assert.equal(eligibleShadow.financialExecution,false);
+assert.equal(eligibleShadow.isolatedExecutionPerformed,false);
+assert.equal(eligibleShadow.metricsVerified,false);
+assert.equal(eligibleShadow.validationMode,'CALLER_SUPPLIED_METADATA_ONLY');
+assert.match(eligibleShadow.message,/not proof of a successful shadow run/);
 const underSampled=evaluateShadowCandidate({candidateId:'shadow-v3',baselineScore:70,candidateScore:90,samples:4,testsPassed:true,evidence:['small test']});
 assert.ok(underSampled.blockers.includes('INSUFFICIENT_SHADOW_SAMPLES'));
 const riskRegression=evaluateShadowCandidate({candidateId:'shadow-v4',baselineScore:70,candidateScore:90,samples:100,testsPassed:true,riskRegression:true,evidence:['benchmark']});
