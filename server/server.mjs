@@ -10,6 +10,7 @@ import {init as initAutonomousLearning, status as autonomousLearningStatus, queu
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
+import {createProviderResponseCache} from './provider-response-cache.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -18,6 +19,9 @@ async function storeMarketTick(x){try{if(!(await ensureMarketSchema()))return fa
 async function marketHistory(req,res,u){try{if(!(await ensureMarketSchema()))return send(res,200,{ok:true,cloud:false,rows:[],message:'Cloud archive adapter ready; connect DATABASE_URL on Render.'});const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();const limit=Math.min(500,Math.max(10,Number(u.searchParams.get('limit')||100)));const q=await MARKET_POOL.query('SELECT ticker,symbol,price,change_pct AS "changePct",volume,high,low,source,observed_at AS time FROM market_ticks WHERE ticker=$1 ORDER BY observed_at DESC LIMIT $2',[ticker,limit]);return send(res,200,{ok:true,cloud:true,ticker,rows:q.rows});}catch(e){return send(res,200,{ok:true,cloud:false,rows:[],error:e.message});}}
 
 
+const providerCacheTtl=Number(process.env.FINPILOT_PROVIDER_CACHE_TTL_MS);
+const PROVIDER_RESPONSE_CACHE_TTL_MS=Number.isFinite(providerCacheTtl)?Math.max(1000,Math.min(15000,providerCacheTtl)):5000;
+const PROVIDER_RESPONSE_CACHE=createProviderResponseCache({ttlMs:PROVIDER_RESPONSE_CACHE_TTL_MS,maxEntries:300});
 const PORT=Number(process.env.PORT||8787);
 const HOST=process.env.HOST||'0.0.0.0';
 const ROOT=path.resolve(new URL('../public/', import.meta.url).pathname);
@@ -289,9 +293,11 @@ async function decisionStream(req,res,u){
 }
 
 async function fetchJson(url){
- const r=await resilientFetch(url,'binance');
- if(!r.ok) throw new Error(`provider ${r.status}`);
- return r.json();
+ return PROVIDER_RESPONSE_CACHE.get(url,async()=>{
+  const r=await resilientFetch(url,'binance');
+  if(!r.ok)throw new Error(`provider ${r.status}`);
+  return r.json();
+ });
 }
 function sma(a,n){return a.length<n?null:a.slice(-n).reduce((x,y)=>x+y,0)/n}
 function ema(a,n){if(a.length<n)return null;let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n,k=2/(n+1);for(let i=n;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
@@ -300,13 +306,15 @@ function atr(rows,n=14){if(rows.length<n+1)return null;const tr=[];for(let i=1;i
 const CRYPTO_ASSETS={BTC:'BTCUSDT',BTCUSDT:'BTCUSDT',ETH:'ETHUSDT',ETHUSDT:'ETHUSDT',SOL:'SOLUSDT',SOLUSDT:'SOLUSDT',BNB:'BNBUSDT',BNBUSDT:'BNBUSDT',XRP:'XRPUSDT',XRPUSDT:'XRPUSDT',DOGE:'DOGEUSDT',DOGEUSDT:'DOGEUSDT',ADA:'ADAUSDT',ADAUSDT:'ADAUSDT',AVAX:'AVAXUSDT',AVAXUSDT:'AVAXUSDT',LINK:'LINKUSDT',LINKUSDT:'LINKUSDT'};
 const TIMEFRAMES={'15m':'15m','1h':'1h','4h':'4h','1d':'1d'};
 async function directProviderJson(url,source='provider',timeoutMs=8000){
- const started=Date.now();
- try{
-  const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
-  if(!r.ok)throw new Error(`HTTP_${r.status}`);
-  qualityUpdate(source,true,Date.now()-started);
-  return await r.json();
- }catch(e){qualityUpdate(source,false,Date.now()-started,e.message);throw e;}
+ return PROVIDER_RESPONSE_CACHE.get(url,async()=>{
+  const started=Date.now();
+  try{
+   const r=await Promise.race([fetch(url,{headers:{'User-Agent':'FinPilot/8.5 market-data adapter'}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('PROVIDER_TIMEOUT')),timeoutMs))]);
+   if(!r.ok)throw new Error(`HTTP_${r.status}`);
+   qualityUpdate(source,true,Date.now()-started);
+   return await r.json();
+  }catch(e){qualityUpdate(source,false,Date.now()-started,e.message);throw e;}
+ });
 }
 async function liveCrypto(t, interval='1h', multi=true){
  const key=t.toUpperCase(), symbol=CRYPTO_ASSETS[key];
