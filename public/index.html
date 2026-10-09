@@ -747,7 +747,8 @@ async function retryResearchSource(index){
  }catch(error){if(retry){retry.disabled=false;retry.textContent='↻ Retry retrieval'}toast('Retrieval failed: '+String(error?.message||'network error').slice(0,100));}
 }
 function refreshCurrentSearch(){
- const input=document.getElementById('searchQuery')||document.getElementById('globalSearch');
+ const searchViewActive=Boolean(document.getElementById('search')?.classList.contains('active'));
+ const input=searchViewActive?document.getElementById('searchQuery'):document.getElementById('globalSearch');
  const q=String(input?.value||window.__lastSearch?.query||'').trim();
  if(!q){toast('Enter a query before refreshing search');input?.focus();return;}
  toast('Refreshing free search sources; cached results will be bypassed');
