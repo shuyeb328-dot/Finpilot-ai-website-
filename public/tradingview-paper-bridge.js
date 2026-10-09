@@ -1,0 +1,62 @@
+/* TradingView companion for FinPilot's simulated trading workspace.
+   Charts are display-only: the widget does not expose a quote feed or place orders. */
+(function(){
+  'use strict';
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function normalizeSymbol(value){
+    const raw=String(value||'').trim().toUpperCase().replace(/\s+/g,'');
+    if(!/^[A-Z0-9._:-]{1,24}$/.test(raw))return '';
+    return raw;
+  }
+  function tvSymbol(value,market){
+    const s=normalizeSymbol(value);if(!s)return '';
+    const m=String(market||'AUTO').toUpperCase();
+    if(s.includes(':'))return s;
+    if(m==='CRYPTO'||(/USDT$/.test(s)))return 'BINANCE:'+(s.endsWith('USDT')?s:s+'USDT');
+    if(m==='INDIA'||m==='NSE')return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
+    if(m==='US')return 'NASDAQ:'+s;
+    if(/\.(NS|BO)$/.test(s))return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
+    return 'NASDAQ:'+s;
+  }
+  function widgetUrl(symbol){
+    const s=tvSymbol(symbol,'AUTO');
+    return s?'https://www.tradingview.com/chart/?symbol='+encodeURIComponent(s):'';
+  }
+  function mount(){
+    const host=document.getElementById('paperlab');
+    if(!host||host.dataset.fpTvBridgeMounted==='1')return;
+    host.dataset.fpTvBridgeMounted='1';
+    const section=document.createElement('section');
+    section.id='fpTradingViewBridge';section.className='card';section.style.cssText='margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)';
+    section.innerHTML='<div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap"><div><div class="eyebrow">Market chart companion</div><h3 style="margin:5px 0">TradingView + Paper Arena</h3><p class="muted" style="margin:0;line-height:1.5">Inspect a chart, then send the symbol to FinPilot analysis. Paper orders still require a verified FinPilot quote and risk checks.</p></div><span class="pill">SIMULATION ONLY</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0"><input id="fpTvSymbol" aria-label="Chart symbol" value="NASDAQ:AAPL" maxlength="24" placeholder="e.g. NASDAQ:AAPL or BINANCE:BTCUSDT" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><select id="fpTvMarket" aria-label="Market type" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><option value="AUTO">Auto / US</option><option value="INDIA">India (NSE)</option><option value="CRYPTO">Crypto (Binance)</option><option value="US">US equities</option></select><button id="fpTvLoad" class="btn primary" type="button">Load chart</button><button id="fpTvAnalyze" class="btn" type="button">Analyze in FinPilot</button><a id="fpTvOpen" class="btn" target="_blank" rel="noopener noreferrer">Open TradingView ↗</a></div><div id="fpTvFrame" style="min-height:340px;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center"><div class="muted" style="padding:24px;text-align:center">Choose a symbol and tap <b>Load chart</b>. The embedded chart may be unavailable in some in-app browsers.</div></div><div class="notice" style="margin-top:12px"><b>Connection boundary:</b> TradingView's embedded chart is visual only. It does not send live prices, alerts, account data, or orders to FinPilot. FinPilot paper execution uses its own market-data verification and risk gates; no real broker orders are sent.</div>';
+    const input=section.querySelector('#fpTvSymbol'),market=section.querySelector('#fpTvMarket'),frame=section.querySelector('#fpTvFrame'),open=section.querySelector('#fpTvOpen');
+    function symbol(){return tvSymbol(input.value,market.value)}
+    function loadChart(){
+      const s=symbol();if(!s){frame.textContent='Enter a valid symbol.';return}
+      open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(s);
+      frame.innerHTML='<iframe title="TradingView chart for '+esc(s)+'" src="https://www.tradingview.com/widgetembed/?frameElementId=fp-tv-widget&symbol='+encodeURIComponent(s)+'&interval=60&hidesidetoolbar=1&symboledit=1&saveimage=0&toolbarbg=f1f3f6&theme=light&style=1&timezone=Etc%2FUTC&withdateranges=1&showpopupbutton=1&locale=en" style="width:100%;height:340px;border:0" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';
+    }
+    section.querySelector('#fpTvLoad').addEventListener('click',loadChart);
+    section.querySelector('#fpTvAnalyze').addEventListener('click',()=>{
+      const s=symbol();if(!s)return;
+      const raw=s.split(':').pop().replace(/USDT$/,'').replace(/\.(NS|BO)$/,'');
+      const q=document.getElementById('globalSearch')||document.getElementById('searchQuery');
+      if(q){q.value=raw;q.dispatchEvent(new Event('input',{bubbles:true}));}
+      if(typeof window.runFullStockAnalysis==='function')window.runFullStockAnalysis(raw);
+      else if(typeof window.finpilotLaunch==='function')window.finpilotLaunch(raw);
+      else {const search=document.querySelector('[data-view="search"]');search?.click();window.setTimeout(()=>window.doSearch?.(raw),100);}
+    });
+    market.addEventListener('change',()=>{if(input.value.trim())loadChart()});
+    input.addEventListener('keydown',e=>{if(e.key==='Enter')loadChart()});
+    host.prepend(section);
+  }
+  function start(){
+    const tryMount=()=>{const host=document.getElementById('paperlab');if(host&&host.childElementCount>0)mount();};
+    tryMount();
+    const observer=new MutationObserver(tryMount);
+    observer.observe(document.body,{childList:true,subtree:true});
+    let tries=0;const timer=setInterval(()=>{tryMount();if(document.getElementById('fpTradingViewBridge')||++tries>120)clearInterval(timer)},500);
+  }
+  window.FinPilotTradingViewBridge={normalizeSymbol,tvSymbol,widgetUrl,mount};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+})();
