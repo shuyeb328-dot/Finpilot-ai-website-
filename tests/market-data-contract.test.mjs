@@ -22,6 +22,9 @@ assert.match(server, /createProviderResponseCache/, 'market routes should share 
 assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');
 assert.match(server, /Number\(x\.closeTime\)>0\?new Date\(Number\(x\.closeTime\)\)\.toISOString\(\)/, 'Binance timestamps should be sourced from provider closeTime');
 assert.match(server, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto market reports should distinguish provider timestamps from observation timestamps');
+assert.match(server, /executionEligible:false,executionSafetyReason:'UNOFFICIAL_SINGLE_SOURCE_NOT_CORROBORATED'/, 'unofficial single-source equity chart data must never be paper-execution eligible');
+assert.match(server, /independentProviderCount=new Set\(quotes\.map\(x=>String\(x\.provider\|\|''\)\.trim\(\)\.toLowerCase\(\)\)\.filter\(Boolean\)\)\.size/, 'market data execution must count distinct providers rather than accept one quote as corroboration');
+assert.match(server, /INSUFFICIENT_INDEPENDENT_PROVIDERS/, 'one-provider market data must be held for verification');
 
 assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
 assert.match(frontend, /addEventListener\('open',[\s\S]*?stopFallback\(\)/, 'healthy SSE open should stop redundant stock-report polling');
