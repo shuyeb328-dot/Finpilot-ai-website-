@@ -108,11 +108,19 @@ function resolveCandidate(query,search,web){
 }
 const FORECAST_HORIZON_DAYS=1;
 const FORECAST_MOVE_THRESHOLD_PCT=0.5;
-const MAX_FORECASTS=1200;
+const MAX_FORECASTS=4000;
 const MIN_PRIOR_OUTCOMES_FOR_SHRINKAGE=30;
 const MIN_CALIBRATION_OUTCOMES=100;
 const CLASS_KEYS=['UP','DOWN','HOLD'];
 const CLASS_PROB_KEYS={UP:'up',DOWN:'down',HOLD:'hold'};
+function marketClassOf(value){
+ const market=String(value||'UNKNOWN').trim().toUpperCase();
+ if(/CRYPTO|DIGITAL_ASSET|DIGITAL_ASSETS/.test(market))return 'CRYPTO';
+ if(/OPTION|FUTURE|DERIVATIVE/.test(market))return 'DERIVATIVES';
+ if(/INDEX|INDICES|BENCHMARK/.test(market))return 'INDEX';
+ if(/EQUITY|STOCK|NYSE|NASDAQ|NSE|BSE/.test(market))return 'EQUITY';
+ return market||'UNKNOWN';
+}
 function normalizeTicker(value){
  return String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/USDT$/,'').replace(/\s+/g,'');
 }
@@ -128,9 +136,9 @@ function verifiedSnapshot(snapshot,nowMs=Date.now()){
   &&age>=-30000&&age<=maxAge&&snapshot.timing?.fresh===true&&snapshot.timing?.providerMarkedLive===true
   &&Number(snapshot.candles?.count)>=2&&snapshot.instrument?.symbolMatches===true);
 }
-function priorResolved(s,agent,createdAt){
+function priorResolved(s,agent,createdAt,market=null){
  const cutoff=Date.parse(createdAt||'');
- return s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='RESOLVED'
+ return s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='RESOLVED'
   &&Number.isFinite(Date.parse(x.resolvedAt||''))&&Date.parse(x.resolvedAt)<cutoff
   &&Number.isFinite(Date.parse(x.createdAt||''))&&Date.parse(x.createdAt)<cutoff);
 }
@@ -194,10 +202,10 @@ function calibrationMetrics(rows){
  }
  return {ece:gapSum/total,bins};
 }
-function agentForecastMetrics(s,agent){
- const rows=s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
+function agentForecastMetrics(s,agent,market=null){
+ const rows=s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
  const count=rows.length;
- if(!count)return {agent,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
+ if(!count)return {agent,marketClass:market?marketClassOf(market):null,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
  const briers=rows.map(x=>brierFor(x.probabilities,x.outcome)).filter(Number.isFinite);
  const baseline=rows.map(x=>brierFor(x.baselineProbabilities,x.outcome)).filter(Number.isFinite);
  const losses=rows.map(x=>logLossFor(x.probabilities,x.outcome)).filter(Number.isFinite);
@@ -215,7 +223,7 @@ function agentForecastMetrics(s,agent){
  if(count>=MIN_CALIBRATION_OUTCOMES){
   calibrationStatus=calibrated?'PROBABILITIES_CALIBRATED':cm.ece!==null&&cm.ece>.08?'CALIBRATION_ERROR_TOO_HIGH':'NOT_BEATING_WALK_FORWARD_BASELINE';
  }
- return {agent,count,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,
+ return {agent,marketClass:market?marketClassOf(market):null,count,pending:s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='PENDING_OUTCOME').length,
   brier:brier===null?null:+brier.toFixed(5),baselineBrier:baselineBrier===null?null:+baselineBrier.toFixed(5),
   logLoss:avg(losses)===null?null:+avg(losses).toFixed(5),topClassAccuracy:+(top*100).toFixed(2),
   calibrationError:cm.ece===null?null:+(cm.ece*100).toFixed(2),calibrationBins:cm.bins,
@@ -230,6 +238,11 @@ function settleDueForecasts(s,snapshot,nowMs=Date.now()){
  let resolved=0;
  for(const row of s.forecasts){
   if(row.forecastStatus!=='PENDING_OUTCOME'||normalizeTicker(row.ticker)!==ticker)continue;
+  const settleMarket=String(snapshot.instrument?.market||'UNKNOWN');
+  const settleCurrency=String(snapshot.instrument?.currency||'UNKNOWN').toUpperCase();
+  const settleExchange=String(snapshot.instrument?.exchange||'UNKNOWN').toUpperCase();
+  if(String(row.market||'UNKNOWN')!==settleMarket||String(row.currency||'UNKNOWN').toUpperCase()!==settleCurrency)continue;
+  if(String(row.exchange||'UNKNOWN').toUpperCase()!=='UNKNOWN'&&settleExchange!=='UNKNOWN'&&String(row.exchange).toUpperCase()!==settleExchange)continue;
   const due=Date.parse(row.dueAt||'');
   const reference=Number(row.referencePrice);
   if(!Number.isFinite(due)||asOf<due||!Number.isFinite(reference)||reference<=0)continue;
@@ -249,13 +262,14 @@ function settleDueForecasts(s,snapshot,nowMs=Date.now()){
 }
 function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.now(),horizonDays=FORECAST_HORIZON_DAYS){
  const ticker=normalizeTicker(snapshot.instrument?.ticker||snapshot.instrument?.symbol);
+ const market=String(snapshot.instrument?.market||'UNKNOWN');
+ const marketClass=marketClassOf(market);
  const createdAt=new Date(nowMs).toISOString();
  const horizon=Math.max(1,Math.min(30,Math.floor(Number(horizonDays)||FORECAST_HORIZON_DAYS)));
  const dueAt=new Date(nowMs+horizon*86400000).toISOString();
- const key=[snapshot.snapshotId||snapshot.timing?.sourceAsOf,ticker,agentName,horizon].join('|');
- const existing=s.forecasts.find(x=>x.key===key);
+ const existing=s.forecasts.find(x=>x.snapshotId===(snapshot.snapshotId||null)&&normalizeTicker(x.ticker)===ticker&&x.agent===agentName&&Number(x.horizonDays)===horizon);
  if(existing)return existing;
- const history=priorResolved(s,agentName,createdAt);
+ const history=priorResolved(s,agentName,createdAt,marketClass);
  const baselineProbabilities=empiricalClassRates(history);
  const edge=directionalEdge(agentName,featuresValue);
  const rawProbabilities=distributionFromEdge(edge);
@@ -271,13 +285,13 @@ function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.
  const total=probabilities.up+probabilities.down+probabilities.hold;
  const normalized={up:+(probabilities.up/total*100).toFixed(4),down:+(probabilities.down/total*100).toFixed(4),hold:0};
  normalized.hold=+(100-normalized.up-normalized.down).toFixed(4);
- const metrics=agentForecastMetrics(s,agentName);
- return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),key,agent:agentName,ticker,market:snapshot.instrument?.market||'UNKNOWN',currency:snapshot.instrument?.currency||'UNKNOWN',
+ const metrics=agentForecastMetrics(s,agentName,marketClass);
+ return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),agent:agentName,ticker,market,marketClass,
   snapshotId:snapshot.snapshotId||null,createdAt,dueAt,horizonDays:horizon,referencePrice:Number(snapshot.quote.price),quoteAsOf:snapshot.timing.sourceAsOf,
-  forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,probabilities:normalized,rawProbabilities:raw,
+  forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,currency:String(snapshot.instrument?.currency||'UNKNOWN'),exchange:String(snapshot.instrument?.exchange||'UNKNOWN'),probabilities:normalized,rawProbabilities:raw,
   baselineProbabilities,priorResolvedSampleCount:sampleCount,shrinkageWeight:+shrinkageWeight.toFixed(4),
   forecastMethod:'ROLE_WEIGHTED_RULE_BASELINE_V1',probabilitiesCalibrated:metrics.probabilitiesCalibrated,calibrationStatus:metrics.calibrationStatus,
-  forecastStatus:'PENDING_OUTCOME',outcome:null,actualReturnPct:null,resolvedAt:null};
+  forecastStatus:'PENDING_OUTCOME'};
 }
 function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(),horizonDays=FORECAST_HORIZON_DAYS){
  const eligible=verifiedSnapshot(snapshot,nowMs);
@@ -290,7 +304,7 @@ function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(
  const output={};
  for(const [name,agent] of Object.entries(agentDefs)){
   const forecast=buildAgentForecast(name,agent,featuresValue,snapshot,s,nowMs,horizonDays);
-  const duplicate=s.forecasts.some(x=>x.key===forecast.key);
+  const duplicate=s.forecasts.includes(forecast);
   if(!duplicate){s.forecasts.unshift(forecast);s.forecasts=s.forecasts.slice(0,MAX_FORECASTS);}
   output[name]={status:'PENDING_OUTCOME',forecastId:forecast.id,ticker:forecast.ticker,horizonDays:forecast.horizonDays,
    probabilities:forecast.probabilities,probabilitiesCalibrated:forecast.probabilitiesCalibrated,calibrationStatus:forecast.calibrationStatus,
@@ -302,19 +316,19 @@ function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(
 function forecastTrainingReport(){
  const s=load();
  const agentReports=AGENTS.map(agent=>{
-  const stats=agentForecastMetrics(s,agent);
   const latest=s.forecasts.find(x=>x.agent===agent)||null;
-  return {...stats,latestForecast:latest?{ticker:latest.ticker,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
+  const stats=agentForecastMetrics(s,agent,latest?.marketClass||null);
+  return {...stats,latestForecast:latest?{ticker:latest.ticker,market:latest.market,marketClass:latest.marketClass,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
  });
  const forecasts=s.forecasts;
  const resolved=forecasts.filter(x=>x.forecastStatus==='RESOLVED');
  const uniqueEvents=new Set(resolved.map(x=>[x.ticker,x.dueAt,x.settlementSnapshotId||'NO_SETTLEMENT_ID'].join('|')));
- return {version:VERSION,mode:'OUTCOME_SUPERVISED_WALK_FORWARD',persistence:'BROWSER_LOCAL_STORAGE',persistentAcrossPageReloads:true,
+ return {version:VERSION,mode:'OUTCOME_SUPERVISED_WALK_FORWARD',persistence:'BROWSER_LOCAL_STORAGE',persistentAcrossPageReloads:true,maxForecastRecords:MAX_FORECASTS,
   foundationModelTraining:false,realMoneyExecution:false,horizonDays:FORECAST_HORIZON_DAYS,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,
   forecastCount:forecasts.length,resolvedForecasts:resolved.length,pendingForecasts:forecasts.filter(x=>x.forecastStatus==='PENDING_OUTCOME').length,
   uniqueSettledEvents:uniqueEvents.size,blockedForecastAttempts:s.blockedForecastAttempts,calibratedAgentCount:agentReports.filter(x=>x.probabilitiesCalibrated).length,
   lastForecastAttempt:s.lastForecastAttempt||null,minimumCalibrationOutcomes:MIN_CALIBRATION_OUTCOMES,agents:agentReports,
-  governance:{outcomeSource:'Fresh matching provider-timestamped snapshots only',baseline:'Prior resolved outcomes captured before each forecast (chronological walk-forward)',probabilityCalibrationRequires:'At least 100 resolved outcomes per agent, calibration ECE <= 8%, and lower Brier score than the walk-forward base-rate benchmark overall and on the latest 30 outcomes.',autoPromotion:false,weightMutationFromOutcomes:false,approvalRequiredForExecution:true,
+  governance:{outcomeSource:'Fresh matching provider-timestamped snapshots only',baseline:'Prior resolved outcomes captured before each forecast (chronological walk-forward)',probabilityCalibrationRequires:'At least 100 resolved outcomes per agent and market class, calibration ECE <= 8%, and lower Brier score than the walk-forward base-rate benchmark overall and on the latest 30 outcomes.',autoPromotion:false,weightMutationFromOutcomes:false,approvalRequiredForExecution:true,
    notes:'Forecast probabilities are rule-based and uncalibrated until each agent passes the measured validation conditions. Client/browser data is not treated as a verified price. Records live in this browser localStorage and are not cloud-persistent.'}};
 }
 function runFleet(state,context){
