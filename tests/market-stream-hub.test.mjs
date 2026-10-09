@@ -17,6 +17,7 @@ const a=[],b=[],errors=[];
 const unsubscribeA=hub.subscribe('BTC\u001f1m',{onData:value=>a.push(value),onError:error=>errors.push(error)});
 const unsubscribeB=hub.subscribe('BTC\u001f1m',{onData:value=>b.push(value),onError:error=>errors.push(error)});
 
+await new Promise(resolve=>setTimeout(resolve,0));
 assert.equal(fetches,1,'two subscribers for one ticker/interval must share an upstream poll');
 assert.deepEqual(hub.stats(),{channels:1,subscribers:2,polling:1});
 release();
