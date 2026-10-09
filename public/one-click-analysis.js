@@ -65,7 +65,7 @@
     }
     el.style.display='block';
     el.dataset.state=mode;
-    const heading=mode==='complete'?'Analysis complete':mode==='error'?'Analysis stopped':mode==='busy'?'Analysis already running':'FinPilot analysis';
+    const heading=mode==='complete'?'Analysis complete':mode==='warning'?'Analysis needs verification':mode==='error'?'Analysis stopped':mode==='busy'?'Analysis already running':'FinPilot analysis';
     el.innerHTML='<b>'+escLocal(heading)+'</b><div style="margin-top:4px">'+escLocal(message)+'</div>';
     const top=document.getElementById('fpRunStatus');
     if(top)top.innerHTML='<b>'+escLocal(heading)+'</b><br><span>'+escLocal(message)+'</span>';
@@ -197,14 +197,15 @@
       if(el.dataset.mounted==='1'||el.dataset.mounted==='loading')return;
       const symbol=el.dataset.tvSymbol;
       el.dataset.mounted='loading';
-      el.innerHTML='<div class="tradingview-widget-container" style="height:360px;width:100%;border-radius:10px;overflow:hidden;background:#fff"><div class="tradingview-widget-container__widget" style="height:328px;width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
+      el.style.minHeight='0';
+      el.innerHTML='<div class="tradingview-widget-container" style="height:260px;width:100%;max-width:100%;border-radius:10px;overflow:hidden;background:#0b1728"><div class="tradingview-widget-container__widget" style="height:228px;width:100%;max-width:100%"></div><div class="tradingview-widget-copyright" style="height:32px;padding:5px 8px;font-size:10px;background:#0b1728;color:#9db0c8"><a href="https://www.tradingview.com/widget-docs/widgets/charts/advanced-chart/" target="_blank" rel="noopener noreferrer">Advanced Chart</a> by TradingView</div></div>';
       const widget=el.firstElementChild;
       const widgetBody=widget?.querySelector('.tradingview-widget-container__widget');
       const showFallback=message=>{
         if(el.dataset.mounted==='fallback')return;
         el.dataset.mounted='fallback';
         el.style.cssText='min-height:0;height:auto;max-height:none;background:transparent;overflow:visible';
-        el.innerHTML='<div class="notice" role="status"><b>Interactive chart unavailable.</b> '+escLocal(message)+' The analysis still uses only returned market data; no candles have been fabricated.</div><p style="margin:8px 0"><a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
+        el.innerHTML='<div class="notice" role="status" style="margin:0"><b>Chart unavailable.</b> '+escLocal(message)+' No candles were fabricated.</div><p style="margin:8px 0 2px;font-size:12px"><a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'" target="_blank" rel="noopener noreferrer">Open '+escLocal(symbol)+' on TradingView ↗</a></p>';
       };
       const script=document.createElement('script');
       script.type='text/javascript';
@@ -219,7 +220,7 @@
         }else if(el.dataset.mounted==='loading'){
           el.dataset.mounted='1';
         }
-      },7000);
+      },5500);
     });
   }
   function publishEquitySnapshot(market){
@@ -293,7 +294,7 @@
           <span class="pill low">COMPLETE</span>
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #315efb;background:#eef5ff">
-          <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?candidate.confidence+'% CONFIDENCE':'CHECK'}</span></div>
+          <div class="sectionTitle"><div><span class="eyebrow">MATCHED STOCK</span><h3 style="font-size:20px;margin-top:5px">${candidate?escLocal(candidate.name):'No stock identified yet'}</h3><span class="muted">${candidate?escLocal(candidate.ticker)+' · '+escLocal(candidate.method):'Search results did not contain a resolvable stock symbol.'}</span></div><span class="pill ${candidate&&candidate.confidence>=70?'low':'med'}">${candidate?(candidate.method==='Live market scan'?'SCAN CANDIDATE':candidate.confidence+'% CONFIDENCE'):'CHECK'}</span></div>
           ${candidate?`<div class="grid three"><div class="card"><span class="muted">Match score</span><div class="metric">${candidate.score}/100</div></div><div class="card"><span class="muted">News mentions</span><div class="metric">${candidate.evidenceMentions||0}</div></div><div class="card"><span class="muted">Positive / negative</span><div class="metric">+${candidate.positive||0} / −${candidate.negative||0}</div></div></div><div class="notice" style="margin-top:10px"><b>Why this stock:</b> ${escLocal(candidate.reason||'Highest evidence-weighted candidate found in the current search results.')}<br><span class="muted">${escLocal(candidate.disclaimer||'Evidence-ranked candidate; not a guaranteed trade.')}</span></div>`:'<div class="notice">Try a query containing a stock symbol or a broad request such as “pick best stock for today trading”. FinPilot will rank identifiable candidates instead of returning an unnamed CHECK result.</div>'}
         </div>
         <div class="card" style="margin-bottom:12px;border:1px solid #cbd7ee;background:#fff">
@@ -515,9 +516,13 @@
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
-      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL|CANDIDATES|MARKET)\b/i.test(query);
+      const broadRequest=/\b(BEST|TOP|PICK|CANDIDATES|TODAY|MARKET SCAN)\b/i.test(query)
+        && !/^(?:[A-Z][A-Z0-9]{0,5})(?:\.(?:NS|BO))?$/i.test(String(query).trim());
 
-      if(!candidate&&broadRequest){
+      // For generic "pick the best stock today" prompts, web snippets may mention
+      // an unrelated index first. Prefer the dedicated market-picks endpoint, but
+      // label its output as a candidate until fresh quote/candle checks pass.
+      if(broadRequest){
         try{
           const picks=await fetchJsonBounded('/api/market-picks?limit=5',{cache:'no-store'},10000,'Market scan');
           const top=picks?.candidates?.[0];
@@ -525,7 +530,7 @@
             candidate={
               ticker:top.ticker,
               name:top.name,
-              confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),
+              confidence:0,
               score:top.score,
               evidenceMentions:0,
               positive:Number(top.changePct||0)>0?1:0,
@@ -534,6 +539,8 @@
               reason:'Top-ranked candidate in FinPilot’s available market scan (score '+Number(top.score||0)+'/100; reported session move '+Number(top.changePct||0).toFixed(2)+'%). This is not proof it is the best trade today.',
               disclaimer:picks.disclaimer||'Market-scan candidate; verify current broker/exchange data.'
             };
+          }else if(!candidate){
+            searchWarning=searchWarning||'Market scan returned no candidates; no stock can be selected safely.';
           }
         }catch(e){
           searchWarning=searchWarning||String(e?.message||'Market scan unavailable');
@@ -667,10 +674,19 @@
         setTimeout(mountTradingViewFallbacks,60);
       }
 
-      stage('6/6 · Complete. Review source freshness and risk gates before acting.');
+      stage('6/6 · Review source freshness and risk gates before acting.');
+      const dataNeedsVerification=Boolean(
+        searchWarning ||
+        !marketReport ||
+        marketReport?.quality?.forecastEligible===false ||
+        marketSnapshot?.quality?.forecastEligible===false ||
+        /INCOMPLETE|UNAVAILABLE|STALE|BLOCKED/i.test(String(marketReport?.dataStatus||marketReport?.quality?.status||marketSnapshot?.quality?.status||''))
+      );
       updateAnalysisStatus(
-        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' Query: '+query,
-        'complete'
+        (dataNeedsVerification
+          ? 'Analysis stages finished, but verification is required. '+(searchWarning?'Provider warning: '+searchWarning+' ':'')+'Check quote freshness and candle completeness before acting.'
+          : 'All available stages finished. Verify source freshness and risk gates before acting.')+' Query: '+query,
+        dataNeedsVerification?'warning':'complete'
       );
       window.__fpLastRenderedQuery=query;
       toast((searchWarning?'Completed with warning · ':'')+'analysis complete · verify data freshness');
