@@ -75,10 +75,15 @@ function close(){opened=false;document.getElementById('fp-autonomous-panel')?.cl
 function toggle(){opened?close():open()}
 function localEvidence(){
  const x=client||clientSignals();
+ const foundation=x.foundation,foundationReady=Boolean(foundation?.winner&&Number(foundation?.candidateCount)>=40&&Number.isFinite(Number(foundation.winner.score)));
+ const evolution=x.evolution,evolutionEvents=Number(evolution?.events||0),benchmarks=Number(evolution?.benchmarks||0),shadow=Number(evolution?.shadow||0),promoted=Number(evolution?.promoted||0);
+ const evolutionStatus=!evolution?'PARTIAL':(evolutionEvents+benchmarks+shadow+promoted)>0?'ACTIVE':'READY';
+ const quantum=x.quantum,agents=Number(quantum?.agents||quantum?.agentCount||0),enabled=Number(quantum?.enabled||0),runs=Number(quantum?.quantumRuns||0),researchRuns=Number(quantum?.researchRuns||0);
+ const quantumStatus=!quantum?'PARTIAL':(agents>0&&enabled>0)?((runs+researchRuns)>0?'ACTIVE':'READY'):'PARTIAL';
  return {
- foundation:x.foundation?{status:x.foundation.winner?'READY':'PARTIAL',detail:'Browser Foundation OS is present; benchmark state '+(x.foundation.winner?'measured':'not measured')+'.'}:{status:'PARTIAL',detail:'Client benchmark telemetry is not available.'},
- evolution:x.evolution?{status:(Number(x.evolution.promoted||0)>0?'READY':'PARTIAL'),detail:'Browser evolution engine reports '+Number(x.evolution.promoted||0)+' promoted candidates and '+Number(x.evolution.shadow||0)+' shadow candidates.'}:{status:'PARTIAL',detail:'Browser evolution snapshot is not available.'},
- quantum:x.quantum?{status:'ACTIVE',detail:'Quantum engine loaded; '+Number(x.quantum.agents||x.quantum.agentCount||0)+' agents reported where exposed.'}:{status:'PARTIAL',detail:'Browser quantum snapshot is not available.'}
+  foundation:foundation?{status:foundationReady?'READY':'PARTIAL',detail:'Foundation benchmark: '+Number(foundation.candidateCount||0)+' candidates · winner '+(foundation.winner?.id||'unavailable')+' · score '+Number(foundation.winner?.score||0)+'/100.'}:{status:'PARTIAL',detail:'Browser benchmark telemetry is not available.'},
+  evolution:evolution?{status:evolutionStatus,detail:'Browser Evolution OS: '+promoted+' promoted entries · '+shadow+' shadow entries · '+benchmarks+' benchmarks · '+evolutionEvents+' events. Promotion activity is not proof of live code mutation.'}:{status:'PARTIAL',detail:'Browser Evolution OS snapshot is not available.'},
+  quantum:quantum?{status:quantumStatus,detail:'Browser Quantum Core: '+agents+' agents · '+enabled+' enabled · '+runs+' quantum routing runs · '+researchRuns+' research runs. Server external provider configuration is reported separately; fallback is classical.'}:{status:'PARTIAL',detail:'Browser Quantum snapshot is not available.'}
  };
 }
 function render(data){
