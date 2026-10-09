@@ -559,6 +559,36 @@
     };
   }
 
+  let specialistModulePromise=null;
+  async function ensureSpecialistFleetModule(){
+    if(typeof window.FinPilotDeepLearning?.runFleet==='function')return true;
+    if(!specialistModulePromise){
+      specialistModulePromise=new Promise((resolve,reject)=>{
+        let script=document.getElementById('finpilotDeepLearningReload');
+        if(!script){
+          script=document.createElement('script');
+          script.id='finpilotDeepLearningReload';
+          script.src='/deep-learning-os.js?v=20261010-4';
+          script.async=false;
+          document.head.appendChild(script);
+        }
+        let settled=false,poll=null;
+        const cleanup=()=>{clearTimeout(timer);if(poll)clearInterval(poll);script.removeEventListener('load',check);script.removeEventListener('error',failed);};
+        const finish=(error)=>{if(settled)return;settled=true;cleanup();error?reject(error):resolve(true);};
+        const check=()=>{if(typeof window.FinPilotDeepLearning?.runFleet==='function')finish(null);};
+        const failed=()=>finish(new Error('SPECIALIST_MODULE_LOAD_FAILED: deep-learning-os.js could not load'));
+        const timer=setTimeout(()=>finish(new Error('SPECIALIST_MODULE_TIMEOUT: specialist fleet did not initialize within 7 seconds')),7000);
+        script.addEventListener('load',check);
+        script.addEventListener('error',failed);
+        poll=setInterval(check,50);
+        check();
+      }).finally(()=>{specialistModulePromise=null;});
+    }
+    await specialistModulePromise;
+    if(typeof window.FinPilotDeepLearning?.runFleet!=='function')throw new Error('SPECIALIST_MODULE_UNAVAILABLE: agent fleet is not initialized');
+    return true;
+  }
+
   async function syncClientAgentTelemetry(agentFleet,candidate,marketSnapshot){
     if(!agentFleet||typeof agentFleet!=='object'||Array.isArray(agentFleet)||!Object.keys(agentFleet).length){
       const status={ok:false,source:'CLIENT_REPORTED_UNVERIFIED',error:'AGENT_FLEET_UNAVAILABLE',recorded:0,updatedAt:new Date().toISOString()};
@@ -909,12 +939,20 @@
       window.__fpMarketSnapshot=marketSnapshot?Object.freeze({...marketSnapshot}):null;
       state.marketSnapshot=window.__fpMarketSnapshot;
       stage('3/6 · Running specialist agents and the Round Table…');
-      const agentFleet=window.FinPilotDeepLearning?.runFleet(state,{web,candidate,marketSnapshot:window.__fpMarketSnapshot})||null;
-      // The fleet runs in the browser. Await a bounded sync and keep its trust label
-      // explicit; this is not server execution, validated training, or persistent memory.
+      // The user-created specialist fleet is a required stage. Load it explicitly if
+      // the initial script tag failed or was stale; never silently replace it with null.
+      await ensureSpecialistFleetModule();
+      const agentFleet=window.FinPilotDeepLearning.runFleet(state,{web,candidate,marketSnapshot:window.__fpMarketSnapshot});
+      const agentNames=Object.keys(agentFleet&&typeof agentFleet==='object'&&!Array.isArray(agentFleet)?agentFleet:{});
+      const expectedFleetSize=Array.isArray(window.FinPilotDeepLearning.agents)?window.FinPilotDeepLearning.agents.length:12;
+      if(agentNames.length<Math.min(12,expectedFleetSize))throw new Error('SPECIALIST_FLEET_INCOMPLETE: expected at least '+Math.min(12,expectedFleetSize)+' specialist results, received '+agentNames.length);
+      window.__finpilotAgentFleetStatus={ok:true,agentCount:agentNames.length,agentNames,execution:'BROWSER_DETERMINISTIC_SPECIALIST_FLEET',forecastEligible:window.__fpMarketSnapshot?.quality?.forecastEligible===true,updatedAt:new Date().toISOString()};
+      // Browser-calculated specialist results are reported to the server as
+      // explicitly client-reported/unverified telemetry, never as server execution.
       const agentTelemetry=await syncClientAgentTelemetry(agentFleet,candidate,window.__fpMarketSnapshot);
+      window.__finpilotAgentFleetStatus.telemetry=agentTelemetry;
       if(!agentTelemetry.ok){
-        searchWarning=searchWarning||'Specialist telemetry was not recorded ('+String(agentTelemetry.error||'SYNC_FAILED')+'). Market-derived forecasts remain blocked unless independent quote checks pass.';
+        searchWarning=searchWarning||'Specialist fleet ran ('+agentNames.length+' agents), but telemetry sync failed ('+String(agentTelemetry.error||'SYNC_FAILED')+'). Market forecasts remain blocked unless independent quote checks pass.';
       }
       // Decision Core's fourth argument is a money-formatting function, not a scenario object.
       // Passing scenarioSafe(...) here shadows the formatter and causes "money is not a function".
@@ -938,6 +976,7 @@
         marketDataStatus:marketSnapshot?.quality?.status||'UNAVAILABLE',
         marketForecastEligible:marketSnapshot?.quality?.forecastEligible===true,
         agentFleet,
+        agentCount:agentNames.length,
         agentTelemetry,
         time:new Date().toISOString()
       };
@@ -997,8 +1036,9 @@
       }
 
       stage('6/6 · Complete. Review source freshness and risk gates before acting.');
+      const agentStatusText='Specialist fleet: '+agentNames.length+' browser-calculated agents; telemetry '+(agentTelemetry.ok?(agentTelemetry.recorded+'/'+agentTelemetry.expected+' client-reported summaries acknowledged'):(agentTelemetry.error||'not recorded'))+'.';
       updateAnalysisStatus(
-        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' Query: '+query,
+        (searchWarning?'Completed with a provider warning: '+searchWarning:'All available stages finished.')+' '+agentStatusText+' Query: '+query,
         'complete'
       );
       window.__fpLastRenderedQuery=query;

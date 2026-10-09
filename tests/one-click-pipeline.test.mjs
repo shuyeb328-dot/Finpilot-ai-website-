@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-3/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-4/, 'rebuilt one-click module must use a new asset version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
@@ -213,13 +213,23 @@ assert.match(moduleText, /credentials:'same-origin'/, 'telemetry must use same-o
 assert.match(moduleText, /const agentTelemetry=await syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'analysis must wait for telemetry confirmation rather than fire and forget');
 assert.match(moduleText, /Number\(result\.recorded\)!==agents\.length/, 'partial or zero-count server acknowledgements must be treated as sync failure');
 assert.match(moduleText, /AGENT_TELEMETRY_TIMEOUT/, 'telemetry timeout should be explicit instead of silently ignored');
-assert.match(moduleText, /agentFleet,\n        agentTelemetry,\n        time:new Date\(\)\.toISOString\(\)/, 'analysis history must preserve the telemetry sync result');
+assert.match(moduleText, /agentFleet,\n        agentCount:agentNames\.length,\n        agentTelemetry,\n        time:new Date\(\)\.toISOString\(\)/, 'analysis history must preserve actual agent and telemetry counts');
 assert.match(moduleText, /syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'the one-click pipeline should sync actual fleet results, not merely pending agent placeholders');
-assert.match(moduleText, /not server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
+assert.match(moduleText, /never as server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
 assert.match(serverText, /source:'CLIENT_REPORTED_UNVERIFIED'/, 'client telemetry must be assigned an explicit unverified source');
 assert.match(serverText, /serverExecutedRuns:0,clientReportedRuns:0/, 'server memory entries must track server and client activity separately');
 assert.match(serverText, /serverExecutedAgentRuns,clientReportedAgentRuns/, 'Core status must report server-executed and client-reported agent counts separately');
 assert.match(serverText, /agentMemoryPersistent:false/, 'Core status must not claim process-memory agent telemetry is durable');
 assert.match(serverText, /Array\.isArray\(x\.agents\)\?x\.agents\.slice\(0,12\):\[x\]/, 'client-reported agent batches must be bounded');
+
+
+assert.match(moduleText, /async function ensureSpecialistFleetModule\(\)/, 'missing specialist module must be lazily loaded instead of silently returning null');
+assert.match(moduleText, /await ensureSpecialistFleetModule\(\);/, 'the full analysis must wait for the user-created specialist fleet to initialize');
+assert.match(moduleText, /SPECIALIST_FLEET_INCOMPLETE/, 'an empty or partial specialist fleet must fail loudly rather than show a completed analysis');
+assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/, 'fleet execution must require a meaningful number of specialist outputs');
+assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
+assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
+assert.match(pageText, /deep-learning-os\.js\?v=20261010-4/, 'the page must cache-bust the specialist module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-4/, 'the page must reference the updated analysis module version');
 
 console.log('one-click-pipeline: contract checks passed');
