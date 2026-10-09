@@ -34,8 +34,10 @@ assert.match(server, /Number\(x\.closeTime\)>0\?new Date\(Number\(x\.closeTime\)
 assert.match(server, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto market reports should distinguish provider timestamps from observation timestamps');
 
 assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
-assert.match(frontend, /addEventListener\('open',[\s\S]*?stopFallback\(\)/, 'healthy SSE open should stop redundant stock-report polling');
-assert.match(frontend, /else if\(!streamOpen\)startFallback\(\)/, 'fallback polling should only run while the stream is not open');
+assert.match(frontend, /addEventListener\('open',[\s\S]*?startFallback\(\)/, 'SSE connection open must keep HTTP fallback active until verified market data arrives');
+assert.match(frontend, /const live=Boolean\(d\.verified&&d\.status==='LIVE'&&Number\.isFinite\(Number\(d\.price\)\)&&Number\(d\.price\)>0&&d\.asOf/, 'stream data needs a valid provider timestamp before it can stop fallback polling');
+assert.match(frontend, /addEventListener\('status',[\s\S]*?startFallback\(\)/, 'server status/error events should activate HTTP fallback');
+assert.match(frontend, /sourceTimestampType:'PROVIDER_TIMESTAMP'/, 'verified stream data should carry its provenance into the shared freshness classifier');
 assert.doesNotMatch(frontend, /fetch\('\/api\/market-ingest'/, 'browser tabs should not duplicate market tick ingestion');
 assert.match(server, /storeMarketTick\(tick\)/, 'the shared server poll should ingest each verified tick once');
 assert.match(server, /FINPILOT_MARKET_CACHE_MS\|\|15000/);
