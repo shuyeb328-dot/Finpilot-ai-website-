@@ -108,7 +108,7 @@ async function agentRun(req,res){
  else if(name==='Risk'){ const months=emergency/Math.max(1,spending); analysis=`Emergency coverage is ${months.toFixed(1)} months.`; challenge='Historical averages can understate a sudden income or expense shock.'; recommendation=months<3?'Strengthen emergency liquidity before increasing financial risk.':'Maintain a dedicated reserve while pursuing long-term goals.'; confidence=91; risk=months<3?'HIGH':'LOW'; }
  else if(name==='Goals'){ analysis='Goal progress should be evaluated against cash-flow capacity and time horizon.'; challenge='A high savings rate can still miss a goal if the target or deadline changes.'; recommendation='Recalculate required contribution and goal probability before accelerating contributions.'; confidence=79; risk='MEDIUM'; }
  else { analysis=`${name} reviewed ${f.length} structured Financial Brain findings.`; challenge='Specialist conclusions may be incomplete without domain-specific evidence.'; recommendation=`Run ${name} again with fresh evidence before any high-impact decision.`; confidence=70; risk='MEDIUM'; }
- remember(name,{decision:recommendation,lesson:challenge});
+ remember(name,{source:'SERVER_EXECUTED',decision:recommendation,lesson:challenge});
  return send(res,200,{ok:true,agent:name,pipeline:{question:`What should ${name} focus on now?`,evidence:f.map(v=>({domain:v.domain,severity:v.severity,title:v.title})),analysis,challenge,confidence,recommendation,risk,action:{type:'PREPARE',approvalRequired:true},time:new Date().toISOString(),engine:'deterministic-agent-v2600'}});
 }
 async function learn(req,res){
@@ -497,7 +497,7 @@ async function agentBatch(req,res){
    else if(name==='Risk'){view='Risk constraints';stance=reserve<3?'HIGH RISK':'CONTROLLED';}
    else if(name==='CFO'){view='Capital discipline';stance=surplus>0&&reserve>=3?'CAPITAL AVAILABLE':'CAPITAL PROTECTED';}
    else if(name==='CEO'){view='Executive synthesis';stance=reserve<3?'WAIT':'CONDITIONAL';}
-   remember(name,{decision:stance,lesson:view});
+   remember(name,{source:'SERVER_EXECUTED',decision:stance,lesson:view});
    return {agent:name,status:'READY',latencyMs:Math.max(1,Date.now()-t),view,stance};
  }));
  return send(res,200,{ok:true,engine:'parallel-agent-orchestrator-v4200',latencyMs:Date.now()-started,results,sequence:['Bull','Bear','Risk','CFO','CEO'],parallel:true,note:'Actual deterministic specialist runs are recorded in process-memory telemetry; this is not durable training or persistent memory. No financial transaction is executed.'});
@@ -1568,10 +1568,16 @@ function coreKey(x){return JSON.stringify(x||{});}
 function remember(agent,entry){
  const k=clean(agent,64)||'Unknown';
  if(!AGENT_MEMORY.has(k)&&AGENT_MEMORY.size>=100)AGENT_MEMORY.delete(AGENT_MEMORY.keys().next().value);
- const a=AGENT_MEMORY.get(k)||{agent:k,runs:0,decisions:0,lessons:[]};
- a.runs++;a.decisions+=entry?.decision?1:0;
- const lesson=clean(entry?.lesson||'',600);if(lesson)a.lessons.unshift(lesson);
- a.lessons=a.lessons.slice(0,20);AGENT_MEMORY.set(k,a);return a;
+ const a=AGENT_MEMORY.get(k)||{agent:k,runs:0,decisions:0,serverExecutedRuns:0,clientReportedRuns:0,lessons:[]};
+ const source=entry?.source==='SERVER_EXECUTED'?'SERVER_EXECUTED':'CLIENT_REPORTED_UNVERIFIED';
+ a.runs++;
+ if(source==='SERVER_EXECUTED')a.serverExecutedRuns++;else a.clientReportedRuns++;
+ if(source==='SERVER_EXECUTED'&&entry?.decision)a.decisions++;
+ const lesson=clean(entry?.lesson||'',600);
+ if(lesson)a.lessons.unshift({text:lesson,source,recordedAt:new Date().toISOString()});
+ a.lessons=a.lessons.slice(0,20);
+ a.memoryTrust=a.serverExecutedRuns>0&&a.clientReportedRuns>0?'MIXED':source==='SERVER_EXECUTED'?'SERVER_EXECUTED':'CLIENT_REPORTED_UNVERIFIED';
+ AGENT_MEMORY.set(k,a);return a;
 }
 function evidenceFusion(req,res){
  const x=JSON.parse(req._bodyCache||'{}');
@@ -1623,8 +1629,27 @@ function evidenceFusion(req,res){
   unknownTimestampEvidence:EVIDENCE_LEDGER.filter(e=>typeof e.fresh!=='boolean').length,
   retrievedPages:EVIDENCE_LEDGER.filter(e=>e.retrievalStatus==='RETRIEVED').length,ledgerSize:EVIDENCE_LEDGER.length});
 }
-function agentMemory(req,res){const data=[...AGENT_MEMORY.values()];return send(res,200,{ok:true,engine:'agent-memory-v4200',agents:data,totalAgents:data.length});}
-function recordMemory(req,res){const x=JSON.parse(req._bodyCache||'{}');const m=remember(x.agent,{decision:x.decision,lesson:x.lesson||''});return send(res,200,{ok:true,memory:m});}
+function agentMemory(req,res){
+ const agents=[...AGENT_MEMORY.values()];
+ const summary=agents.reduce((a,x)=>({serverExecutedRuns:a.serverExecutedRuns+Number(x.serverExecutedRuns||0),clientReportedRuns:a.clientReportedRuns+Number(x.clientReportedRuns||0)}),{serverExecutedRuns:0,clientReportedRuns:0});
+ return send(res,200,{ok:true,engine:'agent-memory-v4300',agents,totalAgents:agents.length,...summary,
+  trust:'Client-reported events are unverified telemetry, not independently executed server runs or trained outcomes.',
+  persistence:'PROCESS_MEMORY',persistent:false});
+}
+function recordMemory(req,res){
+ const x=JSON.parse(req._bodyCache||'{}');
+ const rows=Array.isArray(x.agents)?x.agents.slice(0,12):[x];
+ const recorded=[];
+ for(const row of rows){
+  const agent=clean(row?.agent,64);
+  if(!agent)continue;
+  const lesson=clean(row?.lesson||'',600);
+  const memory=remember(agent,{source:'CLIENT_REPORTED_UNVERIFIED',decision:null,lesson});
+  recorded.push({agent:memory.agent,clientReportedRuns:memory.clientReportedRuns,memoryTrust:'CLIENT_REPORTED_UNVERIFIED'});
+ }
+ return send(res,200,{ok:true,engine:'agent-memory-v4300',source:'CLIENT_REPORTED_UNVERIFIED',recorded:recorded.length,agents:recorded,
+  warning:'Client-submitted agent activity is unverified telemetry. It does not count as a server-executed run, training event, or outcome.'});
+}
 function detectEvents(req,res){
  const x=JSON.parse(req._bodyCache||'{}'); const price=Number(x.price||0),prev=Number(x.previous||price),vol=Number(x.volumeRatio||1),rsiV=Number(x.rsi||50),oi=Number(x.openInterestChange||0); CORE.eventScans++;
  const events=[]; const move=prev?((price-prev)/prev*100):0;
@@ -1640,7 +1665,17 @@ function portfolioRisk(req,res){const x=JSON.parse(req._bodyCache||'{}');const p
 function researchQueue(req,res){const x=JSON.parse(req._bodyCache||'{}');const item={id:requestId(),priority:coreClamp(Number(x.priority||50),0,100),topic:String(x.topic||'Market evidence'),reason:String(x.reason||''),createdAt:new Date().toISOString(),status:'QUEUED'};RESEARCH_QUEUE.push(item);return send(res,200,{ok:true,engine:'research-queue-v4600',item,queue:RESEARCH_QUEUE.slice(-50)});}
 function decisionCache(req,res){const x=JSON.parse(req._bodyCache||'{}');const key=coreKey(x);const hit=DECISION_CACHE.get(key);if(hit&&hit.expires>Date.now()){CORE.cacheHits++;return send(res,200,{ok:true,hit:true,decision:hit.value})}const confidence=coreClamp(Number(x.confidence||0),0,100);const decision=confidence>=75?'CONDITIONAL':confidence>=55?'WATCH':'WAIT';const value={decision,confidence,createdAt:new Date().toISOString()};DECISION_CACHE.set(key,{value,expires:Date.now()+30000});CORE.decisions++;return send(res,200,{ok:true,hit:false,decision:value});}
 function executionGuard(req,res){const x=JSON.parse(req._bodyCache||'{}');const risk=Number(x.riskScore||100),conf=Number(x.confidence||0),approved=x.userApproved===true;const blocked=!approved||risk>=65||conf<65;return send(res,200,{ok:true,engine:'execution-guard-v4800',status:blocked?'BLOCKED':'READY_FOR_APPROVAL',reasons:[...(!approved?['USER_APPROVAL_REQUIRED']:[]),...(risk>=65?['CFO_RISK_VETO']:[]),...(conf<65?['LOW_CONFIDENCE']:[])],canAutoExecute:false});}
-function coreStatus(req,res){return send(res,200,{ok:true,engine:'autonomous-intelligence-core-v5000',version:'7.0',uptimeMs:Date.now()-CORE.started,memoryAgents:AGENT_MEMORY.size,evidenceLedger:EVIDENCE_LEDGER.length,marketEvents:MARKET_EVENTS.length,researchQueue:RESEARCH_QUEUE.length,decisionCache:DECISION_CACHE.size,cacheHits:CORE.cacheHits,decisions:CORE.decisions,features:['persistent-agent-memory','evidence-fusion','contradiction-detection','real-time-event-detection','portfolio-risk','research-queue','decision-cache','execution-guard','CEO-CFO governance','human approval']});}
+function coreStatus(req,res){
+ const agents=[...AGENT_MEMORY.values()];
+ const serverExecutedAgentRuns=agents.reduce((n,a)=>n+Number(a.serverExecutedRuns||0),0);
+ const clientReportedAgentRuns=agents.reduce((n,a)=>n+Number(a.clientReportedRuns||0),0);
+ return send(res,200,{ok:true,engine:'autonomous-intelligence-core-v5000',version:'7.0',uptimeMs:Date.now()-CORE.started,
+  memoryAgents:AGENT_MEMORY.size,serverExecutedAgentRuns,clientReportedAgentRuns,
+  agentMemoryTrust:clientReportedAgentRuns&&serverExecutedAgentRuns?'MIXED':clientReportedAgentRuns?'CLIENT_REPORTED_UNVERIFIED':serverExecutedAgentRuns?'SERVER_EXECUTED':'NO_AGENT_MEMORY_RECORDED',
+  agentMemoryPersistence:'PROCESS_MEMORY',agentMemoryPersistent:false,
+  evidenceLedger:EVIDENCE_LEDGER.length,marketEvents:MARKET_EVENTS.length,researchQueue:RESEARCH_QUEUE.length,decisionCache:DECISION_CACHE.size,cacheHits:CORE.cacheHits,decisions:CORE.decisions,
+  features:['bounded-agent-memory-telemetry','evidence-fusion','contradiction-detection','real-time-event-detection','portfolio-risk','research-queue','decision-cache','execution-guard','CEO-CFO governance','human approval']});
+}
 
 async function globalMarketTest(req,res,u){
  const type=String(u.searchParams.get('type')||'index').toLowerCase();
