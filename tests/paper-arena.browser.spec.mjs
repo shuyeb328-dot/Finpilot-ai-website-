@@ -80,10 +80,12 @@ test('production Paper Arena renders charts and only fills when market data is v
   expect(suggestedQtyText).not.toContain('Suggested paper size 0 BTC');
   const verifiedPrice = Number(await page.locator('#paperPrice').inputValue());
   expect(verifiedPrice).toBeGreaterThan(0);
-  // A market order without protective levels should be blocked by the risk engine.
-  // Supply valid SL/TP and a smaller notional so this smoke test checks the allowed path.
-  await page.locator('#paperStop').fill(String(verifiedPrice * 0.98));
-  await page.locator('#paperTarget').fill(String(verifiedPrice * 1.03));
+  // For MARKET orders, paperStop is correctly disabled because it is a trigger
+  // price for STOP/STOP_LIMIT orders. Use the explicit OCO bracket fields instead.
+  // This tests a risk-valid protected paper order without weakening the risk engine.
+  await page.locator('#paperBracket').check();
+  await page.locator('#paperBracketStop').fill(String(verifiedPrice * 0.98));
+  await page.locator('#paperBracketTarget').fill(String(verifiedPrice * 1.03));
   await quantity.fill('0.05');
   await page.getByRole('button', { name: /BUY · MARKET/i }).click();
   await page.waitForTimeout(1200);
