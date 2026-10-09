@@ -761,16 +761,21 @@ async function liveEquity(ticker){
   }
  }
  const meta=result.meta||{},q=result.indicators?.quote?.[0]||{};
- const closes=(q.close||[]).map(Number).filter(Number.isFinite),highs=(q.high||[]).map(Number).filter(Number.isFinite),lows=(q.low||[]).map(Number).filter(Number.isFinite),vols=(q.volume||[]).map(Number).filter(Number.isFinite);
- const price=Number(meta.regularMarketPrice??closes.at(-1)); if(!Number.isFinite(price))throw new Error('Equity price unavailable.');
- const prev=Number(meta.chartPreviousClose??meta.previousClose??closes.at(-2)??price);
+ const candles=(result.timestamp||[]).map((ts,i)=>{
+  const time=Number.isFinite(Number(ts))?new Date(Number(ts)*1000).toISOString():null;
+  return {time,open:Number(q.open?.[i]),high:Number(q.high?.[i]),low:Number(q.low?.[i]),close:Number(q.close?.[i]),volume:Number.isFinite(Number(q.volume?.[i]))?Number(q.volume[i]):0};
+ }).filter(x=>x.time&&[x.open,x.high,x.low,x.close].every(v=>Number.isFinite(v)&&v>0)&&x.high>=Math.max(x.open,x.close,x.low)&&x.low<=Math.min(x.open,x.close,x.high))
+  .sort((a,b)=>Date.parse(a.time)-Date.parse(b.time));
+ if(candles.length<2)throw new Error('Equity provider returned insufficient valid OHLC candles.');
+ const closes=candles.map(x=>x.close),highs=candles.map(x=>x.high),lows=candles.map(x=>x.low),vols=candles.map(x=>x.volume);
+ const positiveValue=(value,fallback)=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):fallback;
+ const price=positiveValue(meta.regularMarketPrice,closes.at(-1)); if(!(price>0))throw new Error('Equity price unavailable.');
+ const prev=positiveValue(meta.chartPreviousClose,positiveValue(meta.previousClose,closes.at(-2)??price));
  const changePct=prev?((price-prev)/prev)*100:0, s20=sma(closes,20),s50=sma(closes,50);
  const avgVol=vols.length?sma(vols,Math.min(20,vols.length)):null,volume=vols.at(-1)??null,volumeRatio=avgVol&&avgVol>0?volume/avgVol:null;
  const rr=rsi(closes), recentHigh=Math.max(...highs.slice(-24)),recentLow=Math.min(...lows.slice(-24));
  const momentum=(Number.isFinite(s20)&&s20?((price/s20)-1)*100:0);
  const score=Math.round(Math.max(0,Math.min(100,50+changePct*4+momentum*3+(rr>55?8:rr<45?-8:0)+(volumeRatio&&volumeRatio>1.25?8:0))));
- const candles=(result.timestamp||[]).map((ts,i)=>({time:new Date(Number(ts)*1000).toISOString(),open:Number(q.open?.[i]),high:Number(q.high?.[i]),low:Number(q.low?.[i]),close:Number(q.close?.[i]),volume:Number(q.volume?.[i])})).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite));
- if(candles.length<2)throw new Error('Equity provider returned insufficient candles.');
  const atrV=atr(candles.map(x=>[new Date(x.time).getTime(),x.open,x.high,x.low,x.close,x.volume]))||Math.max(price*0.01,Math.abs(recentHigh-recentLow)/4);
  const direction=price>s20&&price>s50&&rr>=50?'BULLISH':price<s20&&price<s50&&rr<50?'BEARISH':'MIXED';
  const riskScore=Math.min(100,Math.max(10,Math.round(45+(rr>70?18:rr<40?8:0)+(price<s50?15:0)+(volumeRatio&&volumeRatio>1.8?5:0)+(Math.abs(momentum)>6?5:0))));
@@ -779,7 +784,7 @@ async function liveEquity(ticker){
  const sourceEpoch=Number(meta.regularMarketTime)>0?Number(meta.regularMarketTime)*1000:(candles.at(-1)?.time?Date.parse(candles.at(-1).time):Date.now());
  const sourceAgeMs=Math.max(0,Date.now()-sourceEpoch);
  const liveFresh=sourceAgeMs<=EXECUTION_FRESHNESS_MS && sourceRange==='5d/1h';
- const report={ticker:String(ticker).toUpperCase().replace(/\\.(NS|BO)$/i,''),symbol,market,exchange,name:String(meta.longName||meta.shortName||ticker),currency,price,previous:prev,changePct,dayHigh:Number(meta.regularMarketDayHigh??Math.max(...highs.slice(-24))),dayLow:Number(meta.regularMarketDayLow??Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atrV,support,resistance,direction,riskScore,candles,live:liveFresh,executionEligible:liveFresh,sourceAgeMs,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,listingExchange,asOf:new Date(sourceEpoch).toISOString(),dataFreshness:liveFresh?'FRESH_SOURCE':'STALE_SOURCE',dataDisclaimer:'Recent/unofficial market data for analysis only; verify the broker/exchange quote before acting.'};
+ const report={ticker:String(ticker).toUpperCase().replace(/\\.(NS|BO)$/i,''),symbol,market,exchange,name:String(meta.longName||meta.shortName||ticker),currency,price,previous:prev,changePct,dayHigh:positiveValue(meta.regularMarketDayHigh,Math.max(...highs.slice(-24))),dayLow:positiveValue(meta.regularMarketDayLow,Math.min(...lows.slice(-24))),rsi:rr,sma20:s20,sma50:s50,volume,volumeRatio,recentHigh,recentLow,momentum,score,atr:atrV,support,resistance,direction,riskScore,candles,live:liveFresh,executionEligible:liveFresh,sourceAgeMs,provider:`Yahoo Finance chart adapter · ${sourceRange} (unofficial; recent/delayed data may apply)`,providerLatencyMs:Date.now()-started,listingExchange,asOf:new Date(sourceEpoch).toISOString(),dataFreshness:liveFresh?'FRESH_SOURCE':'STALE_SOURCE',dataDisclaimer:'Recent/unofficial market data for analysis only; verify the broker/exchange quote before acting.'};
  rememberYahooLastGood(symbol,report);
  return report;
 }
