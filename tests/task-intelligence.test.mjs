@@ -30,5 +30,8 @@ assert.match(serverContract,/searchWeb\(discovery\.query,\{count:4,freeOnly:true
 assert.match(serverContract,/quoteEligible:false/,'supplemental headlines must never be eligible market quotes');
 const research=planFinancialTask('Why did Reliance announce an acquisition?');
 assert.equal(research.taskType,'NEWS_OR_FUNDAMENTAL_RESEARCH'); assert.equal(research.forecastPolicy,'RESEARCH_ONLY');
+assert.ok(indian.sourcePlan.some(x=>x.id==='tej-eod'));
+assert.equal(getSourceCatalog().find(x=>x.id==='tej-eod').liveCapability,'END_OF_DAY');
+assert.ok(getSourceCatalog().find(x=>x.id==='tej-eod').dataTypes.includes('historical_ohlcv'));
 assert.ok(getSourceCatalog().length>=10); assert.equal(getSourceCatalog().find(x=>x.id==='google-news').liveCapability,'HEADLINES_ONLY');
 console.log('task-intelligence: asset routing, source plans and quote safety checks passed');
