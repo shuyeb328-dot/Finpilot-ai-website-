@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {planFinancialTask,getSourceCatalog} from '../server/task-intelligence.mjs';
+const indian=planFinancialTask('Analyse IRFC for intraday trading with ₹1,000');
+assert.equal(indian.assetClass,'INDIAN_EQUITY'); assert.equal(indian.taskType,'TRADE_SCENARIO'); assert.equal(indian.needsQuote,true);
+assert.ok(indian.sourcePlan.some(x=>x.id==='nse')); assert.ok(indian.sourcePlan.some(x=>x.id==='bse')); assert.ok(!indian.sourcePlan.some(x=>x.id==='binance')); assert.ok(indian.requiredData.includes('provider_timestamp'));
+const crypto=planFinancialTask('Analyse BTC/USDT live');
+assert.equal(crypto.assetClass,'CRYPTO'); assert.ok(crypto.sourcePlan.some(x=>x.id==='binance')); assert.ok(crypto.sourcePlan.some(x=>x.id==='kraken')); assert.ok(crypto.sourcePlan.some(x=>x.id==='coinbase'));
+const options=planFinancialTask('NIFTY option chain for tomorrow expiry and implied volatility');
+assert.equal(options.assetClass,'OPTIONS'); assert.equal(options.taskType,'DERIVATIVES_ANALYSIS'); assert.ok(options.requiredData.includes('contract_specification')); assert.ok(options.sourcePlan.some(x=>x.id==='nse'));
+const global=planFinancialTask('Analyse Nvidia stock for next 30 days');
+assert.equal(global.assetClass,'GLOBAL_EQUITY'); assert.ok(global.sourcePlan.some(x=>x.id==='sec')); assert.ok(!global.sourcePlan.some(x=>x.id==='binance'));
+const research=planFinancialTask('Why did Reliance announce an acquisition?');
+assert.equal(research.taskType,'NEWS_OR_FUNDAMENTAL_RESEARCH'); assert.equal(research.forecastPolicy,'RESEARCH_ONLY');
+assert.ok(getSourceCatalog().length>=10); assert.equal(getSourceCatalog().find(x=>x.id==='google-news').liveCapability,'HEADLINES_ONLY');
+console.log('task-intelligence: asset routing, source plans and quote safety checks passed');

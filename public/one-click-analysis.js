@@ -531,8 +531,14 @@
     };
 
     try{
+      let taskPlan=null;
+      try{
+        const routed=await fetchJsonBounded('/api/task-intelligence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})},5000,'Task intelligence routing');
+        taskPlan=routed?.plan||null;
+      }catch(e){ taskPlan=null; }
+      window.__fpTaskPlan=taskPlan;
       let searchWarning='';
-      stage('1/6 · Searching live evidence for “'+query+'”…');
+      stage(taskPlan?'1/6 · '+taskPlan.assetClass+' / '+taskPlan.taskType+' · selecting relevant sources…':'1/6 · Searching live evidence for “'+query+'”…');
 
       const searchPromise=(async()=>{
         try{
@@ -574,6 +580,7 @@
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
       const broadRequest=isBroadMarketRequest(query);
+      if(candidate&&taskPlan)candidate.taskPlan={assetClass:taskPlan.assetClass,taskType:taskPlan.taskType,sourcePlan:taskPlan.sourcePlan,requiredData:taskPlan.requiredData,forecastPolicy:taskPlan.forecastPolicy};
       if(!candidate&&!broadRequest&&shouldResolveInstrumentQuery(query)){
         try{
           candidate=await resolveInstrumentFromDirectory(query);
