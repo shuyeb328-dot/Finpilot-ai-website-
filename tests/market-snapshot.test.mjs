@@ -31,7 +31,8 @@ assert.equal(valid.timing.ageMs,30_000,'snapshot age should be computed from sou
 const observationOnly=buildMarketSnapshot({...liveEquity,sourceTimestampType:'OBSERVATION_TIMESTAMP'},{requestedTicker:'IRFC',capturedAt});
 assert.equal(observationOnly.quality.status,'UNVERIFIED_TIMESTAMP_SOURCE','local observation time must not be treated as a provider quote timestamp');
 assert.equal(observationOnly.quality.forecastEligible,false,'observation-only quote must never pass the paper/forecast gate');
-const missingTimestampType=buildMarketSnapshot(({sourceTimestampType,...withoutTimestampType})=>withoutTimestampType)(liveEquity),{requestedTicker:'IRFC',capturedAt});
+const {sourceTimestampType:_ignoredTimestampType,...withoutTimestampType}=liveEquity;
+const missingTimestampType=buildMarketSnapshot(withoutTimestampType,{requestedTicker:'IRFC',capturedAt});
 assert.equal(missingTimestampType.quality.status,'UNVERIFIED_TIMESTAMP_SOURCE','missing timestamp provenance must fail closed');
 
 const stale=buildMarketSnapshot({...liveEquity,asOf:'2026-10-09T05:55:00.000Z'},{requestedTicker:'IRFC',capturedAt});
