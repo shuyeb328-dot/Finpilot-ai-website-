@@ -6,6 +6,7 @@ const MAX_FUTURE_MS=5*60*1000;
 
 function optionalNumber(value,name,min,max){
  if(value===undefined||value===null||value==='')return {ok:true,value:null};
+ if(typeof value==='boolean'||typeof value==='object')return {ok:false,error:'INVALID_'+name.toUpperCase()};
  const n=Number(value);
  if(!Number.isFinite(n)||n<min||n>max)return {ok:false,error:'INVALID_'+name.toUpperCase()};
  return {ok:true,value:n};
@@ -24,6 +25,7 @@ export function normalizeMarketTick(input,nowMs=Date.now()){
  if(!TICKER_RE.test(ticker))return {ok:false,error:'INVALID_TICKER'};
  const symbol=cleanText(input.symbol||ticker,48).toUpperCase();
  if(!SYMBOL_RE.test(symbol))return {ok:false,error:'INVALID_SYMBOL'};
+ if(input.price===undefined||input.price===null||input.price==='')return {ok:false,error:'INVALID_PRICE'};
  const price=optionalNumber(input.price,'price',Number.MIN_VALUE,MAX_PRICE);
  if(!price.ok)return price;
  const change=optionalNumber(input.changePct??input.change_pct,'change_pct',-100,10000);
