@@ -49,5 +49,10 @@ assert.match(server,/primaryAgeMs>EXECUTION_FRESHNESS_MS/,'Market Data OS must t
 assert.match(server,/if\(primary\)quotes\.splice\(quoteCountBeforePrimary\)/,'stale primary quote must not outrank the EOD analysis fallback');
 assert.match(server,/executionReady=Boolean\(verified&&winner\.live!==false/,'EOD fallback must remain execution-ineligible');
 assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
+assert.match(server,/Stooq public EOD · no API key · analysis only/,'independent no-key global EOD source must be explicitly analysis-only');
+assert.match(server,/addProvider\('stooq-public',async\(\)=>\{/,'keyless Stooq source must be registered as an independent provider');
+assert.match(server,/id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback'/,'provider status must expose the keyless source as configured');
+assert.match(server,/for\(const p of providers\)\{try\{return await trackedProvider\(p.id,p.run\)/,'provider cooldown/health tracking must use explicit provider IDs, not array positions');
+assert.match(server,/provider:'Stooq public EOD · no API key · analysis only',live:false/,'keyless EOD provider must never be marked live');
 
 console.log('Market data stream contract checks passed.');

@@ -746,8 +746,9 @@ async function fetchNseIndex(indexKey){
 
 async function fetchGlobalProviderQuote(symbol){
  const providers=[];
+ const addProvider=(id,run)=>providers.push({id,run});
  const td=process.env.TWELVEDATA_API_KEY;
- if(td)providers.push(async()=>{
+ if(td)addProvider('twelvedata',async()=>{
   const u='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(symbol)+'&interval=1day&outputsize=30&apikey='+encodeURIComponent(td);
   const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(8000)});const d=await r.json();
   if(!r.ok||d.status==='error'||!Array.isArray(d.values)||!d.values.length)throw new Error('TwelveData unavailable');
@@ -756,7 +757,7 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Twelve Data · licensed API key',live:false};
  });
  const fh=process.env.FINNHUB_API_KEY;
- if(fh)providers.push(async()=>{
+ if(fh)addProvider('finnhub',async()=>{
   const to=Math.floor(Date.now()/1000),from=to-120*86400;
   const u='https://finnhub.io/api/v1/stock/candle?symbol='+encodeURIComponent(symbol)+'&resolution=D&from='+from+'&to='+to+'&token='+encodeURIComponent(fh);
   const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(8000)});const d=await r.json();
@@ -766,7 +767,7 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Finnhub · licensed API key',live:false};
  });
  const av=process.env.ALPHAVANTAGE_API_KEY;
- if(av)providers.push(async()=>{
+ if(av)addProvider('alphavantage',async()=>{
   const u='https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol='+encodeURIComponent(symbol)+'&outputsize=compact&apikey='+encodeURIComponent(av);
   const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(9000)});const d=await r.json();
   const series=d['Time Series (Daily)'];if(!r.ok||!series)throw new Error(String(d.Note||d.Information||'AlphaVantage unavailable'));
@@ -775,7 +776,7 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Alpha Vantage · API key',live:false};
  });
  const ms=process.env.MARKETSTACK_API_KEY;
- if(ms)providers.push(async()=>{
+ if(ms)addProvider('marketstack',async()=>{
   const u='https://api.marketstack.com/v1/eod?access_key='+encodeURIComponent(ms)+'&symbols='+encodeURIComponent(symbol)+'&limit=30';
   const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.5'},signal:AbortSignal.timeout(9000)});
   const d=await r.json();
@@ -785,7 +786,7 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Marketstack · free-tier/API key',live:false};
  });
  const fmp=process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY;
- if(fmp)providers.push(async()=>{
+ if(fmp)addProvider('fmp',async()=>{
   const u='https://financialmodelingprep.com/api/v3/historical-price-full/'+encodeURIComponent(symbol)+'?timeseries=30&apikey='+encodeURIComponent(fmp);
   const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.5'},signal:AbortSignal.timeout(9000)});
   const d=await r.json();
@@ -794,8 +795,30 @@ async function fetchGlobalProviderQuote(symbol){
   if(rows.length<2)throw new Error('FMP insufficient candles');
   return {rows,provider:'Financial Modeling Prep · free-tier/API key',live:false};
  });
+ // Keyless Stooq EOD is an independent, no-cost analysis fallback.
+ // It is never considered live or execution-eligible; symbol coverage varies by exchange.
+ addProvider('stooq-public',async()=>{
+  const raw=String(symbol).trim().toLowerCase();
+  const candidates=/\.(us|uk|de|fr|jp|hk|ca|au)$/.test(raw)?[raw]:[/^[a-z0-9.-]+$/.test(raw)?raw+'.us':raw,raw];
+  let lastError='Stooq public EOD unavailable';
+  for(const stooqSymbol of [...new Set(candidates)]){
+   try{
+    const u='https://stooq.com/q/d/l/?s='+encodeURIComponent(stooqSymbol)+'&i=d';
+    const r=await fetch(u,{headers:{'Accept':'text/csv','User-Agent':'FinPilot/8.6 market-data adapter'},signal:AbortSignal.timeout(8000)});
+    const txt=await r.text();
+    if(!r.ok||/^N\/D|Exceeded|<html/i.test(txt))throw new Error('Stooq public HTTP/data unavailable');
+    const lines=txt.trim().split(/\r?\n/);
+    if(lines.length<3)throw new Error('Stooq public EOD insufficient candles');
+    const head=lines.shift().split(',').map(x=>x.trim().toLowerCase());
+    const rows=lines.map(line=>{const v=line.split(',');const o=Object.fromEntries(head.map((k,i)=>[k,v[i]]));return {time:new Date(o.date+'T00:00:00Z').toISOString(),open:Number(o.open),high:Number(o.high),low:Number(o.low),close:Number(o.close),volume:Number(o.volume||0)}}).filter(x=>Number.isFinite(Date.parse(x.time))&&[x.open,x.high,x.low,x.close].every(v=>Number.isFinite(v)&&v>0));
+    if(rows.length<2)throw new Error('Stooq public EOD insufficient valid candles');
+    return {rows,provider:'Stooq public EOD · no API key · analysis only',live:false};
+   }catch(e){lastError=String(e?.message||e)}
+  }
+  throw new Error(lastError);
+ });
  const sq=process.env.STOOQ_API_KEY;
- if(sq)providers.push(async()=>{
+ if(sq)addProvider('stooq',async()=>{
   const stooqSymbol=String(symbol).toLowerCase();
   const u='https://stooq.com/q/d/l/?s='+encodeURIComponent(stooqSymbol)+'&i=d&apikey='+encodeURIComponent(sq);
   const r=await fetch(u,{headers:{'Accept':'text/csv','User-Agent':'FinPilot/8.4'},signal:AbortSignal.timeout(9000)});const txt=await r.text();
@@ -806,7 +829,7 @@ async function fetchGlobalProviderQuote(symbol){
   return {rows,provider:'Stooq · API key',live:false};
  });
  let last='No configured global market provider';
- for(let i=0;i<providers.length;i++){const id=['twelvedata','finnhub','alphavantage','stooq'][i];try{return await trackedProvider(id,providers[i])}catch(e){last=e?.message||last}}
+ for(const p of providers){try{return await trackedProvider(p.id,p.run)}catch(e){last=e?.message||last}}
  throw new Error(last);
 }
 const MARKET_PROVIDER_HEALTH=new Map();
@@ -910,6 +933,7 @@ function globalProviderStatus(){
   {id:'twelvedata',configured:Boolean(process.env.TWELVEDATA_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities/ETFs',mode:'licensed API key'},
   {id:'finnhub',configured:Boolean(process.env.FINNHUB_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'licensed API key'},
   {id:'alphavantage',configured:Boolean(process.env.ALPHAVANTAGE_API_KEY),role:'global daily OHLCV fallback',coverage:'International equities',mode:'API key'},
+  {id:'stooq-public',configured:true,role:'no-key global EOD analysis fallback',coverage:'US/global securities subject to Stooq symbol coverage',mode:'public EOD · analysis only'},
   {id:'stooq',configured:Boolean(process.env.STOOQ_API_KEY),role:'EOD fallback',coverage:'Global securities subject to provider coverage',mode:'API key'},
   {id:'marketstack',configured:Boolean(process.env.MARKETSTACK_API_KEY),role:'global EOD fallback',coverage:'Worldwide exchange/ticker metadata and EOD data',mode:'free tier/API key'},
   {id:'fmp',configured:Boolean(process.env.FMP_API_KEY||process.env.FINANCIAL_MODELING_PREP_API_KEY),role:'US/global fallback',coverage:'Market data plus fundamentals where plan permits',mode:'free tier/API key'}
