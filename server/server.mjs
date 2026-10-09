@@ -11,6 +11,7 @@ import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
 import {normalizeMarketTick} from './market-tick-contract.mjs';
 import {createBoundedRateLimiter} from './bounded-rate-limiter.mjs';
+import {isAllowedRequestOrigin,MAX_REQUEST_BODY_BYTES} from './request-security.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
@@ -47,7 +48,14 @@ const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>
  if(cors)h['Access-Control-Allow-Origin']=cors;
  res.writeHead(status,h);res.end(typeof body==='string'?body:JSON.stringify(body));
 };
-async function body(req){if(req._parsedBody!==undefined)return req._parsedBody;let b=''; for await(const c of req)b+=c; try{req._parsedBody=JSON.parse(b||'{}')}catch{req._parsedBody={}} req._bodyCache=JSON.stringify(req._parsedBody);return req._parsedBody}
+async function body(req){
+ if(req._parsedBody!==undefined)return req._parsedBody;
+ let b='',bytes=0,tooLarge=false;
+ for await(const c of req){bytes+=c.length;if(bytes>MAX_REQUEST_BODY_BYTES){tooLarge=true;continue}if(!tooLarge)b+=c}
+ if(tooLarge){const e=new Error('REQUEST_BODY_TOO_LARGE');e.statusCode=413;throw e}
+ try{req._parsedBody=JSON.parse(b||'{}')}catch{req._parsedBody={}}
+ req._bodyCache=JSON.stringify(req._parsedBody);return req._parsedBody
+}
 const AI_FREE_LIMIT=Number(process.env.FINPILOT_AI_FREE_LIMIT||20);
 const AI_FREE_WINDOW_MS=24*60*60*1000;
 const AI_USAGE=new Map();
@@ -76,8 +84,7 @@ async function ai(req,res){
   const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${cfg.key}`},body:JSON.stringify(payload)});
   const t=await r.text();
   if(r.ok)usage.count++;
-  res.writeHead(r.status,{'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Cache-Control':'no-store','X-FinPilot-AI-Tier':'FREE'});
-  res.end(t);
+  return send(res,r.status,t,'application/json; charset=utf-8',{'X-FinPilot-AI-Tier':'FREE'});
  }catch(e){return send(res,502,{ok:false,error:'AI_PROVIDER_UNAVAILABLE',tier:'FREE',used:usage.count,remaining:AI_FREE_LIMIT-usage.count,message:e.message});}
 }
 async function simulate(req,res){
@@ -1897,10 +1904,24 @@ function health70(req,res){
 
 const server=http.createServer(async(req,res)=>{
  const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','8.6');
- try{ if(!rateCheck(req)){SECURITY.blocked++; return send(res,429,{ok:false,error:'RATE_LIMITED',requestId:rid});}
-
-  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'});return res.end();}
-  const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
+ try{
+  if(!rateCheck(req)){SECURITY.blocked++;return send(res,429,{ok:false,error:'RATE_LIMITED',requestId:rid});}
+  const origin=String(req.headers.origin||'');
+  const forwardedProto=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim();
+  const requestProtocol=forwardedProto||(req.socket?.encrypted?'https':'http');
+  const originAllowed=isAllowedRequestOrigin({origin:req.headers.origin,host:req.headers.host,allowedOrigin:process.env.ALLOWED_ORIGIN||'',requestProtocol});
+  if((req.method==='POST'||req.method==='OPTIONS')&&!originAllowed){
+   SECURITY.blocked++;securityEvent('CROSS_ORIGIN_WRITE_BLOCKED','Origin policy rejected '+origin.slice(0,120));
+   return send(res,403,{ok:false,error:'CROSS_ORIGIN_WRITE_BLOCKED',requestId:rid});
+  }
+  if(req.method==='OPTIONS'){
+   const headers={'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization','Access-Control-Max-Age':'600'};
+   if(origin)headers['Access-Control-Allow-Origin']=origin;
+   return send(res,204,'','text/plain; charset=utf-8',headers);
+  }
+  const contentLength=Number(req.headers['content-length']||0);
+  if(Number.isFinite(contentLength)&&contentLength>MAX_REQUEST_BODY_BYTES){req.resume();return send(res,413,{ok:false,error:'REQUEST_BODY_TOO_LARGE',requestId:rid});}
+  const u=new URL(req.url,'http://'+(req.headers.host||'localhost'));
 
   if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
@@ -1978,7 +1999,7 @@ if(req.method==='GET'&&u.pathname==='/api/market-provenance')return marketProven
   if(req.method==='GET'&&u.pathname==='/api/ai-plan')return aiPlan(req,res);
   if(req.method==='POST'&&u.pathname==='/api/ai')return ai(req,res);
   return staticFile(req,res,u);
- }catch(e){send(res,500,{ok:false,error:e.message})}
+ }catch(e){const status=Number(e?.statusCode)===413?413:500;send(res,status,{ok:false,error:status===413?'REQUEST_BODY_TOO_LARGE':'INTERNAL_SERVER_ERROR',requestId:rid})}
 });
 server.on('error',(e)=>{console.error(`FinPilot Web server error: ${e.message}`);process.exitCode=1;});
 const AUTONOMOUS_CORE_SCHEDULER=setInterval(async()=>{
