@@ -129,7 +129,9 @@ function trimSearchCache(){
  while(SEARCH_CACHE.size>SEARCH_CACHE_MAX)SEARCH_CACHE.delete(SEARCH_CACHE.keys().next().value);
 }
 async function searchWebUncached(q,count,requested){
- const order=requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['exa','serpapi','brave','tavily','google','google-news-rss'];
+ const allowPaidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
+ // Keep the default search path free: use Google News RSS first and do not call metered APIs unless explicitly enabled.
+ const order=requested==='free'?['google-news-rss']:requested==='auto'&&!allowPaidFallback?['google-news-rss']:requested==='auto'?['google-news-rss','exa','serpapi','brave','tavily','google']:requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['google-news-rss'];
  const errors=[];
  for(const p of order){
   try{
