@@ -1360,7 +1360,7 @@ function optimizeOS(req,res){
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
 function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
-function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.1',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
+function health70(req,res){const dataQuality=DATA_HEALTH.freshness;const status=dataQuality==='STALE'?'DEGRADED':'OPERATIONAL';return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',status,autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality,dataQualityScore:DATA_HEALTH.qualityScore,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),security:'hardened',realtime:true,execution:'human-approval-gated',executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,frontendSyntax:frontendSyntax(),timestamp:new Date().toISOString()});}
 
 const server=http.createServer(async(req,res)=>{
  const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
@@ -1405,7 +1405,6 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',time:new Date().toISOString(),security:'hardened',realtime:true,executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
