@@ -15,11 +15,11 @@ function positive(value) {
 }
 
 export function normalizeMarketSymbol(value) {
-  return String(value || '').trim().toUpperCase().replace(/\\.(?:NS|BO)$/, '').replace(/\\s+/g, '');
+  return String(value || '').trim().toUpperCase().replace(/\.(?:NS|BO)$/, '').replace(/\s+/g, '');
 }
 
 function timestampMs(value) {
-  if (typeof value === 'number' || (typeof value === 'string' && /^\\d{10,13}$/.test(value.trim()))) {
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d{10,13}$/.test(value.trim()))) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
     return n < 100_000_000_000 ? n * 1000 : n;
