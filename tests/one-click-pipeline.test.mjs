@@ -26,7 +26,7 @@ assert.match(deepText, /hasPhrase\(corpus,c\[0\]\)/, 'resolver should match whol
 assert.doesNotMatch(deepText, /corpus\.includes\(c\[0\]\)/, 'substring-based ticker false positives must not return');
 assert.match(moduleText, /\[o,h,l,c\]\.every\(v=>Number\.isFinite\(v\)&&v>0\)/, 'chart analysis must discard zero-price candles');
 assert.match(moduleText, /const s20=positive\(market\.sma20\),s50=positive\(market\.sma50\)/, 'null/zero moving averages must remain unavailable');
-assert.match(moduleText, /report\.chartAnalysis\?\.sma50>0\?.*'N\/A'/, 'missing SMA50 should render N/A instead of ₹0.00');
+assert.match(moduleText, /const chartPrice=value=>Number\(value\)>0\?.*:'N\/A'/, 'missing or zero-price chart indicators should render N/A instead of ₹0.00');
 assert.match(serverText, /Equity provider returned insufficient valid OHLC candles/, 'server should reject a series after invalid candles are filtered');
 assert.match(serverText, /x\.high>=Math\.max\(x\.open,x\.close,x\.low\)/, 'server candles must pass OHLC consistency validation');
 assert.match(moduleText, /Resolved market quote request/, 'reload market data for the search-resolved instrument when symbols disagree');
