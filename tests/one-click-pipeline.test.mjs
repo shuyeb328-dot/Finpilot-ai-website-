@@ -237,4 +237,15 @@ assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer
 assert.match(serverText, /const agent=clean\(row\?\.agent,64\)/, 'agent identifiers must be sanitized before they enter server memory');
 assert.match(serverText, /const lesson=clean\(row\?\.lesson\|\|'',600\)/, 'client-provided telemetry lessons must be bounded before storage');
 
+
+assert.ok(pageText.includes('/forecast-evaluation.js?v=20261010-1'), 'the probability evaluation module must load before One-Click Analysis');
+assert.ok(moduleText.includes('window.FinPilotForecastEvaluation?.normalizeProbabilities(rawProbabilities)'), 'forecast records must validate the complete up/down/hold probability vector');
+assert.ok(moduleText.includes('value===null||value===undefined||String(value).trim()===''), 'missing probabilities must remain missing rather than being coerced to zero');
+assert.ok(moduleText.includes('forecastEvaluator?.resolveMatured(state.forecastLedger,marketSnapshot)'), 'mature forecasts must be resolved only against the incoming verified snapshot');
+assert.ok(moduleText.includes('forecastEvaluationSummary=forecastEvaluator?.summarize(state.forecastLedger)'), 'analysis must retain measured forecast scorecard diagnostics');
+assert.ok(moduleText.includes('Mean Brier score ↓')&&moduleText.includes('Mean log loss ↓'), 'forecast results should expose proper scoring-rule metrics in the UI');
+assert.ok(moduleText.includes('Probabilities calibrated:</b> NO.'), 'raw heuristic probability estimates must not be labelled calibrated');
+assert.ok(moduleText.includes('probabilitySource:\'FINPILOT_SCENARIO_HEURISTIC\''), 'forecast records must identify the source as an uncalibrated scenario heuristic');
+assert.ok(moduleText.includes('forecastStatus:eligible?\'PENDING_OUTCOME\':!snapshotEligible?\'BLOCKED_UNVERIFIED_DATA\':\'BLOCKED_INVALID_PROBABILITY_VECTOR\''), 'invalid probability vectors must be blocked independently of quote eligibility');
+
 console.log('one-click-pipeline: contract checks passed');
