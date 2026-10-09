@@ -56,6 +56,8 @@ assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must
 assert.match(serverText, /const status=dataQuality==='STALE'\?'DEGRADED':'OPERATIONAL'/, 'health endpoint must derive service status from data quality');
 assert.match(serverText, /version:'8[.]6'/, 'health endpoint must expose the expected service version');
 assert.match(serverText, /X-FinPilot-Version':'8[.]6'/, 'API version header must match the health endpoint version');
+assert.match(serverText, /res\.setHeader\('X-FinPilot-Version','8[.]6'\)/, 'default API response header must match the service version');
+assert.match(serverText, /'X-FinPilot-Version':'8[.]6'/, 'market event stream must expose the service version');
 assert.match(serverText, /dataQuality,dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose data quality and its score');
 assert.match(serverText, /x\.timestampType==='PROVIDER_TIMESTAMP'/, 'market data must require a provider-supplied timestamp before execution verification');
 assert.match(serverText, /const ts=x\.asOf/, 'local observation time must not make an undated quote appear fresh');
