@@ -1971,6 +1971,16 @@ if(req.method==='GET'&&u.pathname==='/api/market-provenance')return marketProven
  }catch(e){send(res,500,{ok:false,error:e.message})}
 });
 server.on('error',(e)=>{console.error(`FinPilot Web server error: ${e.message}`);process.exitCode=1;});
+const AUTONOMOUS_CORE_SCHEDULER=setInterval(async()=>{
+ if(getAutonomousCoreMode()!=='SAFE_AUTONOMY')return;
+ try{
+  const result=await runAutonomousCoreCycle(osControlPlaneObservations());
+  audit('AUTONOMOUS_CORE_SCHEDULED_CYCLE',{cycleId:result.id,taskCount:result.tasks.length,actionsExecuted:result.actionsExecuted.length});
+  emitEvent('OS_CONTROL_SCHEDULED_CYCLE',{cycleId:result.id,taskCount:result.tasks.length},50);
+ }catch(e){audit('AUTONOMOUS_CORE_SCHEDULE_ERROR',{error:String(e?.message||e).slice(0,160)});}
+},5*60*1000);
+AUTONOMOUS_CORE_SCHEDULER.unref?.();
+
 async function runFinPilotSmoke50(){
  const queries=['best stock today','TCS analysis','RELIANCE analysis','INFY stock','HDFCBANK','ICICIBANK','SBIN','LT','ITC','TATAPOWER','TATASTEEL','SUNPHARMA','TRENT','TECHM','HCLTECH','INDIGO','JUBLFOOD','PAYTM','IRFC','BHARTIARTL','ADANIPORTS','BAJFINANCE','HINDALCO','WIPRO','MARUTI','AXISBANK','KOTAKBANK','GAIL','HINDZINC','Nifty 50','best intraday stock','stock for 1000 rupees','low risk stock','momentum stock','breakout stock','IT stocks','bank stocks','FMCG stocks','energy stocks','auto stocks','pharma stocks','defensive stock','swing trade stock','today trading','best stock India','top NSE stock','chart TCS','chart RELIANCE','chart SBIN','best stock for trading today'];
  let pass=0,fail=0,providerCounts={};
