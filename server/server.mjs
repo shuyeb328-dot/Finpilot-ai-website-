@@ -738,7 +738,7 @@ function canonicalProviderHealthId(value){
 }
 function aggregateDataHealthSources(now=Date.now()){
  const staleAfter=Number(DATA_HEALTH_STALE_AFTER_MS)||120000;
- const rank={HEALTHY:0,UNKNOWN:1,STALE:2,DEGRADED:3};
+ const rank={UNKNOWN:1,HEALTHY:2,STALE:3,DEGRADED:4};
  const grouped=new Map();
  for(const [name,raw] of Object.entries(DATA_HEALTH.sources||{})){
   const id=canonicalProviderHealthId(name);
@@ -747,7 +747,7 @@ function aggregateDataHealthSources(now=Date.now()){
   let status=String(raw.status||'UNKNOWN').toUpperCase();
   if(status==='HEALTHY'&&lastSuccessAgeMs!==null&&lastSuccessAgeMs>staleAfter)status='STALE';
   if(!['HEALTHY','DEGRADED','STALE','UNKNOWN'].includes(status))status='UNKNOWN';
-  const existing=grouped.get(id)||{id,status:'UNKNOWN',adapterNames:[],lastSuccess:null,lastSuccessAgeMs:null,lastError:null,latencyMs:null,requests:0,success:0,failures:0};
+  const existing=grouped.get(id)||{id,status,adapterNames:[],lastSuccess:null,lastSuccessAgeMs:null,lastError:null,latencyMs:null,requests:0,success:0,failures:0};
   existing.adapterNames.push(name);
   if((rank[status]??1)>(rank[existing.status]??1))existing.status=status;
   if(Number.isFinite(parsed)&&(!existing.lastSuccess||parsed>Date.parse(existing.lastSuccess))){
