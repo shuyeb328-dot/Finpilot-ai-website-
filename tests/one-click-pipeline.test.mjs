@@ -50,6 +50,10 @@ assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback 
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
 assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
+assert.match(serverText, /const baseAsset=key\.replace\(\/USDT\$\/,''\)/, 'crypto provider fallbacks must normalize BTCUSDT-style aliases before building fallback pair names');
+assert.match(serverText, /const krakenPair=baseAsset==='BTC'\?'XBTUSD':baseAsset\+'USD'/, 'Kraken fallback must use its XBT symbol for BTC aliases and the canonical base asset for other coins');
+assert.match(serverText, /const coinPair=baseAsset\+'-USD'/, 'Coinbase fallback must use a canonical BASE-USD pair rather than appending USD to USDT aliases');
+assert.match(serverText, /const name=baseAsset;/, 'crypto reports must expose the canonical base symbol to market snapshot validation');
 assert.match(serverText, /provider:'google-search-bridge',results:\[\],externalUrl:google/, 'free search failures should return a usable external Google Search fallback instead of HTTP 502');
 assert.match(serverText, /fallback:'GOOGLE_SEARCH_BRIDGE'/, 'the search API must label its Google fallback explicitly');
 assert.match(pageText, /d\.fallback==='GOOGLE_SEARCH_BRIDGE'/, 'search UI must show the friendly fallback message');

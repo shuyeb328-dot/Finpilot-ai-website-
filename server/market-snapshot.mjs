@@ -15,7 +15,7 @@ function positive(value) {
 }
 
 export function normalizeMarketSymbol(value) {
-  return String(value || '').trim().toUpperCase().replace(/\.(?:NS|BO)$/, '').replace(/\s+/g, '');
+  return String(value || '').trim().toUpperCase().replace(/\.(?:NS|BO)$/, '').replace(/USDT$/, '').replace(/\s+/g, '');
 }
 
 function timestampMs(value) {

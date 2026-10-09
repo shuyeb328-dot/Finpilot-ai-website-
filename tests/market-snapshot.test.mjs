@@ -16,6 +16,8 @@ const liveEquity={
 
 assert.equal(normalizeMarketSymbol(' irfc.ns '),'IRFC','exchange suffix should not change instrument identity');
 assert.equal(normalizeMarketSymbol('XRP'),'XRP','crypto ticker should normalize without changes');
+assert.equal(normalizeMarketSymbol('BTCUSDT'),'BTC','USDT quote aliases must normalize to the base asset for snapshot matching');
+assert.equal(normalizeMarketSymbol('ETHUSDT'),'ETH','USDT quote aliases must normalize consistently across crypto assets');
 
 const valid=buildMarketSnapshot(liveEquity,{requestedTicker:'IRFC.NS',interval:'1m',capturedAt});
 assert.equal(valid.schemaVersion,1,'snapshot schema must be versioned');
@@ -49,6 +51,11 @@ const crypto=buildMarketSnapshot({...liveEquity,ticker:'XRP',market:'CRYPTO',exc
 assert.equal(crypto.instrument.market,'CRYPTO','crypto asset class should be preserved');
 assert.equal(crypto.instrument.currency,'USD','crypto currency should default to USD');
 assert.equal(crypto.quality.forecastEligible,true,'fresh crypto snapshot should be eligible when OHLC and quote are valid');
+
+const cryptoAlias=buildMarketSnapshot({...liveEquity,ticker:'BTC',name:'Bitcoin',market:'CRYPTO',exchange:'Kraken',currency:'USD',price:82354.5,live:true,asOf:capturedAt,provider:'Kraken public market data fallback',candles:goodCandles.slice(0,3)},{requestedTicker:'BTCUSDT',capturedAt});
+assert.equal(cryptoAlias.instrument.symbolMatches,true,'BTCUSDT alias should match the canonical BTC provider symbol');
+assert.equal(cryptoAlias.quality.status,'VERIFIED_LIVE','valid BTC provider data should remain forecast-eligible for BTCUSDT alias queries');
+assert.equal(cryptoAlias.quality.forecastEligible,true,'quote suffix normalization must not suppress a valid crypto snapshot');
 
 const unavailable=buildMarketSnapshot(null,{requestedTicker:'BTC',capturedAt});
 assert.equal(unavailable.quality.status,'UNAVAILABLE','missing provider data must not create a fabricated quote');

@@ -473,6 +473,8 @@ async function directProviderJson(url,source='provider',timeoutMs=8000){
 async function liveCrypto(t, interval='1h', multi=true){
  const key=t.toUpperCase(), symbol=CRYPTO_ASSETS[key];
  if(!symbol) throw new Error('Crypto symbol not connected. Supported: BTC, ETH, SOL, BNB, XRP.');
+ // Normalize quote-suffix aliases once so all providers use the same underlying asset.
+ const baseAsset=key.replace(/USDT$/,'');
  const tf=TIMEFRAMES[interval]||'1h';
  const intervals=multi?['15m','1h','4h'].filter(x=>x!==tf).concat(tf):[tf];
  const unique=[...new Set(intervals)];
@@ -483,7 +485,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    ...unique.map(x=>fetchJson(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${x}&limit=220`))
   ]);
  }catch(binanceError){
-  const krakenPair=key==='BTC'?'XBTUSD':key+'USD';
+  const krakenPair=baseAsset==='BTC'?'XBTUSD':baseAsset+'USD';
   const map={'15m':15,'1h':60,'4h':240,'1d':1440};
   try{
    const kTicker=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair),'kraken');
@@ -497,7 +499,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    }));
    provider='Kraken public market data fallback';
   }catch(krakenError){
-   const coinPair=key==='BTC'?'BTC-USD':key+'-USD';
+   const coinPair=baseAsset+'-USD';
    const cmap={'15m':900,'1h':3600,'4h':21600,'1d':86400};
    try{
     const ct=await directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/ticker','coinbase');
@@ -516,7 +518,7 @@ async function liveCrypto(t, interval='1h', multi=true){
  const bullish=reports.filter(x=>x.direction==='BULLISH').length, bearish=reports.filter(x=>x.direction==='BEARISH').length;
  const consensus=bullish===reports.length?'BULLISH':bearish===reports.length?'BEARISH':'MIXED';
  const risk=Math.min(100,Math.max(10,Math.round(main.riskScore+(consensus==='MIXED'?8:consensus==='BEARISH'?15:-4))));
- const name=key.replace('USDT','');
+ const name=baseAsset;
  const providerMs=ticker?._finpilotCache||{};
  let sourceAsOf=null,sourceTimestampType='UNAVAILABLE';
  const closeTime=Number(ticker?.closeTime);
