@@ -145,13 +145,22 @@
 
   function buildChartAnalysis(market,money,candidate){
     if(!market)return {available:false,message:'Live price-series data was not returned for this candidate.'};
-    const candles=Array.isArray(market.candles)?market.candles.filter(x=>Number.isFinite(Number(x.close))).slice(-80):[];
-    const s20=Number(market.sma20),s50=Number(market.sma50);
-    const resistance=Number(market.recentHigh||market.resistance),support=Number(market.recentLow||market.support);
-    const target=Number(money?.upsidePct)>0&&Number(market.price)>0?Number(market.price)*(1+Number(money.upsidePct)/100):resistance;
-    const stop=Number(money?.downsidePct)>0&&Number(market.price)>0?Number(market.price)*(1-Number(money.downsidePct)/100):support;
-    const trend=Number(market.price)>=s20&&Number(market.price)>=s50?'BULLISH TREND':'DEFENSIVE / MIXED';
-    return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price:Number(market.price),sma20:s20,sma50:s50,support,resistance,target,stop,rsi:Number(market.rsi),trend,ticker:market.ticker||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf};
+    const positive=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
+    const candles=Array.isArray(market.candles)?market.candles.filter(x=>{
+      if(!x)return false;
+      const o=Number(x.open),h=Number(x.high),l=Number(x.low),c=Number(x.close);
+      return [o,h,l,c].every(v=>Number.isFinite(v)&&v>0)&&h>=Math.max(o,c,l)&&l<=Math.min(o,c,h);
+    }).map(x=>({...x,open:Number(x.open),high:Number(x.high),low:Number(x.low),close:Number(x.close),volume:Number.isFinite(Number(x.volume))?Number(x.volume):0})).slice(-80):[];
+    const s20=positive(market.sma20),s50=positive(market.sma50),price=positive(market.price);
+    const highs=candles.slice(-24).map(x=>x.high),lows=candles.slice(-24).map(x=>x.low);
+    const computedResistance=highs.length?Math.max(...highs):null;
+    const computedSupport=lows.length?Math.min(...lows):null;
+    const resistance=positive(market.recentHigh)??positive(market.resistance)??computedResistance;
+    const support=positive(market.recentLow)??positive(market.support)??computedSupport;
+    const target=positive(money?.upsidePct)&&price!==null?price*(1+Number(money.upsidePct)/100):resistance;
+    const stop=positive(money?.downsidePct)&&price!==null?price*(1-Number(money.downsidePct)/100):support;
+    const trend=price!==null&&s20!==null&&price>=s20&&(s50===null||price>=s50)?'BULLISH TREND':'DEFENSIVE / MIXED';
+    return {available:candles.length>1,realtimeAvailable:Boolean(market.live),candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:market.ticker||market.symbol||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf};
   }
   function chartSvg(a){
     if(!a?.available||!a?.realtimeAvailable){
@@ -242,8 +251,8 @@
           <div class="grid cards" style="margin-top:10px">
             <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">₹${Number(report.chartAnalysis?.price||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
             <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
-            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.sma20||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.sma50||0).toFixed(2)}</div></div>
-            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">₹${Number(report.chartAnalysis?.support||0).toFixed(2)} / ₹${Number(report.chartAnalysis?.resistance||0).toFixed(2)}</div></div>
+            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${report.chartAnalysis?.sma20>0?'₹'+Number(report.chartAnalysis.sma20).toFixed(2):'N/A'} / ${report.chartAnalysis?.sma50>0?'₹'+Number(report.chartAnalysis.sma50).toFixed(2):'N/A'}</div></div>
+            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${report.chartAnalysis?.support>0?'₹'+Number(report.chartAnalysis.support).toFixed(2):'N/A'} / ${report.chartAnalysis?.resistance>0?'₹'+Number(report.chartAnalysis.resistance).toFixed(2):'N/A'}</div></div>
           </div>
           <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
 

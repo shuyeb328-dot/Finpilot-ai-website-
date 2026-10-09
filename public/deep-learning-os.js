@@ -53,14 +53,34 @@ function resolveCandidate(query,search,web){
     ['HINDZINC','Hindustan Zinc'],['ITC','ITC'],['TATAPOWER','Tata Power'],['TATASTEEL','Tata Steel'],
     ['SUNPHARMA','Sun Pharmaceutical'],['TRENT','Trent'],['TECHM','Tech Mahindra'],['HCLTECH','HCLTech'],
     ['INDIGO','InterGlobe Aviation'],['JUBLFOOD','Jubilant FoodWorks'],['SENCO','Senco Gold'],
-    ['PAYTM','One97 Communications'],['IRFC','Indian Railway Finance Corporation'],['SBIN','State Bank of India'],
+    ['PAYTM','One97 Communications'],['IRFC','Indian Railway Finance Corporation'],['SBIN','State Bank of India'],['AXISBANK','Axis Bank Limited'],
     ['HDFCBANK','HDFC Bank'],['ICICIBANK','ICICI Bank'],['BHARTIARTL','Bharti Airtel'],['LT','Larsen & Toubro'],
     ['ADANIPORTS','Adani Ports'],['BAJFINANCE','Bajaj Finance'],['HINDALCO','Hindalco']
   ];
+  const normalizePhrase=text=>String(text||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+  const hasPhrase=(text,term)=>{
+    const hay=' '+normalizePhrase(text)+' ';
+    const needle=' '+normalizePhrase(term)+' ';
+    return needle.length>2&&hay.includes(needle);
+  };
+  // Exact issuer/symbol aliases must outrank incidental mentions in search snippets.
+  const queryForResolve=normalizePhrase(q.replace(/\b(BUY|SELL|STOCKS?|SHARES?|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO|PRICE|CHART|COMPANY)\b/g,' '));
+  const compactQuery=queryForResolve.replace(/\s/g,'');
+  const aliases={
+    AXISBANK:'AXISBANK',AXISBANKLIMITED:'AXISBANK',
+    SBI:'SBIN',STATEBANKINDIA:'SBIN',STATEBANKOFINDIA:'SBIN',
+    LARSENTOUBRO:'LT',LARSENANDTOUBRO:'LT'
+  };
+  const exactTicker=aliases[compactQuery]||compactQuery;
+  const exact=catalog.find(c=>normalizePhrase(c[0]).replace(/\s/g,'')===exactTicker||normalizePhrase(c[1]).replace(/\s/g,'')===compactQuery);
+  if(exact&&compactQuery){
+    const ticker=exact[0],name=exact[1];
+    return {ticker,name,confidence:88,score:84,evidenceMentions:0,positive:0,negative:0,candidates:[{ticker,name,confidence:88,evidenceScore:84,evidenceMentions:0,positive:0,negative:0}],method:'Exact query match',reason:'The requested symbol/company name matched the instrument registry directly.',disclaimer:'Instrument match only; verify the exchange quote, freshness and risk gates before acting.'};
+  }
   const results=Array.isArray(search?.results)?search.results:[];
   const corpus=(q+' '+results.map(x=>(x.title||'')+' '+(x.snippet||'')).join(' ')).toUpperCase();
-  const broad=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/.test(q)&&!catalog.some(c=>q.includes(c[0])||q.includes(c[1].toUpperCase()));
-  let candidates=catalog.filter(c=>corpus.includes(c[0])||corpus.includes(c[1].toUpperCase()));
+  const broad=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/.test(q)&&!catalog.some(c=>hasPhrase(q,c[0])||hasPhrase(q,c[1]));
+  let candidates=catalog.filter(c=>hasPhrase(corpus,c[0])||hasPhrase(corpus,c[1]));
   if(!candidates.length && !broad){
     const clean=q.replace(/\b(BUY|SELL|STOCK|SHARE|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO)\b/g,' ').trim().split(/\s+/)[0];
     if(clean && /^[A-Z0-9._-]{1,20}$/.test(clean))candidates=[[clean,clean+' (symbol detected from query)']];
@@ -71,7 +91,7 @@ function resolveCandidate(query,search,web){
     let mentions=0,positive=0,negative=0;
     results.forEach(r=>{
       const t=((r.title||'')+' '+(r.snippet||'')).toUpperCase();
-      if(t.includes(c[0])||t.includes(c[1].toUpperCase())){
+      if(hasPhrase(t,c[0])||hasPhrase(t,c[1])){
         mentions++;
         const lo=t.toLowerCase();positive+=(lo.match(/\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract|buy)\b/g)||[]).length;
         negative+=(lo.match(/\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|weak|sell)\b/g)||[]).length;
