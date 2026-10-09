@@ -136,9 +136,9 @@ function verifiedSnapshot(snapshot,nowMs=Date.now()){
   &&age>=-30000&&age<=maxAge&&snapshot.timing?.fresh===true&&snapshot.timing?.providerMarkedLive===true
   &&Number(snapshot.candles?.count)>=2&&snapshot.instrument?.symbolMatches===true);
 }
-function priorResolved(s,agent,createdAt){
+function priorResolved(s,agent,createdAt,market=null){
  const cutoff=Date.parse(createdAt||'');
- return s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='RESOLVED'
+ return s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='RESOLVED'
   &&Number.isFinite(Date.parse(x.resolvedAt||''))&&Date.parse(x.resolvedAt)<cutoff
   &&Number.isFinite(Date.parse(x.createdAt||''))&&Date.parse(x.createdAt)<cutoff);
 }
@@ -202,8 +202,8 @@ function calibrationMetrics(rows){
  }
  return {ece:gapSum/total,bins};
 }
-function agentForecastMetrics(s,agent){
- const rows=s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
+function agentForecastMetrics(s,agent,market=null){
+ const rows=s.forecasts.filter(x=>x.agent===agent&&(!market||x.marketClass===marketClassOf(market))&&x.forecastStatus==='RESOLVED'&&normalizeProbabilities(x.probabilities));
  const count=rows.length;
  if(!count)return {agent,count:0,pending:s.forecasts.filter(x=>x.agent===agent&&x.forecastStatus==='PENDING_OUTCOME').length,brier:null,baselineBrier:null,logLoss:null,topClassAccuracy:null,calibrationError:null,calibrationBins:[],probabilitiesCalibrated:false,calibrationStatus:'INSUFFICIENT_SAMPLE'};
  const briers=rows.map(x=>brierFor(x.probabilities,x.outcome)).filter(Number.isFinite);
@@ -264,7 +264,7 @@ function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.
  const dueAt=new Date(nowMs+horizon*86400000).toISOString();
  const existing=s.forecasts.find(x=>x.snapshotId===(snapshot.snapshotId||null)&&normalizeTicker(x.ticker)===ticker&&x.agent===agentName&&Number(x.horizonDays)===horizon);
  if(existing)return existing;
- const history=priorResolved(s,agentName,createdAt);
+ const history=priorResolved(s,agentName,createdAt,marketClass);
  const baselineProbabilities=empiricalClassRates(history);
  const edge=directionalEdge(agentName,featuresValue);
  const rawProbabilities=distributionFromEdge(edge);
@@ -280,7 +280,7 @@ function buildAgentForecast(agentName,agent,featuresValue,snapshot,s,nowMs=Date.
  const total=probabilities.up+probabilities.down+probabilities.hold;
  const normalized={up:+(probabilities.up/total*100).toFixed(4),down:+(probabilities.down/total*100).toFixed(4),hold:0};
  normalized.hold=+(100-normalized.up-normalized.down).toFixed(4);
- const metrics=agentForecastMetrics(s,agentName);
+ const metrics=agentForecastMetrics(s,agentName,marketClass);
  return {id:'fc_'+Math.random().toString(36).slice(2,10)+'_'+nowMs.toString(36),agent:agentName,ticker,market,marketClass,
   snapshotId:snapshot.snapshotId||null,createdAt,dueAt,horizonDays:horizon,referencePrice:Number(snapshot.quote.price),quoteAsOf:snapshot.timing.sourceAsOf,
   forecastEligible:true,dataStatus:snapshot.quality.status,moveThresholdPct:FORECAST_MOVE_THRESHOLD_PCT,probabilities:normalized,rawProbabilities:raw,
@@ -311,8 +311,8 @@ function recordAgentForecasts(s,agentDefs,featuresValue,snapshot,nowMs=Date.now(
 function forecastTrainingReport(){
  const s=load();
  const agentReports=AGENTS.map(agent=>{
-  const stats=agentForecastMetrics(s,agent);
   const latest=s.forecasts.find(x=>x.agent===agent)||null;
+  const stats=agentForecastMetrics(s,agent,latest?.marketClass||null);
   return {...stats,latestForecast:latest?{ticker:latest.ticker,market:latest.market,marketClass:latest.marketClass,createdAt:latest.createdAt,dueAt:latest.dueAt,horizonDays:latest.horizonDays,referencePrice:latest.referencePrice,probabilities:latest.probabilities,probabilitiesCalibrated:latest.probabilitiesCalibrated,calibrationStatus:latest.calibrationStatus,forecastStatus:latest.forecastStatus,outcome:latest.outcome,actualReturnPct:latest.actualReturnPct,forecastEligible:latest.forecastEligible}:null};
  });
  const forecasts=s.forecasts;
