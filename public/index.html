@@ -646,7 +646,8 @@ async function doSearch(q){
     }catch{}
   }
   const live=d.live===true;
-  const freshness=live?'LIVE WEB FETCH':'FALLBACK / DELAYED';
+  const cached=d.cached===true||String(d.freshness||'').toUpperCase()==='CACHED';
+  const freshness=cached?'CACHED LIVE-SOURCE RESULT':live?'LIVE WEB FETCH':'FALLBACK / DELAYED';
   const top=results[0];
   const rows=results.map((x,i)=>{
     const title=esc(x?.title||'Untitled result'),snippet=esc(x?.snippet||'No snippet available'),source=esc(x?.source||provider),published=x?.publishedAt?esc(x.publishedAt):'Fetched now',url=esc(x?.url||'#');
