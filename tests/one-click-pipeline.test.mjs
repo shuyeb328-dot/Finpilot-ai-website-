@@ -21,10 +21,10 @@ assert.doesNotMatch(moduleText, /computeExecutiveDecision\(state,cycle\.findings
 assert.match(moduleText, /normalizeTicker\(directMarket\.ticker\|\|directMarket\.symbol\)!==normalizeTicker\(candidate\.ticker\)/, 'do not render a quote for a different instrument than the resolved candidate');
 assert.match(deepText, /\['AXISBANK','Axis Bank Limited'\]/, 'Axis Bank must be in the known instrument registry');
 assert.match(deepText, /SBI:'SBIN'/, 'SBI alias should resolve to State Bank of India ticker SBIN');
-assert.match(deepText, /function normalizePhrase\(text\)/, 'instrument matching must use normalized token boundaries');
+assert.match(deepText, /const normalizePhrase=text=>/, 'instrument matching must use normalized token boundaries');
 assert.match(deepText, /hasPhrase\(corpus,c\[0\]\)/, 'resolver should match whole ticker/company tokens rather than substrings');
 assert.doesNotMatch(deepText, /corpus\.includes\(c\[0\]\)/, 'substring-based ticker false positives must not return');
-assert.match(moduleText, /Number\(x\.open\)>0[\s\S]*Number\(x\.close\)>0/, 'chart analysis must discard zero-price candles');
+assert.match(moduleText, /\[o,h,l,c\]\.every\(v=>Number\.isFinite\(v\)&&v>0\)/, 'chart analysis must discard zero-price candles');
 assert.match(moduleText, /const s20=positive\(market\.sma20\),s50=positive\(market\.sma50\)/, 'null/zero moving averages must remain unavailable');
 assert.match(moduleText, /report\.chartAnalysis\?\.sma50>0\?.*'N\/A'/, 'missing SMA50 should render N/A instead of ₹0.00');
 assert.match(serverText, /Equity provider returned insufficient valid OHLC candles/, 'server should reject a series after invalid candles are filtered');
