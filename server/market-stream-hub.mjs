@@ -43,7 +43,7 @@ export function createMarketStreamHub({
     group.pollNow = poll;
     group.pollTimer = setInterval(() => { void poll(); }, interval);
     group.heartbeatTimer = setInterval(() => notify(group, 'onHeartbeat', Date.now()), heartbeat);
-    void poll();
+    queueMicrotask(() => { void poll(); });
     return group;
   }
 
