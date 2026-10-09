@@ -124,10 +124,10 @@ assert.match(serverText, /X-FinPilot-Version':'8[.]6'/, 'API version header must
 assert.match(serverText, /res\.setHeader\('X-FinPilot-Version','8[.]6'\)/, 'default API response header must match the service version');
 assert.match(serverText, /'X-FinPilot-Version':'8[.]6'/, 'market event stream must expose the service version');
 assert.match(serverText, /dataQuality:diagnostics\.dataQuality,dataQualityScore:diagnostics\.dataQualityScore/, 'health endpoint must expose derived data quality and its score');
-assert.match(serverText, /x\.timestampType==='PROVIDER_TIMESTAMP'/, 'market data must require a provider-supplied timestamp before execution verification');
-assert.match(serverText, /const ts=x\.asOf/, 'local observation time must not make an undated quote appear fresh');
-assert.match(serverText, /Date\.parse\(ts\)<=Date\.now\(\)\+5000/, 'provider timestamps far in the future must be rejected');
-assert.match(serverText, /const selectedAsOf=winner\.asOf\|\|null/, 'unverified local observation timestamps must not be reported as source timestamps');
+assert.match(serverText, /primaryTimestampValid=winner\.timestampType==='PROVIDER_TIMESTAMP'/, 'market data must require the selected primary quote to carry a provider-supplied timestamp');
+assert.match(serverText, /const sourceValue=x\.asOf\|\|x\.observedAt\|\|null/, 'provider time and local observation time must be kept explicitly typed');
+assert.match(serverText, /const valid=Number\.isFinite\(ts\)&&ts<=now\+5000/, 'invalid or future quote timestamps must be rejected');
+assert.match(serverText, /sourceTimestampType:selectedTimestampType/, 'Market Data OS must expose whether the selected timestamp is provider-sourced or observation-only');
 assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
 assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
 assert.match(moduleText, /window\.__fpMarketSnapshot=marketSnapshot/, 'one-click must expose one shared snapshot to the agent fleet');
