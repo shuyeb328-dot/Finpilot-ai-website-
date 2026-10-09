@@ -729,68 +729,6 @@ async function finpilotLaunch(q){
   restore();const terminal=document.getElementById('fpRunStatus');if(terminal)setTimeout(()=>{const x=document.getElementById('fpRunStatus');if(x)x.remove()},5000);
  }
 }
-function finpilotDirectOneClick(q){
- q=String(q||"").trim().toUpperCase();
- const box=document.getElementById("searchResults");
- const escD=v=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
- if(!box)return;
- const old=document.getElementById("fpPowerOneClick"); if(old)old.remove();
- box.insertAdjacentHTML("afterbegin",'<div id="fpPowerOneClick" class="card" style="margin-bottom:14px;border:2px solid #315efb"><b>⚡ FinPilot Power One-Click</b><div class="muted" style="margin-top:6px">Building the complete decision stack: live market → technicals → evidence → specialist council → CEO/CFO/Judge…</div><div id="fpPowerStage" class="notice" style="margin-top:10px">⏳ Loading verified market series…</div></div>');
- const stage=t=>{const el=document.getElementById("fpPowerStage");if(el)el.innerHTML=t};
- try{
-   const query=String(q||'').trim();
-   const lastSearch=window.__lastSearch||{}, searchRows=Array.isArray(lastSearch.results)?lastSearch.results:[];
-   const tickerHints=[...new Set(searchRows.flatMap(x=>{const t=String((x?.title||'')+' '+(x?.snippet||''));return [...t.matchAll(/\\bNSE\\s*[:\\-]\\s*([A-Z]{2,10})\\b/gi)].map(m=>m[1].toUpperCase())}))];
-   const exactTicker=/^(BTC|ETH|SOL|XRP|DOGE|[A-Z]{1,6}(?:\\.(?:NS|BO))?)$/i.test(query);
-   const resolvedTicker=exactTicker?query.toUpperCase():(tickerHints.length===1&&/\\b(stock|share|shares|price|ticker|nse|bse)\\b/i.test(query)?tickerHints[0]:null);
-   const raw=resolvedTicker||query.toUpperCase().replace(/[^A-Z0-9._-]/g,'');
-   const tickerLike=Boolean(resolvedTicker);
-   if(!tickerLike){const search=window.__lastSearch||{},rows=Array.isArray(search.results)?search.results.slice(0,8):[];const evidence=rows.length?rows.map((x,i)=>'<article class="searchResultCard"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+escD(x.source||'Web')+'</span><span>Evidence only</span></div><h3>'+escD(x.title||'Untitled result')+'</h3><p>'+escD(x.snippet||'No snippet available.')+'</p></div></article>').join(''):'<div class="notice">No evidence returned. Use an exact ticker for quantitative market analysis.</div>';box.innerHTML='<div id="fpPowerOneClick" class="card" style="margin-bottom:14px;border:1px solid #315efb"><div class="sectionTitle"><div><span class="eyebrow">FINPILOT RESEARCH ANALYSIS</span><h3>Research-only result</h3></div><span class="pill low">NO FABRICATED PRICE</span></div><p class="muted"><b>'+escD(query)+'</b> is not a confirmed tradable ticker. FinPilot will not invent a market price, target or trade setup.</p>'+evidence+'</div>';return;}
-   stage("⏳ 1/5 · Loading verified market data and candle series…");
-   const mr=await fetch("/api/stock-report?ticker="+encodeURIComponent(raw)+"&interval=1h&multi=1&ts="+Date.now(),{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
-   const md=await mr.json();
-   if(!mr.ok||!md?.ok||!md?.report)throw new Error(md?.error||"Live market report unavailable");
-   const m=md.report, candles=Array.isArray(m.candles)?m.candles.slice(-80):[];
-   stage("⏳ 2/5 · Running specialist Round Table agents…");
-   let agents=[];
-   try{
-     const ar=await fetch("/api/agent-batch",{method:"POST",headers:{"Content-Type":"application/json","Cache-Control":"no-cache"},body:JSON.stringify({agents:["Bull","Bear","Quant","Risk","Research","CFO","CEO"],income:38000,spending:22000,emergency:100000})});
-     const ad=await ar.json(); if(ad?.ok&&Array.isArray(ad.results))agents=ad.results;
-   }catch{}
-   stage("⏳ 3/5 · Combining market, technical and web evidence…");
-   const searchData=window.__lastSearch||{}, rows=Array.isArray(searchData.results)?searchData.results.slice(0,6):[];
-   const textBlob=rows.map(x=>String((x?.title||"")+" "+(x?.snippet||""))).join(" ").toLowerCase();
-   const pos=(textBlob.match(/surge|rise|gain|bullish|growth|upgrade|profit|strong|positive/g)||[]).length;
-   const neg=(textBlob.match(/fall|drop|loss|bearish|downgrade|debt|risk|warning|weak|negative/g)||[]).length;
-   const price=Number(m.price||0),rsi=Number(m.rsi||0),s20=Number(m.sma20||0),s50=Number(m.sma50||0),support=Number(m.recentLow||m.support||0),resistance=Number(m.recentHigh||m.resistance||0);
-   const risk=Math.max(10,Math.min(95,Math.round(Number(m.riskScore||50)+(rsi>75?12:0))));
-   const technical=(price>=s20?8:-8)+(price>=s50?8:-8)+(rsi>=50&&rsi<=70?8:rsi>75?-10:rsi<35?4:0);
-   const evidence=Math.max(-12,Math.min(12,(pos-neg)*2));
-   const bull=Math.max(5,Math.min(90,Math.round(50+technical+evidence-(risk-50)*.18)));
-   const bear=Math.max(5,Math.min(90,Math.round(50-technical-evidence+(risk-50)*.18)));
-   const hold=Math.max(5,100-bull-bear);
-   const confidence=Math.max(45,Math.min(96,Math.round(55+(Math.abs(bull-bear)*.35)+(rows.length?Math.min(12,rows.length*2):0))));
-   const stance=bull>=60?"BULLISH":bear>=60?"DEFENSIVE / BEARISH":"HOLD / WAIT";
-   const upside=Math.max(2,Math.min(12,3+(bull-50)*.10)),downside=Math.max(2,Math.min(10,2.5+risk*.045));
-   const target=price*(1+upside/100),stop=price*(1-downside/100),profit=1000*upside/100,loss=1000*downside/100,rr=(upside/downside).toFixed(2);
-   const agentText=agents.map(a=>'<div class="card"><b>'+escD(a.agent)+'</b><div class="muted">'+escD(a.view||"Specialist review")+' · '+escD(a.stance||"REVIEW")+'</div><span class="muted">'+Number(a.latencyMs||0)+'ms</span></div>').join("");
-   const bars=candles.map(x=>Number(x.close||0)).filter(Number.isFinite),mn=bars.length?Math.min(...bars):0,mx=bars.length?Math.max(...bars):1,span=Math.max(1,mx-mn);
-   const pts=bars.map((v,i)=>((i/Math.max(1,bars.length-1))*100).toFixed(2)+","+((100-(v-mn)/span*88)-6).toFixed(2)).join(" ");
-   const chart=bars.length>1?'<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:220px;background:#081525;border-radius:10px"><polyline fill="none" stroke="#42a5ff" stroke-width="1.5" points="'+pts+'"/></svg>':'<div class="notice">Verified candle series unavailable.</div>';
-   const evidenceHtml=rows.length?rows.map((x,i)=>'<div class="card"><span class="eyebrow">EVIDENCE '+(i+1)+'</span><b>'+escD(x.title||"Source")+'</b><div class="muted" style="margin-top:4px">'+escD(x.snippet||"No snippet")+'</div></div>').join(""):'<div class="notice">No live web evidence was returned for this run.</div>';
-   const ceo=stance==="BULLISH"?"Opportunity exists, but confirmation is required.":stance==="DEFENSIVE / BEARISH"?"Protect capital; downside evidence is dominant.":"Wait for stronger confirmation before increasing exposure.";
-   const cfo=risk>=70?"Capital protection is the priority; keep exposure minimal.":risk>=45?"Use a controlled risk budget and avoid oversized exposure.":"Risk is currently manageable, but no automatic trade is approved.";
-   const judge=stance+" · "+confidence+"% confidence";
-   stage("⏳ 4/5 · CEO/CFO/Judge synthesis and ₹1,000 scenario…");
-   const html='<div id="fpPowerOneClick" class="card" style="margin-bottom:14px;border:2px solid #315efb;background:linear-gradient(180deg,#f8faff,#fff)"><div class="sectionTitle"><div><span class="eyebrow">FINPILOT POWER ONE-CLICK</span><h3 style="font-size:20px;margin-top:5px">'+escD(m.name||q)+' · '+escD(m.ticker||q)+'</h3></div><span class="pill low">'+(m.live?"LIVE DATA":"VERIFIED FALLBACK")+'</span></div><div class="notice"><b>Decision:</b> '+stance+' · <b>Confidence:</b> '+confidence+'% · <b>Risk:</b> '+risk+'/100</div><div class="card" style="margin-top:12px"><div class="sectionTitle"><div><span class="eyebrow">TECHNICAL INTELLIGENCE</span><h3>Verified price series</h3></div><span class="pill">'+escD(m.provider||"market provider")+'</span></div>'+chart+'<div class="grid cards" style="margin-top:10px"><div class="card"><span class="muted">Price</span><div class="metric">₹'+price.toLocaleString("en-IN",{maximumFractionDigits:2})+'</div><span class="muted">Day '+Number(m.changePct||0).toFixed(2)+'%</span></div><div class="card"><span class="muted">RSI</span><div class="metric">'+rsi.toFixed(1)+'</div></div><div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:15px">₹'+s20.toFixed(2)+' / ₹'+s50.toFixed(2)+'</div></div><div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:15px">₹'+support.toFixed(2)+' / ₹'+resistance.toFixed(2)+'</div></div></div></div><div class="grid three" style="margin-top:12px"><div class="card"><span class="eyebrow">BULLISH</span><div class="metric green">'+bull+'%</div></div><div class="card"><span class="eyebrow">BEARISH</span><div class="metric red">'+bear+'%</div></div><div class="card"><span class="eyebrow">HOLD</span><div class="metric">'+hold+'%</div></div></div><div class="grid three" style="margin-top:12px"><div class="decision"><span class="pill low">CEO</span><p>'+escD(ceo)+'</p><b>'+confidence+'%</b></div><div class="decision"><span class="pill med">CFO</span><p>'+escD(cfo)+'</p><b>Risk '+risk+'/100</b></div><div class="decision"><span class="pill">⚖ JUDGE</span><h3>'+escD(judge)+'</h3><b>Final synthesis</b></div></div><div class="card" style="margin-top:12px"><div class="sectionTitle"><div><span class="eyebrow">ROUND TABLE · 7 SPECIALISTS</span><h3>Independent views before final synthesis</h3></div><span class="pill low">'+agents.length+'/7 READY</span></div><div class="grid three">'+agentText+'</div></div><div class="card" style="margin-top:12px"><span class="eyebrow">₹1,000 DECISION SCENARIO</span><div class="grid four" style="margin-top:8px"><div class="card"><span class="muted">Action</span><div class="metric" style="font-size:18px">'+stance+'</div></div><div class="card"><span class="muted">Target</span><div class="metric green">₹'+target.toFixed(2)+'</div><span class="muted">+'+upside.toFixed(2)+'%</span></div><div class="card"><span class="muted">Risk stop</span><div class="metric red">₹'+stop.toFixed(2)+'</div><span class="muted">−'+downside.toFixed(2)+'%</span></div><div class="card"><span class="muted">Risk : Reward</span><div class="metric">'+rr+':1</div></div></div><div class="grid three" style="margin-top:8px"><div class="card"><span class="muted">Potential gain</span><div class="metric green">+₹'+profit.toFixed(2)+'</div></div><div class="card"><span class="muted">Potential loss</span><div class="metric red">−₹'+loss.toFixed(2)+'</div></div><div class="card"><span class="muted">Evidence</span><div class="metric">'+rows.length+'</div><span class="muted">'+escD(search.provider||"web")+'</span></div></div><div class="notice highNotice" style="margin-top:10px">Paper scenario only. No real order is placed. Probabilities are model estimates, not guarantees.</div></div><div class="card" style="margin-top:12px"><div class="sectionTitle"><div><span class="eyebrow">LIVE EVIDENCE LEDGER</span><h3>Sources used by this run</h3></div><span class="pill">'+rows.length+' SOURCES</span></div><div class="grid cards">'+evidenceHtml+'</div></div><div class="notice" style="margin-top:12px"><b>Power pipeline:</b> Market data → technical indicators → web evidence → 7 specialist agents → CEO → CFO → Judge → ₹1,000 risk scenario. <span class="muted">As of '+escD(m.asOf||"request time")+'.</span></div></div>';
-   const el=document.getElementById("fpPowerOneClick");if(el)el.outerHTML=html;
-   stage("✅ 5/5 · Power One-Click complete — full decision stack ready.");
-   toast("Power One-Click complete");
- }catch(e){
-   const el=document.getElementById("fpPowerOneClick");if(el)el.innerHTML='<b style="color:#c23d4f">Power One-Click stopped safely</b><div class="muted" style="margin-top:6px">'+escD(e?.message||"Analysis unavailable")+'</div>';
-   toast("Power One-Click unavailable");
- }
-}
 function exportJSON(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='finpilot-backup.json';a.click();URL.revokeObjectURL(a.href);toast('Backup exported')}
 function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{state={...defaultState,...JSON.parse(r.result)};save();show('dashboard');toast('Backup restored')}catch{toast('Invalid backup')}};r.readAsText(f)}
 function resetData(){if(confirm('Reset all local FinPilot data?')){localStorage.removeItem('finpilot_web_v1800');localStorage.removeItem('finpilot_web_v2300');localStorage.removeItem('finpilot_web_v2500');state=structuredClone(defaultState);state.schemaVersion=2700;state.simulationHistory=[];state.outcomes=[];state.learning={accuracy:null,confidenceAdjustment:0,agentScores:{},repeatedMistakes:[]};show('dashboard');toast('Local data reset')}}
