@@ -61,6 +61,7 @@ assert.match(serverText, /hasProviderTimestamp&&sourceAgeMs<=EXECUTION_FRESHNESS
 assert.match(serverText, /executionDecision:eligible\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'market snapshots must expose the same gated paper-eligibility decision');
 assert.match(serverText, /status=verified\?'VERIFIED':!priceAgreement\?'CONFLICTING':!primaryTimestampValid\?'UNVERIFIED_TIMESTAMP'/, 'Market Data OS must explain observation-only timestamp failures instead of calling available prices unavailable');
 assert.match(serverText, /executionEligible:executionReady,executionDecision:executionReady\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'Market Data OS top-level eligibility must match its decision');
+assert.match(serverText, /executionEligible:Boolean\(verified&&!stale&&ageMs<=EXECUTION_FRESHNESS_MS&&d\?\.marketDataOS\?\.decision==='ALLOW_ANALYSIS_AND_PAPER'\)/, 'market stream must block stale quotes from execution eligibility even when upstream once approved them');
 assert.match(serverText, /function aggregateDataHealthSources\(now=Date\.now\(\)\)/, 'provider health must aggregate adapter aliases into canonical upstream providers');
 assert.match(serverText, /const providers=aggregateDataHealthSources\(now\)/, 'health quality score must count canonical providers rather than duplicate adapters');
 assert.match(serverText, /providers:providerHealthSnapshot\(\),cooldowns:diagnostics\.providerCooldowns,dataQuality:diagnostics\.dataQuality/, 'market provider health must expose real providers and cooldown diagnostics');
