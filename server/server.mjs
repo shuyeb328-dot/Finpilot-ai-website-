@@ -1528,7 +1528,7 @@ function dataHealthDiagnostics(){
   if(!['HEALTHY','DEGRADED','STALE','UNKNOWN'].includes(status))status='UNKNOWN';
   return {
    name,status,
-   latencyMs:Number.isFinite(Number(raw.latencyMs))?Number(raw.latencyMs):null,
+   latencyMs:raw.latencyMs!==null&&raw.latencyMs!==undefined&&Number.isFinite(Number(raw.latencyMs))?Number(raw.latencyMs):null,
    lastSuccess,
    lastSuccessAgeMs,
    staleAfterMs:DATA_HEALTH_STALE_AFTER_MS,
