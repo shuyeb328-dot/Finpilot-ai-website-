@@ -207,8 +207,13 @@ assert.match(serverText, /remember\(name,\{source:'SERVER_EXECUTED',decision:sta
 assert.match(serverText, /durable training or persistent memory/, 'agent memory must be described honestly as process-memory telemetry until durable storage is connected');
 
 
-assert.match(moduleText, /function syncClientAgentTelemetry\(agentFleet,candidate,marketSnapshot\)/, 'actual browser-side specialist outputs should be reported after the local fleet runs');
+assert.match(moduleText, /async function syncClientAgentTelemetry\(agentFleet,candidate,marketSnapshot\)/, 'agent telemetry sync must be awaitable and report explicit outcomes');
 assert.match(moduleText, /fetch\('\/api\/agent-memory'/, 'browser-side agent telemetry should use the existing bounded server endpoint');
+assert.match(moduleText, /credentials:'same-origin'/, 'telemetry must use same-origin credentials only');
+assert.match(moduleText, /const agentTelemetry=await syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'analysis must wait for telemetry confirmation rather than fire and forget');
+assert.match(moduleText, /Number\(result\.recorded\)!==agents\.length/, 'partial or zero-count server acknowledgements must be treated as sync failure');
+assert.match(moduleText, /AGENT_TELEMETRY_TIMEOUT/, 'telemetry timeout should be explicit instead of silently ignored');
+assert.match(moduleText, /agentFleet,\n        agentTelemetry,\n        time:new Date\(\)\.toISOString\(\)/, 'analysis history must preserve the telemetry sync result');
 assert.match(moduleText, /syncClientAgentTelemetry\(agentFleet,candidate,window\.__fpMarketSnapshot\)/, 'the one-click pipeline should sync actual fleet results, not merely pending agent placeholders');
 assert.match(moduleText, /not server execution/, 'client-side agent results must be labelled honestly as unverified telemetry');
 assert.match(serverText, /source:'CLIENT_REPORTED_UNVERIFIED'/, 'client telemetry must be assigned an explicit unverified source');
