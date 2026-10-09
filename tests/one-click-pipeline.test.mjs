@@ -61,7 +61,7 @@ assert.match(serverText, /const providers=aggregateDataHealthSources\(now\)/, 'h
 assert.match(serverText, /providers:providerHealthSnapshot\(\),cooldowns:diagnostics\.providerCooldowns,dataQuality:diagnostics\.dataQuality/, 'market provider health must expose real providers and cooldown diagnostics');
 assert.match(serverText, /const moduleCooldown=providerCooldownStatus\(p\.id,now\)/, 'provider cooldown diagnostics must be recalculated at response time');
 assert.match(serverText, /cooldownActive:cooldownMs>0/, 'cooldownActive must be derived from the exact remaining cooldown duration');
-assert.match(serverText, /cooldownMs,\\s*cooldown:moduleCooldown/, 'provider health must return a coherent cooldown timer and state');
+assert.match(serverText, /cooldownMs,\s*cooldown:moduleCooldown/, 'provider health must return a coherent cooldown timer and state');
 assert.match(serverText, /existing\.providerCooldownUntil=Math\.max\(Number\(existing\.providerCooldownUntil\)\|\|0,Number\(p\.cooldownUntil\)\|\|0\)/, 'provider registry cooldown deadlines must survive canonical provider aggregation');
 assert.match(serverText, /const report=hit\.report\?gateMarketReport\(hit\.report,t,interval\):null/, 'cached reports must be rechecked for freshness before execution eligibility is returned');
 assert.match(serverText, /const baseAsset=key\.replace\(\/USDT\$\/,''\)/, 'crypto provider fallbacks must normalize BTCUSDT-style aliases before building fallback pair names');
