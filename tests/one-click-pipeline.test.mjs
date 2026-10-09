@@ -16,6 +16,8 @@ assert.match(moduleText, /No real order was placed/, 'analysis must remain decis
 assert.match(moduleText, /FinPilotDecisionCore\.computeExecutiveDecision\(state,cycle\.findings,web,formatMoney,sourceAge\)/, 'Decision Core must receive the formatter function, never a scenario object');
 assert.match(moduleText, /typeof window\.FinPilotBridge\?\.money==='function'/, 'use the global finance formatter when available');
 assert.doesNotMatch(moduleText, /computeExecutiveDecision\(state,cycle\.findings,web,preMoney,sourceAge\)/, 'the scenario/formatter argument mismatch must not return');
+assert.match(moduleText, /normalizeTicker\(directMarket\.ticker\|\|directMarket\.symbol\)!==normalizeTicker\(candidate\.ticker\)/, 'do not render a quote for a different instrument than the resolved candidate');
+assert.match(moduleText, /Resolved market quote request/, 'reload market data for the search-resolved instrument when symbols disagree');
 assert.doesNotMatch(moduleText, /function mountSearchCard\(/, 'duplicate analysis launcher cards must not be injected');
 
 assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bound fetch and JSON parsing');
@@ -26,4 +28,4 @@ assert.match(pageText, /one-click-analysis\.js\?v=20261009-2/, 'rebuilt one-clic
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
-console.log('one-click-pipeline: 16 contract checks passed');
+console.log('one-click-pipeline: 18 contract checks passed');
