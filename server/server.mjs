@@ -48,6 +48,15 @@ const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>
  if(cors)h['Access-Control-Allow-Origin']=cors;
  res.writeHead(status,h);res.end(typeof body==='string'?body:JSON.stringify(body));
 };
+function clean(value,max=256){
+ const requested=Number(max);
+ const limit=Number.isFinite(requested)?Math.max(0,Math.min(4000,Math.trunc(requested))):256;
+ return String(value??'')
+  .replace(/[\u0000-\u001f\u007f]/g,' ')
+  .replace(/\s+/g,' ')
+  .trim()
+  .slice(0,limit);
+}
 async function body(req){
  if(req._parsedBody!==undefined)return req._parsedBody;
  let b='',bytes=0,tooLarge=false;
