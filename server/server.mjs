@@ -1315,13 +1315,23 @@ async function stockReport(req,res,u){
    if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
    return send(res,200,payload);
   }
+  let liveErr=null;
   try{
    const sourceReport=await liveEquity(t);
    const report=gateMarketReport(sourceReport,t,interval);
-   const payload={ok:true,report,executionEligible:report.executionEligible,executionGate:report.executionGate};
-   if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
-   return send(res,200,payload);
-  }catch(liveErr){
+   const quoteAge=Number(report?.executionGate?.sourceAgeMs);
+   const maxAge=Number(report?.executionGate?.maxAgeMs)||EXECUTION_FRESHNESS_MS;
+   const quoteStale=report?.live===false||report?.sourceTimestampType==='HISTORICAL_EOD'
+     ||report?.sourceTimestampType==='HISTORICAL_DATE_ONLY'
+     ||(Number.isFinite(quoteAge)&&quoteAge>maxAge);
+   if(!quoteStale){
+    const payload={ok:true,report,executionEligible:report.executionEligible,executionGate:report.executionGate};
+    if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
+    return send(res,200,payload);
+   }
+   liveErr=new Error('PRIMARY_EQUITY_QUOTE_STALE_OR_NON_LIVE');
+  }catch(error){liveErr=error;}
+  {
    try{
     const sourceReport=await fetchTejHqEod(t,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
     const report=gateMarketReport(sourceReport,t,interval);
