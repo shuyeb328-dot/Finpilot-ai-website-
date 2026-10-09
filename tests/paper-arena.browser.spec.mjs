@@ -105,7 +105,7 @@ test('production Paper Arena renders charts and only fills when market data is v
     const st = window.FinPilotBridge.state;
     const p = window.FinPilotPaperCore.ensure(st);
     const orders = p.orders || [];
-    const latest = orders.find(o => o.reason === 'Manual paper market') || orders[0];
+    const latest = orders.find(o => o.bracketRole === 'ENTRY' && o.reason === 'Manual bracket paper order') || orders.find(o => o.reason === 'Manual paper market') || orders[0];
     const agent = p.agents.find(a => a.id === document.getElementById('paperAgent')?.value) || p.agents[0];
     return {
       status: latest?.status || null,
