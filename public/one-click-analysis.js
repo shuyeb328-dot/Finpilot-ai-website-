@@ -520,6 +520,50 @@
     box.appendChild(section);
   }
 
+  function renderForecastTrainingPanel(){
+    const box=document.getElementById('searchResults');
+    const trainer=window.FinPilotDeepLearning;
+    if(!box||typeof trainer?.forecastTrainingReport!=='function')return;
+    const report=trainer.forecastTrainingReport();
+    const old=document.getElementById('forecastTrainingPanel');if(old)old.remove();
+    const agents=Array.isArray(report.agents)?report.agents:[];
+    const number=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
+    const last=report.lastForecastAttempt||null;
+    let statusTitle='Warming up · probabilities are not calibrated';
+    let statusText='Rule-based starting probabilities are evaluated against later outcomes. They are not presented as calibrated until outcomes mature and pass walk-forward checks.';
+    if(last?.status==='FORECASTS_RECORDED'){
+      statusTitle='Verified quote accepted · forecasts recorded';
+      statusText=String(last.agents||0)+' agent forecasts recorded for '+String(last.ticker||'the selected asset')+'. They settle only after the one-day horizon using a later fresh, matching provider-timestamped quote.';
+    }else if(last?.status==='BLOCKED_UNVERIFIED_DATA'){
+      statusTitle='Forecast issuance blocked';
+      statusText='No price-direction probabilities were issued on the last run because market verification did not pass: '+(Array.isArray(last.reasons)?last.reasons.join(', '):'VERIFIED_PROVIDER_SNAPSHOT_REQUIRED')+'.';
+    }
+    const briers=agents.filter(a=>Number.isFinite(Number(a.brier))).map(a=>Number(a.brier));
+    const avgBrier=briers.length?briers.reduce((n,x)=>n+x,0)/briers.length:null;
+    const rows=agents.map(a=>{
+      const f=a.latestForecast,p=f?.probabilities;
+      const probs=f?.forecastEligible&&p?'UP '+number(p.up,1)+'% · DOWN '+number(p.down,1)+'% · HOLD '+number(p.hold,1)+'%':'No eligible forecast';
+      const latest=f?.forecastStatus==='PENDING_OUTCOME'?'PENDING · '+String(f.ticker||'')+' · due '+String(f.dueAt||'').slice(0,10)
+        :f?.forecastStatus==='RESOLVED'?'RESOLVED · '+String(f.outcome||'')+' · '+number(f.actualReturnPct,2)+'%':'—';
+      return '<tr><td>'+escLocal(a.agent)+'</td><td>'+probs+'</td><td>'+String(a.count||0)+'</td><td>'+number(a.brier,4)+'</td><td>'+number(a.baselineBrier,4)+'</td><td>'+escLocal(a.calibrationStatus||'INSUFFICIENT_SAMPLE')+'</td><td>'+escLocal(latest)+'</td></tr>';
+    }).join('');
+    const el=document.createElement('section');
+    el.id='forecastTrainingPanel';el.className='card';el.style.cssText='margin-top:14px;border:1px solid var(--line);background:var(--surface)';
+    el.innerHTML=
+      '<div class="sectionTitle"><div><span class="eyebrow">AGENT TRAINING FABRIC · DLO '+escLocal(report.version||'')+'</span><h3 style="margin-top:5px">Forecast validation & outcome learning</h3></div><span class="pill '+(Number(report.calibratedAgentCount)>0?'low':'med')+'">'+(Number(report.calibratedAgentCount)||0)+' calibrated</span></div>'+
+      '<div class="notice '+(last?.status==='BLOCKED_UNVERIFIED_DATA'?'highNotice':'')+'" style="margin-bottom:12px"><b>'+escLocal(statusTitle)+'</b><br><span class="muted">'+escLocal(statusText)+'</span></div>'+
+      '<div class="grid four">'+
+       '<div class="card"><span class="muted">Forecast records</span><div class="metric">'+(Number(report.forecastCount)||0)+'</div></div>'+
+       '<div class="card"><span class="muted">Outcomes resolved</span><div class="metric">'+(Number(report.resolvedForecasts)||0)+'</div></div>'+
+       '<div class="card"><span class="muted">Unique settled events</span><div class="metric">'+(Number(report.uniqueSettledEvents)||0)+'</div></div>'+
+       '<div class="card"><span class="muted">Mean agent Brier</span><div class="metric">'+(avgBrier===null?'—':avgBrier.toFixed(4))+'</div><span class="muted">Lower is better · not return</span></div>'+
+      '</div>'+
+      '<div class="muted" style="margin:10px 0">Prior-outcome base-rate Brier is the walk-forward benchmark for each agent. Training records are stored in this browser, not cloud-persistent. Probabilities remain uncalibrated until there are at least 100 resolved outcomes per agent, calibration error is at most 8%, and Brier beats the baseline overall and on the latest 30 outcomes. No agent is automatically promoted.</div>'+
+      '<div style="overflow:auto"><table style="width:100%;min-width:900px;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">Agent</th><th style="text-align:left;padding:8px">Latest forecast</th><th style="text-align:left;padding:8px">Resolved</th><th style="text-align:left;padding:8px">Brier</th><th style="text-align:left;padding:8px">Baseline</th><th style="text-align:left;padding:8px">Calibration gate</th><th style="text-align:left;padding:8px">Latest outcome</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div class="muted" style="margin-top:10px">Forecast horizon: '+(Number(report.horizonDays)||1)+' day · outcome threshold: ±'+number(report.moveThresholdPct,2)+'% · verified provider quote required · research/paper evaluation only.</div>';
+    box.appendChild(el);
+  }
+
   function createForecastLedgerRecord({snapshot,candidate,decision,money,chartAnalysis}={}){
     const createdAt=new Date().toISOString();
     const horizonDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
@@ -1030,6 +1074,7 @@
       stage('5/6 · Reconciling CEO, CFO, Judge and risk gates…');
       const report={...decision,agentCount:cycle.enabled.length,paper};
       renderOneClickPanel(query,report);
+      renderForecastTrainingPanel();
       if(marketReport){
         publishEquitySnapshot(marketReport);
         setTimeout(mountTradingViewFallbacks,60);
