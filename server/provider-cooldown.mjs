@@ -20,7 +20,7 @@ function classifyCooldown(error){
 }
 
 export function recordProviderFailure(source,error,now=Date.now()){
- const key=String(source||'provider').trim().toLowerCase();
+ const key=normalizeProviderKey(source);
  const policy=classifyCooldown(error);
  if(!policy)return providerCooldownStatus(key,now);
  const previous=COOLDOWNS.get(key);
@@ -32,7 +32,7 @@ export function recordProviderFailure(source,error,now=Date.now()){
 }
 
 export function providerCooldownStatus(source,now=Date.now()){
- const key=String(source||'provider').trim().toLowerCase();
+ const key=normalizeProviderKey(source);
  const state=COOLDOWNS.get(key);
  if(!state)return null;
  const retryAfterMs=Math.max(0,state.untilMs-now);
