@@ -1291,7 +1291,8 @@ async function exaIntelligence(req,res,u){
  return send(res,200,{ok:true,status:'FRESH_CACHE',lastRun:EXA_LAST_RUN,ageMs:Date.now()-EXA_LAST_RUN,nextRefreshMs:Math.max(0,EXA_REFRESH_MS-(Date.now()-EXA_LAST_RUN)),count:EXA_CACHE.length,configured:Boolean(process.env.EXA_API_KEY),results:EXA_CACHE});
 }
 function exaStatus(req,res){return send(res,200,{ok:true,configured:Boolean(process.env.EXA_API_KEY),running:EXA_RUNNING,lastRun:EXA_LAST_RUN,refreshMs:EXA_REFRESH_MS,count:EXA_CACHE.length});}
-setInterval(()=>{if(process.env.EXA_API_KEY&&Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)runExaIntelligence('global finance market data AI risk regulation').catch(()=>{});},60000);
+// Background Exa calls are opt-in to prevent unattended quota drain. Manual refresh remains available.
+setInterval(()=>{if(String(process.env.FINPILOT_EXA_AUTO_REFRESH||'false').toLowerCase()==='true'&&process.env.EXA_API_KEY&&Date.now()-EXA_LAST_RUN>EXA_REFRESH_MS)runExaIntelligence('global finance market data AI risk regulation').catch(()=>{});},60000);
 
 const AUTONOMOUS_LEARNING_INIT=initAutonomousLearning({searchWeb,emitEvent,audit,getSchedulerState:()=>({running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,queue:SCHEDULER.queue})});
 audit('AUTONOMOUS_LEARNING_INIT',{version:AUTONOMOUS_LEARNING_INIT.version,enabled:AUTONOMOUS_LEARNING_INIT.enabled,intervalMs:AUTONOMOUS_LEARNING_INIT.intervalMs});
