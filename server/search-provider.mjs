@@ -1,21 +1,35 @@
 const TIMEOUT_MS=Number(process.env.SEARCH_TIMEOUT_MS||8000);
 const jsonHeaders={'Accept':'application/json'};
-function providerError(message){const e=new Error(message);e.code='SEARCH_PROVIDER_UNAVAILABLE';return e}
+function providerError(message,status){const e=new Error(message);e.code='SEARCH_PROVIDER_UNAVAILABLE';if(Number.isFinite(Number(status)))e.status=Number(status);return e}
 async function providerFetch(url,options={}){
  const c=new AbortController();const t=setTimeout(()=>c.abort(),TIMEOUT_MS);
- try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw providerError(`Search provider returned HTTP ${r.status}`);return await r.json()}
+ try{const r=await fetch(url,{...options,signal:c.signal});if(!r.ok)throw providerError(`Search provider returned HTTP ${r.status}`,r.status);return await r.json()}
  catch(e){if(e.name==='AbortError')throw providerError('Search provider timed out');throw e}
  finally{clearTimeout(t)}
 }
 function normalize(items,provider){
- return (items||[]).map((x,i)=>({
-  id:provider+'-'+i+'-'+Buffer.from(String(x.url||x.link||'')).toString('base64url').slice(0,12),
-  title:String(x.title||x.name||'Untitled'),
-  url:String(x.url||x.link||''),
-  snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
-  source:String(x.source?.name||x.source||provider),
-  publishedAt:x.publishedAt||x.published_date||x.date||null
- })).filter(x=>/^https?:\/\//i.test(x.url));
+ const seen=new Set(),out=[];
+ for(const [i,x] of (items||[]).entries()){
+  const url=String(x.url||x.link||'');
+  if(!/^https?:\/\//i.test(url))continue;
+  let canonical=url;
+  try{
+   const u=new URL(url);u.hash='';
+   for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);
+   canonical=u.toString();if(canonical.endsWith('/'))canonical=canonical.slice(0,-1);
+  }catch{}
+  if(seen.has(canonical))continue;
+  seen.add(canonical);
+  out.push({
+   id:provider+'-'+i+'-'+Buffer.from(url).toString('base64url').slice(0,12),
+   title:String(x.title||x.name||'Untitled'),
+   url,
+   snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
+   source:String(x.source?.name||x.source||provider),
+   publishedAt:x.publishedAt||x.published_date||x.date||null
+  });
+ }
+ return out;
 }
 function cleanText(v){
  return String(v||'')
@@ -121,7 +135,8 @@ function searchCacheKey(q,count,requested){
   Boolean(process.env.BRAVE_SEARCH_API_KEY),Boolean(process.env.TAVILY_API_KEY),
   Boolean(process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)
  ].map(x=>x?'1':'0').join('');
- return [requested,q.toLowerCase().replace(/\s+/g,' ').trim(),count,providers].join('|');
+ const paidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true'?'paid-fallback-on':'paid-fallback-off';
+ return [requested,paidFallback,q.toLowerCase().replace(/\s+/g,' ').trim(),count,providers].join('|');
 }
 function trimSearchCache(){
  const now=Date.now();
@@ -129,9 +144,12 @@ function trimSearchCache(){
  while(SEARCH_CACHE.size>SEARCH_CACHE_MAX)SEARCH_CACHE.delete(SEARCH_CACHE.keys().next().value);
 }
 async function searchWebUncached(q,count,requested){
- const order=requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['exa','serpapi','brave','tavily','google','google-news-rss'];
- const errors=[];
+ const allowPaidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
+ // Keep the default search path free: use Google News RSS first and do not call metered APIs unless explicitly enabled.
+ const order=requested==='free'?['google-news-rss']:requested==='auto'&&!allowPaidFallback?['google-news-rss']:requested==='auto'?['google-news-rss','exa','serpapi','brave','tavily','google']:requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['google-news-rss'];
+ const errors=[];let paidProviderBlocked=false;
  for(const p of order){
+  if(paidProviderBlocked&&p!=='google-news-rss')continue;
   try{
    let results=[];
    if(p==='brave'&&process.env.BRAVE_SEARCH_API_KEY)results=await brave(q,count);
@@ -141,7 +159,7 @@ async function searchWebUncached(q,count,requested){
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
    if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
-  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));continue}
+  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){paidProviderBlocked=true;}continue}
  }
  const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
  throw providerError('No live results were returned by the configured search provider.'+detail);

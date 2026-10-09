@@ -10,10 +10,11 @@ let emptyMode=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async url=>{
   fetchCalls++;
+  if(String(url).includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
   await new Promise(resolve=>setTimeout(resolve,15));
   const xml=emptyMode
     ? '<rss><channel></channel></rss>'
-    : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item></channel></rss>';
+    : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item><item><title>Duplicate tracking variant</title><link>https://example.com/finpilot-quota-test?utm_source=test#article</link><description>Duplicate story with tracking parameters.</description><source>Another Source</source></item></channel></rss>';
   return {ok:true,status:200,text:async()=>xml};
 };
 
@@ -25,6 +26,7 @@ try{
   ]);
   assert.equal(fetchCalls,1,'identical in-flight queries should share one upstream fetch');
   assert.equal(first.results.length,1);
+  assert.equal(first.results[0].url,'https://example.com/finpilot-quota-test','keep the clean source URL when duplicate tracking variants exist');
   assert.equal(first.live,true);
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
@@ -42,7 +44,31 @@ try{
   const afterOneFailure=fetchCalls;
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
   assert.equal(fetchCalls,afterOneFailure+1,'empty/error results must not be cached');
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching');
+
+  // In auto mode, a free RSS result must win without touching a configured metered provider.
+  emptyMode=false;
+  fetchCalls=0;
+  process.env.SEARCH_PROVIDER='auto';
+  process.env.EXA_API_KEY='test-metered-key';
+  const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
+  assert.equal(freeFirst.provider,'google-news-rss');
+  assert.equal(fetchCalls,1,'free RSS should satisfy auto search before any metered provider is called');
+
+  // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
+  emptyMode=true;
+  fetchCalls=0;
+  process.env.SEARCH_ALLOW_PAID_FALLBACK='false';
+  await assert.rejects(()=>searchWeb('FinPilot never spend by default test',{count:3}));
+  assert.equal(fetchCalls,1,'failed free RSS should not call a metered provider unless fallback is explicitly enabled');
+
+  // Explicit provider mode may fall back to free RSS, but a billing error must not block that free fallback.
+  emptyMode=false;
+  fetchCalls=0;
+  process.env.SEARCH_PROVIDER='exa';
+  const afterBilling=await searchWeb('FinPilot free fallback after billing error',{count:3});
+  assert.equal(afterBilling.provider,'google-news-rss');
+  assert.equal(fetchCalls,2,'a billing error should stop paid retries but still allow one free RSS fallback');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard, billing-error free fallback');
 }finally{
   globalThis.fetch=originalFetch;
 }

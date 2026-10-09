@@ -29,7 +29,7 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 const send=(res,status,body,type='application/json; charset=utf-8',headers={})=>{
  const origin=res.req?.headers?.origin; const allowed=process.env.ALLOWED_ORIGIN||'';
  const cors=origin&&allowed&&origin===allowed?origin:undefined;
- const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'8.5',
+ const h={'Content-Type':type,'Cache-Control':'no-store','X-FinPilot-Version':'8.6',
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",...headers};
  if(process.env.NODE_ENV==='production')h['Strict-Transport-Security']='max-age=31536000; includeSubDomains';
@@ -831,8 +831,10 @@ async function marketDataOS(req,res,u){
    const price=Number(x?.price);
    const ok=Number.isFinite(price)&&price>0;
    const observedAt=x?.observedAt||x?._finpilotCache?.observedAt||new Date().toISOString();
-   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:x?.asOf||null,timestampType:x?.timestampType||'OBSERVATION_TIMESTAMP'});
-   if(ok)quotes.push({...x,provider:name,observedAt,latencyMs:Date.now()-t});
+   const sourceTimestamp=x?.asOf||null;
+   const timestampType=x?.timestampType||(sourceTimestamp?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP');
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:sourceTimestamp,timestampType});
+   if(ok)quotes.push({...x,provider:name,observedAt,asOf:sourceTimestamp,timestampType,latencyMs:Date.now()-t});
    return ok;
   }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
  };
@@ -850,11 +852,11 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const sourceReady=quotes.every(x=>{const ts=x.asOf||x.observedAt;return x.live!==false&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
+ const sourceReady=quotes.every(x=>{const ts=x.asOf;return x.live!==false&&x.timestampType==='PROVIDER_TIMESTAMP'&&Boolean(ts)&&Number.isFinite(Date.parse(ts))&&Date.parse(ts)<=Date.now()+5000&&Math.max(0,Date.now()-Date.parse(ts))<=EXECUTION_FRESHNESS_MS;});
  const verified=prices.length===1?sourceReady:(spreadPct<=0.75&&sourceReady);
  const winner=quotes.slice().sort((a,b)=>a.latencyMs-b.latencyMs)[0];
  const status=verified?'VERIFIED':'CONFLICTING';
- const selectedAsOf=winner.asOf||winner.observedAt||null;
+ const selectedAsOf=winner.asOf||null;
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&!winner.stale&&sourceAgeMs<=EXECUTION_FRESHNESS_MS);
  const result={ok:true,available:true,verified:executionReady,ticker:raw,price:median,changePct:winner.changePct,volume:winner.volume,high:winner.high,low:winner.low,provider:winner.provider,asOf:selectedAsOf,sourceTimestampType:winner.timestampType||'OBSERVATION_TIMESTAMP',sourceAgeMs,dataFreshness:sourceAgeMs!==null?(sourceAgeMs<=EXECUTION_FRESHNESS_MS?'FRESH_SOURCE':'STALE_SOURCE'):'UNKNOWN',marketDataOS:{status:executionReady?'VERIFIED':verified?'STALE_OR_NON_EXECUTION':'UNAVAILABLE',decision:executionReady?'ALLOW_ANALYSIS_AND_PAPER':'HOLD_FOR_VERIFICATION',providerCount:quotes.length,priceSpreadPct:Number(spreadPct.toFixed(4)),sourceAgeMs,executionFreshnessMs:EXECUTION_FRESHNESS_MS,providers:quotes.map(x=>({provider:x.provider,price:x.price,latencyMs:x.latencyMs,live:x.live!==false,asOf:x.asOf||x.observedAt||null,timestampType:x.timestampType||'OBSERVATION_TIMESTAMP'})),attempts,elapsedMs:Date.now()-started,rule:'Paper execution requires a fresh, provider-sourced quote. EOD and stale fallbacks remain analysis-only.'}};
@@ -1206,7 +1208,7 @@ function autoOptimize(req,res){
 }
 function marketStream(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const symbol=CRYPTO_ASSETS[ticker]||'BTCUSDT';
- res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'7.0'});
+ res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'8.6'});
  let closed=false, timer; req.on('close',()=>{closed=true;clearInterval(timer);});
  const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'Binance spot',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
  push(); timer=setInterval(push,AUTO.marketRefreshMs);
@@ -1360,10 +1362,10 @@ function optimizeOS(req,res){
 }
 function auditLog(req,res){return send(res,200,{ok:true,version:'6.8',records:AUDIT.slice(0,100)});}
 function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.html'),'utf8');const m=html.match(/<script>([\s\S]*?)<\/script>/);if(!m)return {ok:false,error:'Main script tag not found'};new vm.Script(m[1],{filename:'public/index.html'});return {ok:true}}catch(e){return {ok:false,error:String(e.message||e),stack:String(e.stack||'').split('\n').slice(0,4)}}}
-function health70(req,res){return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'7.1',status:'OPERATIONAL',autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality:DATA_HEALTH.freshness,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),execution:'human-approval-gated',frontendSyntax:frontendSyntax()});}
+function health70(req,res){const dataQuality=DATA_HEALTH.freshness;const status=dataQuality==='STALE'?'DEGRADED':'OPERATIONAL';return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',status,autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality,dataQualityScore:DATA_HEALTH.qualityScore,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),security:'hardened',realtime:true,execution:'human-approval-gated',executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,frontendSyntax:frontendSyntax(),timestamp:new Date().toISOString()});}
 
 const server=http.createServer(async(req,res)=>{
- const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
+ const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','8.6');
  try{ if(!rateCheck(req)){SECURITY.blocked++; return send(res,429,{ok:false,error:'RATE_LIMITED',requestId:rid});}
 
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'});return res.end();}
@@ -1405,7 +1407,6 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/market-ingest'){await body(req);const x=req._parsedBody||{};const stored=await storeMarketTick(x);emitEvent('MARKET_TICK',x,90);return send(res,200,{ok:true,cloudStored:stored,agentCoreHandoff:true});}
   if(req.method==='GET'&&u.pathname==='/api/market-stream')return marketStream(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/compliance')return compliance(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/health')return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',time:new Date().toISOString(),security:'hardened',realtime:true,executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY)});
   if(req.method==='GET'&&u.pathname==='/api/search')return search(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
