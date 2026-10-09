@@ -52,6 +52,7 @@ assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, '
 assert.match(serverText, /buildMarketSnapshot/, 'server should normalize provider reports into the shared snapshot schema');
 assert.equal((serverText.match(/u\.pathname==='\/api\/health'/g)||[]).length,1,'health endpoint must have exactly one reachable route');
 assert.match(serverText, /dataQualityScore:DATA_HEALTH\.qualityScore/, 'health endpoint must expose the data-quality score separately from server availability');
+assert.match(serverText, /'X-FinPilot-Version':'8\.6'/, 'API version header must match the health endpoint version');
 assert.match(serverText, /status,dataQuality,dataQualityScore/, 'health endpoint must distinguish service status from data quality');
 assert.match(serverText, /u\.pathname==='\/api\/market-snapshot'/, 'the market snapshot endpoint must be registered');
 assert.match(moduleText, /\/api\/market-snapshot/, 'one-click analysis must consume the canonical snapshot endpoint');
