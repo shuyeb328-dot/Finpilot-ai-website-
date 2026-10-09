@@ -62,7 +62,7 @@ assert.match(moduleText, /if\(validCandles\.length<2\)/, 'local historical candl
 assert.match(moduleText, /Historical \/ delayed price series/, 'non-live candle charts must be labelled historical/delayed');
 assert.match(moduleText, /Latest reported price · non-live\/EOD/, 'EOD or delayed quotes must not be labelled verified live prices');
 assert.match(moduleText, /script\.onerror=\(\)=>showFallback/, 'failed external chart loads must produce a visible fallback instead of a blank box');
-assert.match(moduleText, /forecastEligible===true&&scenarioQuoteValid/, 'the verified live price label must require both snapshot eligibility and a fresh matching quote');
+assert.match(moduleText, /marketForecastEligible===true&&scenarioQuoteValid/, 'the verified live price label must require both snapshot eligibility and a fresh matching quote');
 assert.match(deepText, /marketDataQuality/, 'agents must score market data quality as a separate feature');
 assert.match(deepText, /marketSnapshotId:marketSnapshot\?\.snapshotId/, 'agent results must preserve the shared snapshot ID');
 
