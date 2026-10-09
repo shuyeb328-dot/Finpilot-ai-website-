@@ -232,4 +232,9 @@ assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-cal
 assert.match(pageText, /deep-learning-os\.js\?v=20261010-4/, 'the page must cache-bust the specialist module version');
 assert.match(pageText, /one-click-analysis\.js\?v=20261010-4/, 'the page must reference the updated analysis module version');
 
+
+assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
+assert.match(serverText, /const agent=clean\(row\?\.agent,64\)/, 'agent identifiers must be sanitized before they enter server memory');
+assert.match(serverText, /const lesson=clean\(row\?\.lesson\|\|'',600\)/, 'client-provided telemetry lessons must be bounded before storage');
+
 console.log('one-click-pipeline: contract checks passed');
