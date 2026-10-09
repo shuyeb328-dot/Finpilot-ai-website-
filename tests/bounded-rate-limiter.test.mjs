@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {createBoundedRateLimiter} from '../server/bounded-rate-limiter.mjs';
+let now=100000;
+const limiter=createBoundedRateLimiter({windowMs:60000,limit:3,maxClients:100,sweepEvery:2,now:()=>now});
+assert.equal(limiter.check('ip-1').allowed,true);
+assert.equal(limiter.check('ip-1').allowed,true);
+assert.equal(limiter.check('ip-1').allowed,true);
+const blocked=limiter.check('ip-1');
+assert.equal(blocked.allowed,false);
+assert.equal(blocked.remaining,0);
+now+=60001;
+assert.equal(limiter.check('ip-1').allowed,true,'expired windows reset');
+for(let i=0;i<180;i++)limiter.check('unique-'+i);
+assert.ok(limiter.size()<=limiter.capacity,'client buckets remain hard-capped');
+const small=createBoundedRateLimiter({limit:1,maxClients:100,sweepEvery:1000,now:()=>now});
+small.check('first');small.check('second');small.check('third');
+assert.ok(small.size()<=100);
+console.log('Bounded rate limiter: window reset, denial and client-bucket cap passed.');
