@@ -1208,7 +1208,7 @@ function autoOptimize(req,res){
 }
 function marketStream(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const symbol=CRYPTO_ASSETS[ticker]||'BTCUSDT';
- res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'7.0'});
+ res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'8.6'});
  let closed=false, timer; req.on('close',()=>{closed=true;clearInterval(timer);});
  const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'Binance spot',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
  push(); timer=setInterval(push,AUTO.marketRefreshMs);
@@ -1365,7 +1365,7 @@ function frontendSyntax(){try{const html=fs.readFileSync(path.join(ROOT,'index.h
 function health70(req,res){const dataQuality=DATA_HEALTH.freshness;const status=dataQuality==='STALE'?'DEGRADED':'OPERATIONAL';return send(res,200,{ok:true,service:'FinPilot Web Gateway',version:'8.6',status,autonomy:'governed',eventDriven:true,selfHealing:true,autonomousLearning:autonomousLearningStatus().enabled,dataQuality,dataQualityScore:DATA_HEALTH.qualityScore,aiConfigured:Boolean(process.env.LLM_API_URL&&process.env.LLM_API_KEY),security:'hardened',realtime:true,execution:'human-approval-gated',executionFreshnessMs:EXECUTION_FRESHNESS_MS,marketCacheMs:MARKET_CACHE_MS,frontendSyntax:frontendSyntax(),timestamp:new Date().toISOString()});}
 
 const server=http.createServer(async(req,res)=>{
- const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','7.0');
+ const started=Date.now(); PERF.requests++; const rid=requestId(); res.setHeader('X-FinPilot-Request-Id',rid); res.setHeader('X-FinPilot-Version','8.6');
  try{ if(!rateCheck(req)){SECURITY.blocked++; return send(res,429,{ok:false,error:'RATE_LIMITED',requestId:rid});}
 
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization'});return res.end();}
