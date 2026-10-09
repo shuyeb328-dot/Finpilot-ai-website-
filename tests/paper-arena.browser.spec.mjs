@@ -76,7 +76,7 @@ test('production Paper Arena renders charts and only fills when market data is v
           key:c.key,status:r.status,ok:d.ok===true,originalQuery:d.discovery?.originalQuery,
           sourceRole:d.discovery?.sourceRole,query:d.discovery?.query,provider:d.discovery?.provider,
           quoteEligible:d.discovery?.quoteEligible,executionEligible:d.discovery?.executionEligible,
-          resultCount:d.discovery?.resultCount,resultsAreDiscoveryOnly:(d.discovery?.results||[]).every(x=>x.quoteEligible===false&&x.executionEligible===false)
+          resultCount:d.discovery?.resultCount,firstUrl:d.discovery?.results?.[0]?.url,resultsAreDiscoveryOnly:(d.discovery?.results||[]).every(x=>x.quoteEligible===false&&x.executionEligible===false)
         };
       } catch(e) { return {key:c.key,error:String(e?.message||e)}; }
     }));
@@ -95,6 +95,20 @@ test('production Paper Arena renders charts and only fills when market data is v
   expect(cryptoResearch.query).toContain('Coinbase Kraken Binance');
   expect(cryptoResearch.quoteEligible).toBe(false);
   expect(cryptoResearch.resultsAreDiscoveryOnly).toBe(true);
+
+  const pageRetrieval = await page.evaluate(async url => {
+    if(!/^https:\/\//i.test(String(url||'')))return {attempted:false,status:'NO_HTTPS_RESULT'};
+    try{
+      const r=await fetch('/api/research/fetch?url='+encodeURIComponent(url),{cache:'no-store'});
+      const d=await r.json();
+      return {attempted:true,httpStatus:r.status,ok:d.ok===true,retrievalStatus:d.retrievalStatus||d.error||'UNAVAILABLE',textLength:Number(d.textLength)||String(d.text||'').length};
+    }catch(e){return {attempted:true,error:String(e?.message||e)};}
+  },indianResearch.firstUrl);
+  console.log('TASK_SUPPLEMENTAL_PAGE_RETRIEVAL_SMOKE', JSON.stringify(pageRetrieval));
+  if(pageRetrieval.attempted){
+    expect(pageRetrieval.httpStatus).toBe(200);
+    expect(typeof pageRetrieval.retrievalStatus).toBe('string');
+  }
 
   await page.waitForTimeout(3000);
   const prePaper = await page.evaluate(() => ({ core: typeof window.FinPilotPaperCore, lab: typeof window.paperLab, engineLoaded: Boolean(window.__finPaperEngineLoaded) }));

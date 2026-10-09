@@ -489,13 +489,13 @@
       row.style.cssText='border-top:1px solid var(--line);padding-top:10px;display:grid;gap:5px;';
       const badge=document.createElement('small');
       badge.className='muted';
-      badge.textContent='SUPPLEMENTAL DISCOVERY '+(index+1)+' · '+String(item.source||discovery?.provider||'Search provider');
+      badge.textContent='SUPPLEMENTAL DISCOVERY '+(index+1)+' · '+String(item.source||discovery?.provider||'Search provider')+' · '+(item.retrievalStatus==='RETRIEVED'?'PAGE RETRIEVED':item.retrievalStatus==='PARTIAL'?'PARTIAL PAGE':item.retrievalStatus==='UNAVAILABLE'?'LINK ONLY':'SEARCH RESULT');
       row.appendChild(badge);
       const link=document.createElement('a');
-      link.textContent=String(item.title||'Untitled source');
+      link.textContent=String(item.articleTitle||item.title||'Untitled source');
       link.style.cssText='font-weight:650;overflow-wrap:anywhere;';
       try{
-        const url=new URL(String(item.url||''));
+        const url=new URL(String(item.articleUrl||item.canonicalUrl||item.url||''));
         if(url.protocol==='https:'||url.protocol==='http:'){
           link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';
         }else link.removeAttribute('href');
@@ -504,7 +504,7 @@
       const snippet=document.createElement('p');
       snippet.className='muted';
       snippet.style.margin='0';
-      snippet.textContent=String(item.snippet||'Search result only; open the source to inspect primary evidence.').slice(0,360);
+      snippet.textContent=String(item.retrievedText||item.snippet||'Search result only; open the source to inspect primary evidence.').slice(0,360);
       row.appendChild(snippet);
       const date=document.createElement('small');
       date.className='muted';
@@ -641,6 +641,44 @@
       const discovery=taskResearch?.discovery||null;
       let supplementalResults=[];
       if(discovery&&Array.isArray(discovery.results)){
+        // Retrieve at most one supplemental page. This is a bounded, public-page
+        // extraction step; extracted text remains discovery evidence, never a quote.
+        const pageCandidate=discovery.results.find(item=>/^https:\/\//i.test(String(item?.url||'')));
+        if(pageCandidate){
+          const originalUrl=String(pageCandidate.url);
+          try{
+            const pageData=await fetchJsonBounded(
+              '/api/research/fetch?url='+encodeURIComponent(originalUrl),
+              {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+              7000,
+              'Task-specific source page retrieval'
+            );
+            if(pageData?.ok&&String(pageData.text||'').trim()){
+              const extracted=String(pageData.text);
+              Object.assign(pageCandidate,{
+                articleTitle:pageData.title||pageCandidate.title||'Untitled source',
+                articleUrl:pageData.canonicalUrl||pageData.finalUrl||originalUrl,
+                canonicalUrl:pageData.canonicalUrl||pageData.finalUrl||originalUrl,
+                retrievedText:extracted.slice(0,12000),
+                publisherPublishedAt:pageData.publishedAt||pageCandidate.publishedAt||null,
+                pageFetchedAt:pageData.extractedAt||new Date().toISOString(),
+                retrievalStatus:pageData.retrievalStatus||'RETRIEVED',
+                retrievalCached:pageData.cached===true,
+                retrievedContentLength:Number(pageData.textLength)||extracted.length,
+                retrievalMessage:pageData.warning||null
+              });
+              discovery.pageRetrieval={attempted:true,status:pageCandidate.retrievalStatus,quoteEligible:false};
+            }else{
+              Object.assign(pageCandidate,{retrievalStatus:'UNAVAILABLE',retrievalMessage:pageData?.message||'Public page text was unavailable; search snippet retained.'});
+              discovery.pageRetrieval={attempted:true,status:'UNAVAILABLE',quoteEligible:false};
+            }
+          }catch(e){
+            Object.assign(pageCandidate,{retrievalStatus:'UNAVAILABLE',retrievalMessage:String(e?.message||'Public page retrieval unavailable').slice(0,180)});
+            discovery.pageRetrieval={attempted:true,status:'UNAVAILABLE',quoteEligible:false};
+          }
+        }else{
+          discovery.pageRetrieval={attempted:false,status:'NO_HTTPS_SOURCE',quoteEligible:false};
+        }
         const seenUrls=new Set();
         const canonicalUrl=value=>{
           try{
@@ -658,11 +696,15 @@
         });
         supplementalResults=discovery.results.map(item=>({
           ...item,
-          articleTitle:item.title||'Untitled source',
-          articleUrl:item.url||'',
-          publisherPublishedAt:item.publishedAt||null,
-          retrievedText:item.snippet||'',
-          retrievalStatus:'SEARCH_RESULT',
+          articleTitle:item.articleTitle||item.title||'Untitled source',
+          articleUrl:item.articleUrl||item.canonicalUrl||item.url||'',
+          publisherPublishedAt:item.publisherPublishedAt||item.publishedAt||null,
+          retrievedText:item.retrievedText||item.snippet||'',
+          retrievalStatus:item.retrievalStatus||'SEARCH_RESULT',
+          retrievalCached:item.retrievalCached===true,
+          retrievedContentLength:Number(item.retrievedContentLength)||0,
+          pageFetchedAt:item.pageFetchedAt||null,
+          retrievalMessage:item.retrievalMessage||null,
           taskSpecific:true,
           sourceRole:discovery.sourceRole||'TASK_SPECIFIC_DISCOVERY',
           discoveryQuery:discovery.query||'',
@@ -678,7 +720,7 @@
           ...(search||{}),
           query,
           results:[...(Array.isArray(search?.results)?search.results:[]),...supplementalResults],
-          taskSpecificDiscovery:{assetClass:discovery.assetClass,taskType:discovery.taskType,query:discovery.query,provider:discovery.provider,live:discovery.live===true,cached:discovery.cached===true,resultCount:supplementalResults.length,quoteEligible:false}
+          taskSpecificDiscovery:{assetClass:discovery.assetClass,taskType:discovery.taskType,query:discovery.query,provider:discovery.provider,live:discovery.live===true,cached:discovery.cached===true,resultCount:supplementalResults.length,retrievalStatus:discovery.pageRetrieval?.status||'NOT_ATTEMPTED',retrievedPageCount:supplementalResults.filter(x=>['RETRIEVED','PARTIAL'].includes(x.retrievalStatus)).length,quoteEligible:false}
         };
         window.__lastSearch=search;
         if(supplementalResults.length){
