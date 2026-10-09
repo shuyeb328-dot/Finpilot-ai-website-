@@ -9,6 +9,7 @@ import {searchWeb} from './search-provider.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
+import {createMarketStreamHub} from './market-stream-hub.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000});return MARKET_POOL;}
@@ -840,35 +841,50 @@ async function marketDataOS(req,res,u){
  return send(res,200,result);
 }
 
+async function loadMarketStreamSnapshot(channelKey){
+ const [raw,interval='1h']=String(channelKey).split('\u001f');
+ const base='http://127.0.0.1:'+PORT+'/api/market-data-os?ticker='+encodeURIComponent(raw)+'&interval='+encodeURIComponent(interval);
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+ try{
+  const r=await fetch(base,{headers:{'Accept':'application/json'},signal:controller.signal});
+  if(!r.ok)throw new Error('MARKET_DATA_HTTP_'+r.status);
+  const d=await r.json();
+  const now=Date.now();
+  const verified=Boolean(d?.ok&&d?.available&&d?.verified&&Number.isFinite(Number(d?.price))&&Number(d.price)>0);
+  const ageMs=d?.asOf?Math.max(0,now-Date.parse(d.asOf)):0;
+  const stale=ageMs>30000;
+  const payload={ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,executionEligible:Boolean(d?.marketDataOS?.decision==='ALLOW_ANALYSIS_AND_PAPER'),stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs,sourceAgeMs:Number(d?.marketDataOS?.sourceAgeMs||ageMs),executionFreshnessMs:EXECUTION_FRESHNESS_MS};
+  if(verified){
+   const mid=Number(d.price),spread=Math.max(mid*0.0004,0.00000001);
+   payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};
+   payload.tick={price:mid,receivedAt:payload.receivedAt};
+  }
+  return payload;
+ }finally{clearTimeout(timeout);}
+}
+const MARKET_STREAM_POLL_MS=Math.max(3000,Math.min(15000,Number(process.env.FINPILOT_MARKET_STREAM_POLL_MS||5000)));
+const MARKET_STREAM_HUB=createMarketStreamHub({
+ loadSnapshot:loadMarketStreamSnapshot,
+ pollMs:MARKET_STREAM_POLL_MS,
+ heartbeatMs:15000,
+ signature:value=>JSON.stringify([value.status,value.price,value.asOf,value.providerCount])
+});
 async function marketDataStream(req,res,u){
  const raw=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
  const interval=u.searchParams.get('interval')||'1h';
- const heartbeatMs=15000, pollMs=Math.max(3000,Math.min(15000,Number(u.searchParams.get('pollMs')||5000)));
  res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'});
- res.write(': finpilot-market-stream\\n\\n');
- let closed=false, timer=null, seq=0, lastSignature='';
- const writeEvent=(event,data)=>{if(closed)return;res.write('event: '+event+'\\n');res.write('data: '+JSON.stringify(data)+'\\n\\n');};
- const poll=async()=>{
-  if(closed)return;
-  try{
-   const base='http://127.0.0.1:'+PORT+'/api/market-data-os?ticker='+encodeURIComponent(raw)+'&interval='+encodeURIComponent(interval);
-   const controller=new AbortController(); const to=setTimeout(()=>controller.abort(),12000);
-   const r=await fetch(base,{headers:{'Accept':'application/json'},signal:controller.signal}); clearTimeout(to);
-   const d=await r.json();
-   const now=Date.now();
-   const verified=Boolean(d?.ok&&d?.available&&d?.verified&&Number.isFinite(Number(d?.price))&&Number(d.price)>0);
-   const ageMs=d?.asOf?Math.max(0,now-Date.parse(d.asOf)):0;
-   const stale=ageMs>30000;
-   const payload={seq:++seq,ticker:raw,interval,status:verified&&!stale?'LIVE':verified?'STALE':(d?.marketDataOS?.status||'UNAVAILABLE'),verified,executionEligible:Boolean(d?.marketDataOS?.decision==='ALLOW_ANALYSIS_AND_PAPER'),stale,price:verified?Number(d.price):null,changePct:verified?Number(d.changePct||0):null,volume:verified?Number(d.volume||0):null,high:verified?Number(d.high||0):null,low:verified?Number(d.low||0):null,provider:d?.provider||null,providerCount:Number(d?.marketDataOS?.providerCount||0),asOf:d?.asOf||null,receivedAt:new Date(now).toISOString(),ageMs,sourceAgeMs:Number(d?.marketDataOS?.sourceAgeMs||ageMs),executionFreshnessMs:EXECUTION_FRESHNESS_MS};
-   if(verified){const mid=Number(d.price),spread=Math.max(mid*0.0004,0.00000001);payload.orderBook={type:'SIMULATED_FROM_VERIFIED_QUOTES',bid:Number((mid-spread/2).toFixed(8)),ask:Number((mid+spread/2).toFixed(8)),spread:Number(spread.toFixed(8)),levels:4};payload.tick={price:mid,receivedAt:payload.receivedAt};}
-   const sig=JSON.stringify([payload.status,payload.price,payload.asOf,payload.providerCount]);
-   if(sig!==lastSignature){lastSignature=sig;writeEvent('market',payload);}
-  }catch(e){writeEvent('status',{seq:++seq,ticker:raw,status:'UNAVAILABLE',verified:false,stale:true,error:String(e?.message||e),receivedAt:new Date().toISOString()});}
+ res.write(': finpilot-market-stream\n\n');
+ let closed=false;
+ const writeEvent=(event,data)=>{if(closed||res.destroyed)return;res.write('event: '+event+'\n');res.write('data: '+JSON.stringify(data)+'\n\n');};
+ const listener={
+  onData:data=>writeEvent('market',data),
+  onError:error=>writeEvent('status',{ticker:raw,status:'UNAVAILABLE',verified:false,stale:true,error:String(error?.message||error),receivedAt:new Date().toISOString()}),
+  onHeartbeat:at=>{if(!closed&&!res.destroyed)res.write(': heartbeat '+at+'\n\n');}
  };
- await poll();
- timer=setInterval(poll,pollMs);
- const heartbeat=setInterval(()=>{if(!closed)res.write(': heartbeat '+Date.now()+'\\n\\n');},heartbeatMs);
- req.on('close',()=>{closed=true;clearInterval(timer);clearInterval(heartbeat);});
+ const unsubscribe=MARKET_STREAM_HUB.subscribe(raw+'\u001f'+interval,listener);
+ const close=()=>{if(closed)return;closed=true;unsubscribe();};
+ req.on('close',close);
+ res.on('close',close);
 }
 
 async function marketSnapshotRoute(req,res,u){
