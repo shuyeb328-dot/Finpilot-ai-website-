@@ -249,6 +249,9 @@
     const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
+    const chartCurrency=String(report.chartAnalysis?.currency||'INR').toUpperCase();
+    const chartCurrencyMark=chartCurrency==='USD'?'$':chartCurrency==='INR'?'₹':chartCurrency+' ';
+    const chartPrice=value=>Number(value)>0?chartCurrencyMark+Number(value).toLocaleString(chartCurrency==='INR'?'en-IN':'en-US',{maximumFractionDigits:chartCurrency==='USD'&&Math.abs(Number(value))<1?6:2}):'N/A';
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
     const html=`
@@ -265,12 +268,12 @@
           <div class="sectionTitle"><div><span class="eyebrow">${report.chartAnalysis?.realtimeAvailable?'PRICE CHART':'PRICE CHART'}</span><h3 style="font-size:18px;margin-top:5px">${escLocal(report.chartAnalysis?.name||report.candidate?.name||q)} · ${escLocal(report.chartAnalysis?.ticker||report.candidate?.ticker||'')}</h3></div><span class="pill ${report.chartAnalysis?.realtimeAvailable?'low':'med'}">${report.chartAnalysis?.realtimeAvailable?'LIVE SERIES':(report.chartAnalysis?.available?'EOD + TV':'TV FALLBACK')}</span></div>
           ${chartSvg(report.chartAnalysis)}
           <div class="grid cards" style="margin-top:10px">
-            <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">₹${Number(report.chartAnalysis?.price||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
+            <div class="card"><span class="muted">${report.chartAnalysis?.realtimeAvailable?'Live price':'Latest verified price'}</span><div class="metric">${chartPrice(report.chartAnalysis?.price)}</div></div>
             <div class="card"><span class="muted">RSI</span><div class="metric">${Number(report.chartAnalysis?.rsi||0).toFixed(1)}</div></div>
-            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${report.chartAnalysis?.sma20>0?'₹'+Number(report.chartAnalysis.sma20).toFixed(2):'N/A'} / ${report.chartAnalysis?.sma50>0?'₹'+Number(report.chartAnalysis.sma50).toFixed(2):'N/A'}</div></div>
-            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${report.chartAnalysis?.support>0?'₹'+Number(report.chartAnalysis.support).toFixed(2):'N/A'} / ${report.chartAnalysis?.resistance>0?'₹'+Number(report.chartAnalysis.resistance).toFixed(2):'N/A'}</div></div>
+            <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.sma20)} / ${chartPrice(report.chartAnalysis?.sma50)}</div></div>
+            <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.support)} / ${chartPrice(report.chartAnalysis?.resistance)}</div></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ₹${Number(report.chartAnalysis?.target||0).toFixed(2)} · Stop scenario ₹${Number(report.chartAnalysis?.stop||0).toFixed(2)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
+          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ${chartPrice(report.chartAnalysis?.target)} · Stop scenario ${chartPrice(report.chartAnalysis?.stop)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid #d8e0ef;background:#fbfcff"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses only the verified candle series in this run.</div></div>
 
         </div>
         <div class="grid cards" style="margin-bottom:12px">
