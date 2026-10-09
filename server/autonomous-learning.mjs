@@ -21,7 +21,8 @@ export const AUTONOMOUS_AGENT_PROFILES=[
 
 const intervalMs=Math.max(60000,Number(process.env.AUTO_RESEARCH_INTERVAL_MS||300000));
 const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS||8)));
-const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
+// Expensive autonomous web research is opt-in; user-triggered research remains available.
+const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'false').toLowerCase()==='true';
 
 const state={
   version:'3.3',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
