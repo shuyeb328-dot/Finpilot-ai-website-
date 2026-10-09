@@ -11,6 +11,11 @@ assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asO
 assert.match(frontend, /NON-LIVE · ANALYSIS ONLY/, 'non-live fallback must be labelled analysis-only');
 assert.match(server, /\/api\/market-data-stream/);
 assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
+assert.match(server, /createProviderResponseCache/, 'market routes should share a bounded provider-response cache');
+assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');
+assert.match(server, /Number\(x\.closeTime\)>0\?new Date\(Number\(x\.closeTime\)\)\.toISOString\(\)/, 'Binance timestamps should be sourced from provider closeTime');
+assert.match(server, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto market reports should distinguish provider timestamps from observation timestamps');
+
 assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
 assert.match(frontend, /addEventListener\('open',[\s\S]*?stopFallback\(\)/, 'healthy SSE open should stop redundant stock-report polling');
 assert.match(frontend, /else if\(!streamOpen\)startFallback\(\)/, 'fallback polling should only run while the stream is not open');
