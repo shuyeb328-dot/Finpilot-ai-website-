@@ -14,6 +14,8 @@ assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE 
 assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
 assert.match(frontend, /addEventListener\('open',[\s\S]*?stopFallback\(\)/, 'healthy SSE open should stop redundant stock-report polling');
 assert.match(frontend, /else if\(!streamOpen\)startFallback\(\)/, 'fallback polling should only run while the stream is not open');
+assert.doesNotMatch(frontend, /fetch\('\/api\/market-ingest'/, 'browser tabs should not duplicate market tick ingestion');
+assert.match(server, /storeMarketTick\(tick\)/, 'the shared server poll should ingest each verified tick once');
 assert.match(server, /FINPILOT_MARKET_CACHE_MS\|\|15000/);
 assert.match(server, /FINPILOT_YAHOO_COOLDOWN_MS\|\|60000/);
 
