@@ -6,6 +6,7 @@ import {URL} from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import 'node:process';
+import {cleanText as clean} from './text-sanitizer.mjs';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
