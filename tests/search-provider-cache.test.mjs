@@ -6,7 +6,7 @@ process.env.SEARCH_PROVIDER='google';
 process.env.SEARCH_CACHE_TTL_MS='60000';
 
 let fetchCalls=0;
-let emptyMode=false;
+let emptyMode=false;\nlet wrapperMode=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async url=>{
   fetchCalls++;
@@ -14,7 +14,9 @@ globalThis.fetch=async url=>{
   await new Promise(resolve=>setTimeout(resolve,15));
   const xml=emptyMode
     ? '<rss><channel></channel></rss>'
-    : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item><item><title>Duplicate tracking variant</title><link>https://example.com/finpilot-quota-test?utm_source=test#article</link><description>Duplicate story with tracking parameters.</description><source>Another Source</source></item></channel></rss>';
+    : wrapperMode
+      ? '<rss><channel><item><title>Resolved publisher story</title><link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;url=https%3A%2F%2Fexample.com%2Ffinpilot-quota-test&amp;c=123</link><description>Article-link resolver regression test with enough readable context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item><item><title>Duplicate tracking variant</title><link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;url=https%3A%2F%2Fexample.com%2Ffinpilot-quota-test%3Futm_source%3Dtest&amp;c=456</link><description>Duplicate story with tracking parameters.</description><source>Another Source</source></item></channel></rss>'
+      : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item><item><title>Duplicate tracking variant</title><link>https://example.com/finpilot-quota-test?utm_source=test#article</link><description>Duplicate story with tracking parameters.</description><source>Another Source</source></item></channel></rss>';
   return {ok:true,status:200,text:async()=>xml};
 };
 
@@ -61,7 +63,7 @@ try{
   process.env.SEARCH_PROVIDER='auto';
   process.env.EXA_API_KEY='test-metered-key';
   const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
-  assert.equal(freeFirst.provider,'google-news-rss');
+  assert.equal(freeFirst.provider,'bing-news-rss');
   assert.equal(fetchCalls,1,'free RSS should satisfy auto search before any metered provider is called');
 
   // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
@@ -76,7 +78,7 @@ try{
   fetchCalls=0;
   process.env.SEARCH_PROVIDER='exa';
   const afterBilling=await searchWeb('FinPilot free fallback after billing error',{count:3});
-  assert.equal(afterBilling.provider,'google-news-rss');
+  assert.equal(afterBilling.provider,'bing-news-rss');
   assert.equal(fetchCalls,2,'a billing error should stop paid retries but still allow one free RSS fallback');
   // Task-specific supplemental discovery must remain free-only even when paid fallback is enabled.
   emptyMode=false;
@@ -85,9 +87,18 @@ try{
   process.env.EXA_API_KEY='test-metered-key';
   process.env.SEARCH_ALLOW_PAID_FALLBACK='true';
   const explicitlyFree=await searchWeb('FinPilot explicit free-only supplemental discovery',{count:4,freeOnly:true,forceRefresh:true});
-  assert.equal(explicitlyFree.provider,'google-news-rss','freeOnly must override the configured metered provider');
+  assert.equal(explicitlyFree.provider,'bing-news-rss','freeOnly must override the configured metered provider');
   assert.equal(fetchCalls,1,'freeOnly must not call metered providers');
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first auto search, paid-fallback guard, billing-error free fallback');
+
+  wrapperMode=true;
+  fetchCalls=0;
+  const resolved=await searchWeb('FinPilot Bing publisher URL resolution',{count:4,freeOnly:true,forceRefresh:true});
+  assert.equal(resolved.provider,'bing-news-rss');
+  assert.equal(resolved.results.length,1,'Bing redirect variants resolving to the same publisher article must be deduplicated');
+  assert.equal(resolved.results[0].url,'https://example.com/finpilot-quota-test','Bing RSS wrapper must resolve to the publisher HTTPS URL before article retrieval');
+  assert.equal(fetchCalls,1,'publisher-link resolution must require no second search/provider request');
+
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first RSS, paid-fallback guard, billing-error free fallback, Bing publisher URL resolution');
 }finally{
   globalThis.fetch=originalFetch;
 }
