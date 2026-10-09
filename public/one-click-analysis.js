@@ -389,7 +389,7 @@
     const positive=(text.match(/surge|rise|gain|bullish|growth|upgrade|profit|strong|positive/g)||[]).length;
     const negative=(text.match(/fall|drop|loss|bearish|downgrade|debt|risk|warning|weak|negative/g)||[]).length;
     const stance=positive>negative+1?'Positive':negative>positive+1?'Cautious':'Mixed';
-    return {provider:d.provider||'web',live:d.live===true,count:rows.length,positive,negative,stance,freshness:d.live===true?'LIVE':'FALLBACK',query:d.query||'',results:rows.slice(0,10)};
+    return {provider:d.provider||'web',live:d.live===true&&d.cached!==true,cached:d.cached===true,cacheAgeMs:Number(d.cacheAgeMs||0),count:rows.length,positive,negative,stance,freshness:d.cached===true?'CACHED':d.live===true?'LIVE':'FALLBACK',query:d.query||'',results:rows.slice(0,10)};
   }
 
   function ensureRawSearch(){

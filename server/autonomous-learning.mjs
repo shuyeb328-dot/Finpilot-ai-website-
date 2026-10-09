@@ -21,7 +21,8 @@ export const AUTONOMOUS_AGENT_PROFILES=[
 
 const intervalMs=Math.max(60000,Number(process.env.AUTO_RESEARCH_INTERVAL_MS||300000));
 const maxResults=Math.max(3,Math.min(12,Number(process.env.AUTO_RESEARCH_RESULTS||8)));
-const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'true').toLowerCase()!=='false';
+// Expensive autonomous web research is opt-in; user-triggered research remains available.
+const enabledByEnv=String(process.env.FINPILOT_AUTO_RESEARCH||'false').toLowerCase()==='true';
 
 const state={
   version:'3.3',enabled:enabledByEnv,mode:'IDLE_AGENT_AUTORESEARCH',intervalMs,
@@ -120,8 +121,9 @@ function pickAgent(){
   state.cursor=(AUTONOMOUS_AGENT_PROFILES.findIndex(x=>x.id===chosen.id)+1)%AUTONOMOUS_AGENT_PROFILES.length;
   return chosen;
 }
+// The opt-in flag controls the recurring timer, not explicitly requested one-off cycles.
 function free(getSchedulerState){
-  if(!state.enabled||state.running)return false;
+  if(state.running)return false;
   const s=getSchedulerState?.()||{running:0,maxConcurrency:5,queue:[]};
   const spare=Math.max(0,Number(s.maxConcurrency||5)-Number(s.running||0));
   const urgent=(s.queue||[]).filter(x=>Number(x.priority||0)>=140).length;

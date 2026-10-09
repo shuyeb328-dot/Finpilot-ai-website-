@@ -107,8 +107,28 @@ async function googleNewsRss(q,count){
  finally{clearTimeout(timer)}
 }
 
-export async function searchWeb(q,{count=8}={}){
- const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
+const configuredSearchCacheTtl=Number(process.env.SEARCH_CACHE_TTL_MS);
+const SEARCH_CACHE_TTL_MS=Number.isFinite(configuredSearchCacheTtl)
+ ?Math.max(0,Math.min(60*60*1000,configuredSearchCacheTtl))
+ :10*60*1000;
+const SEARCH_CACHE_MAX=300;
+const SEARCH_CACHE=new Map();
+const SEARCH_INFLIGHT=new Map();
+
+function searchCacheKey(q,count,requested){
+ const providers=[
+  Boolean(process.env.EXA_API_KEY),Boolean(process.env.SERPAPI_API_KEY),
+  Boolean(process.env.BRAVE_SEARCH_API_KEY),Boolean(process.env.TAVILY_API_KEY),
+  Boolean(process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)
+ ].map(x=>x?'1':'0').join('');
+ return [requested,q.toLowerCase().replace(/\s+/g,' ').trim(),count,providers].join('|');
+}
+function trimSearchCache(){
+ const now=Date.now();
+ for(const [key,value] of SEARCH_CACHE)if(value.expiresAt<=now)SEARCH_CACHE.delete(key);
+ while(SEARCH_CACHE.size>SEARCH_CACHE_MAX)SEARCH_CACHE.delete(SEARCH_CACHE.keys().next().value);
+}
+async function searchWebUncached(q,count,requested){
  const order=requested==='exa'?['exa','google-news-rss']:requested==='serpapi'?['serpapi','exa','google-news-rss']:requested==='brave'?['brave','exa','google-news-rss']:requested==='tavily'?['tavily','exa','google-news-rss']:requested==='google'?['google','exa','google-news-rss']:['exa','serpapi','brave','tavily','google','google-news-rss'];
  const errors=[];
  for(const p of order){
@@ -120,9 +140,46 @@ export async function searchWeb(q,{count=8}={}){
    if(p==='exa'&&process.env.EXA_API_KEY)results=await exa(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
    if(p==='google-news-rss')results=await googleNewsRss(q,count);
-   if(results.length)return {provider:p,results,externalUrl:`https://www.google.com/search?q=${encodeURIComponent(q)}`,message:`${results.length} live result(s) returned by ${p}.`,live:true,fetchedAt:new Date().toISOString()};
+   if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
   }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));continue}
  }
  const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
  throw providerError('No live results were returned by the configured search provider.'+detail);
+}
+
+export async function searchWeb(q,{count=8}={}){
+ const query=String(q??'').replace(/\s+/g,' ').trim();
+ if(!query)throw providerError('Search query is empty.');
+ const safeCount=Math.min(10,Math.max(1,Math.trunc(Number(count)||8)));
+ const requested=(process.env.SEARCH_PROVIDER||'auto').toLowerCase();
+ const key=searchCacheKey(query,safeCount,requested);
+ if(SEARCH_CACHE_TTL_MS>0){
+  trimSearchCache();
+  const hit=SEARCH_CACHE.get(key);
+  if(hit&&hit.expiresAt>Date.now()){
+   SEARCH_CACHE.delete(key);SEARCH_CACHE.set(key,hit);
+   const cacheAgeMs=Math.max(0,Date.now()-hit.fetchedAtMs);
+   return {...hit.data,live:false,cached:true,originalLive:hit.data.live===true,
+    freshness:'CACHED',cacheAgeMs,
+    message:'Cached '+hit.data.results.length+' result(s) from '+hit.data.provider+'; original fetch '+Math.round(cacheAgeMs/1000)+' second(s) ago.'};
+  }
+ }
+ const pending=SEARCH_INFLIGHT.get(key);
+ if(pending){
+  const data=await pending;
+  return {...data,coalesced:true,cached:false};
+ }
+ const request=searchWebUncached(query,safeCount,requested);
+ SEARCH_INFLIGHT.set(key,request);
+ try{
+  const data=await request;
+  if(SEARCH_CACHE_TTL_MS>0&&Array.isArray(data.results)&&data.results.length){
+   const fetchedAtMs=Date.now();
+   SEARCH_CACHE.set(key,{data:{...data},fetchedAtMs,expiresAt:fetchedAtMs+SEARCH_CACHE_TTL_MS});
+   trimSearchCache();
+  }
+  return data;
+ }finally{
+  if(SEARCH_INFLIGHT.get(key)===request)SEARCH_INFLIGHT.delete(key);
+ }
 }
