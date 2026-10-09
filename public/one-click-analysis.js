@@ -311,8 +311,7 @@
         const raw=String(query).toUpperCase().trim().replace(/[^A-Z0-9._-]/g,'');
         if(!raw)return null;
         try{
-          const r=await withTimeout(fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}}),12000,'Market quote request');
-          const d=await r.json();
+          const d=await withTimeout((async()=>{const r=await fetch('/api/stock-report?ticker='+encodeURIComponent(raw)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});return await r.json()})(),12000,'Market quote request');
           return d?.ok&&d?.report?d.report:null;
         }catch{return null}
       })();
@@ -324,8 +323,7 @@
       const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/i.test(query);
       if(!candidate&&broadRequest){
         try{
-          const rp=await withTimeout(fetch('/api/market-picks?limit=5',{cache:'no-store'}),10000,'Market scan');
-          const picks=await rp.json();
+          const picks=await withTimeout((async()=>{const rp=await fetch('/api/market-picks?limit=5',{cache:'no-store'});return await rp.json()})(),10000,'Market scan');
           const top=picks?.candidates?.[0];
           if(top)candidate={ticker:top.ticker,name:top.name,confidence:Math.round(Math.min(92,58+Number(top.score||0)*.34)),score:top.score,evidenceMentions:0,positive:Number(top.changePct||0)>0?1:0,negative:Number(top.changePct||0)<0?1:0,method:'Live NSE market scan',reason:`Highest live scan score: ${top.score}/100; ${Number(top.changePct||0).toFixed(2)}% session move, RSI ${Number(top.rsi||0).toFixed(1)}, relative volume ${top.volumeRatio?Number(top.volumeRatio).toFixed(2)+'x':'n/a'}.`,disclaimer:picks.disclaimer||'Live market scan candidate; verify current broker/exchange data.'};
         }catch(e){searchWarning=searchWarning||String(e?.message||'Market scan unavailable')}
@@ -354,8 +352,7 @@
       try{
         const symbol=String(candidate?.ticker||query||'').trim().toUpperCase().replace(/[^A-Z0-9._-]/g,'');
         if(symbol&&!marketReport){
-          const mr=await withTimeout(fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}}),12000,'Chart data request');
-          const md=await mr.json();
+          const md=await withTimeout((async()=>{const mr=await fetch('/api/stock-report?ticker='+encodeURIComponent(symbol)+'&interval=1h&multi=1&ts='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});return await mr.json()})(),12000,'Chart data request');
           if(md?.ok&&md?.report)marketReport=md.report;
           else if(md?.error)searchWarning=searchWarning||('Live chart provider: '+md.error);
         }
