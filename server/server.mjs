@@ -335,7 +335,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    const kTicker=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair),'kraken');
    const rawTicker=Object.values(kTicker?.result||{})[0];
    if(!rawTicker?.c?.[0])throw new Error('Kraken ticker unavailable');
-   ticker={lastPrice:Number(rawTicker.c[0]),prevClosePrice:Number(rawTicker.o||rawTicker.c[0]),highPrice:Number(rawTicker.h?.[1]||rawTicker.c[0]),lowPrice:Number(rawTicker.l?.[1]||rawTicker.c[0]),volume:Number(rawTicker.v?.[1]||0)};
+   ticker={lastPrice:Number(rawTicker.c[0]),prevClosePrice:Number(rawTicker.o||rawTicker.c[0]),highPrice:Number(rawTicker.h?.[1]||rawTicker.c[0]),lowPrice:Number(rawTicker.l?.[1]||rawTicker.c[0]),volume:Number(rawTicker.v?.[1]||0),_sourceObservedAt:kTicker?._finpilotCache?.observedAt||null};
    series=await Promise.all(unique.map(async x=>{
     const d=await directProviderJson('https://api.kraken.com/0/public/OHLC?pair='+encodeURIComponent(krakenPair)+'&interval='+map[x],'kraken');
     const rows=Object.values(d?.result||{}).find(v=>Array.isArray(v))||[];
@@ -348,7 +348,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    try{
     const ct=await directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/ticker','coinbase');
     const cc=await Promise.all(unique.map(x=>directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/candles?granularity='+cmap[x],'coinbase')));
-    ticker={lastPrice:Number(ct?.price),prevClosePrice:Number(ct?.price),highPrice:Number(ct?.price),lowPrice:Number(ct?.price),volume:Number(ct?.volume||0)};
+    ticker={lastPrice:Number(ct?.price),prevClosePrice:Number(ct?.price),highPrice:Number(ct?.price),lowPrice:Number(ct?.price),volume:Number(ct?.volume||0),_sourceAsOf:ct?.time||null,_sourceObservedAt:ct?._finpilotCache?.observedAt||null};
     series=cc.map(rows=>rows.filter(Array.isArray).map(v=>[Number(v[0])*1000,Number(v[3]),Number(v[2]),Number(v[1]),Number(v[4]),Number(v[5])]).sort((a,b)=>a[0]-b[0]).slice(-220));
     if(!Number.isFinite(ticker.lastPrice)||series.some(x=>x.length<2))throw new Error('Coinbase market data incomplete');
     provider='Coinbase Exchange public market data fallback';
@@ -363,7 +363,18 @@ async function liveCrypto(t, interval='1h', multi=true){
  const consensus=bullish===reports.length?'BULLISH':bearish===reports.length?'BEARISH':'MIXED';
  const risk=Math.min(100,Math.max(10,Math.round(main.riskScore+(consensus==='MIXED'?8:consensus==='BEARISH'?15:-4))));
  const name=key.replace('USDT','');
- return {...main,ticker:name,symbol,name,market:'CRYPTO',provider,live:true,asOf:new Date().toISOString(),riskScore:risk,posture:consensus==='BULLISH'?(main.price>=main.resistance*.995?'BREAKOUT WATCH':'BULLISH / CONFIRMATION'):consensus==='BEARISH'?'DEFENSIVE / REVIEW':'MIXED / WAIT FOR CONFIRMATION',multiTimeframe:{consensus,checked:reports.map(r=>({interval:r.interval,direction:r.direction,rsi:r.rsi,priceVsSma50:r.price>r.sma50,priceVsSma200:r.price>r.sma200})),bullish,bearish},sources:[{name:'Binance',use:`Live ${unique.join(', ')} OHLCV + 24h ticker`,freshness:'Fetched at request time',url:'https://www.binance.com/en/markets'}],evidenceQuality:'LIVE — provider response received at request time; multi-timeframe consensus calculated by FinPilot'};
+ const providerMs=ticker?._finpilotCache||{};
+ let sourceAsOf=null,sourceTimestampType='UNAVAILABLE';
+ const closeTime=Number(ticker?.closeTime);
+ if(Number.isFinite(closeTime)&&closeTime>0){sourceAsOf=new Date(closeTime).toISOString();sourceTimestampType='PROVIDER_TIMESTAMP';}
+ else if(ticker?._sourceAsOf&&Number.isFinite(Date.parse(ticker._sourceAsOf))){sourceAsOf=new Date(ticker._sourceAsOf).toISOString();sourceTimestampType='PROVIDER_TIMESTAMP';}
+ else {
+  const observed=ticker?._sourceObservedAt||providerMs.observedAt;
+  if(observed&&Number.isFinite(Date.parse(observed))){sourceAsOf=new Date(observed).toISOString();sourceTimestampType='OBSERVATION_TIMESTAMP';}
+ }
+ const sourceAgeMs=sourceAsOf?Math.max(0,Date.now()-Date.parse(sourceAsOf)):null;
+ const sourceFresh=sourceAgeMs!==null&&sourceAgeMs<=EXECUTION_FRESHNESS_MS;
+ return {...main,ticker:name,symbol,name,market:'CRYPTO',provider,live:sourceFresh,executionEligible:sourceFresh,asOf:sourceAsOf,sourceAgeMs,sourceTimestampType,dataFreshness:sourceFresh?'FRESH_SOURCE':sourceAsOf?'STALE_SOURCE':'UNKNOWN',riskScore:risk,posture:consensus==='BULLISH'?(main.price>=main.resistance*.995?'BREAKOUT WATCH':'BULLISH / CONFIRMATION'):consensus==='BEARISH'?'DEFENSIVE / REVIEW':'MIXED / WAIT FOR CONFIRMATION',multiTimeframe:{consensus,checked:reports.map(r=>({interval:r.interval,direction:r.direction,rsi:r.rsi,priceVsSma50:r.price>r.sma50,priceVsSma200:r.price>r.sma200})),bullish,bearish},sources:[{name:provider,use:`Live ${unique.join(', ')} OHLCV + ticker`,freshness:sourceTimestampType==='PROVIDER_TIMESTAMP'?'Timestamped by provider':'Observed by FinPilot at '+(sourceAsOf||'unknown time'),url:'https://www.binance.com/en/markets'}],evidenceQuality:sourceFresh?'LIVE — provider/observation timestamp tracked; multi-timeframe consensus calculated by FinPilot':'NON-LIVE — quote timestamp is stale or unavailable; analysis only'};
 }
 function cryptoTimeframe(klines,ticker,interval){
  const closes=klines.map(x=>Number(x[4]));
