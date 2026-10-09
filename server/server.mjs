@@ -593,6 +593,48 @@ const INDIA_EQUITIES={
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
 };
 const YAHOO_RESOLVE_CACHE=new Map();
+const YAHOO_INSTRUMENT_SEARCH_CACHE=new Map();
+async function instrumentSearch(req,res,u){
+ const query=String(u.searchParams.get('q')||'').trim().replace(/\s+/g,' ');
+ const count=Math.max(1,Math.min(10,Number(u.searchParams.get('count')||10)));
+ if(!query)return send(res,400,{ok:false,error:'QUERY_REQUIRED'});
+ if(query.length>80)return send(res,400,{ok:false,error:'QUERY_TOO_LONG'});
+ const key=query.toLowerCase();
+ const cached=YAHOO_INSTRUMENT_SEARCH_CACHE.get(key);
+ if(cached&&Date.now()-cached.at<10*60*1000)return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:true,results:cached.results.slice(0,count)});
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
+ try{
+  const url='https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(query)+'&quotesCount='+Math.min(10,count)+'&newsCount=0';
+  const response=await fetch(url,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.6 instrument-directory'},signal:controller.signal});
+  if(!response.ok)throw new Error('Instrument directory HTTP '+response.status);
+  const payload=await response.json();
+  const accepted=new Set(['EQUITY','ETF','INDEX','CRYPTOCURRENCY','MUTUALFUND']);
+  const seen=new Set();
+  const results=(Array.isArray(payload?.quotes)?payload.quotes:[]).filter(x=>{
+    const symbol=String(x?.symbol||'').trim().toUpperCase();
+    const type=String(x?.quoteType||'').toUpperCase();
+    if(!symbol||!accepted.has(type)||seen.has(symbol))return false;
+    seen.add(symbol);return true;
+  }).slice(0,count).map(x=>({
+    symbol:String(x.symbol).toUpperCase(),
+    shortName:String(x.shortname||x.shortName||x.symbol),
+    longName:String(x.longname||x.longName||x.shortname||x.symbol),
+    exchange:String(x.exchange||''),
+    exchangeDisplay:String(x.exchDisp||x.exchange||''),
+    quoteType:String(x.quoteType||'').toUpperCase(),
+    typeDisplay:String(x.typeDisp||x.quoteType||''),
+    score:Number.isFinite(Number(x.score))?Number(x.score):0
+  }));
+  if(results.length){
+    YAHOO_INSTRUMENT_SEARCH_CACHE.set(key,{at:Date.now(),results});
+    while(YAHOO_INSTRUMENT_SEARCH_CACHE.size>200)YAHOO_INSTRUMENT_SEARCH_CACHE.delete(YAHOO_INSTRUMENT_SEARCH_CACHE.keys().next().value);
+  }
+  return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results});
+ }catch(e){
+  const reason=e?.name==='AbortError'?'INSTRUMENT_DIRECTORY_TIMEOUT':String(e?.message||'INSTRUMENT_DIRECTORY_UNAVAILABLE');
+  return send(res,200,{ok:false,query,provider:'Yahoo Finance instrument directory',cached:false,results:[],error:reason});
+ }finally{clearTimeout(timer);}
+}
 async function resolveYahooSymbol(input){
  const raw=String(input||'').trim().toUpperCase();
  const direct=INDIA_INDICES[raw]||INDIA_EQUITIES[raw]||normalizeGlobalSymbol(raw);
@@ -1740,6 +1782,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/cloud-knowledge')return cloudKnowledge(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/derivatives-report')return derivativesReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/option-chain-scan')return optionChainScan(req,res,u);
+  if(req.method==='GET'&&u.pathname==='/api/instrument-search')return instrumentSearch(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-snapshot')return marketSnapshotRoute(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/stock-report')return stockReport(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/market-data-os')return marketDataOS(req,res,u);

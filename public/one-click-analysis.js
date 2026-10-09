@@ -410,6 +410,56 @@
     throw new Error('Search engine is still loading. Please try again in a moment.');
   }
 
+  function instrumentFocus(query){
+    const stop=/\b(SHOW|FIND|LOOKUP|SEARCH|ANALYZE|ANALYSIS|ANALYSE|STOCKS?|SHARES?|PRICE|CHART|QUOTE|FORECAST|OUTLOOK|LATEST|CURRENT|LIVE|NEWS|REPORT|PERFORMANCE|TODAY|NOW|BUY|SELL|TRADE|TRADING|PICK|BEST|TOP|FOR|THE|OF|TO|IN|ON|ABOUT|PLEASE|ME|MY|GIVE|TELL|CHECK|WHAT|IS|ARE|A|AN|HOW|WHY|DOES|CAN|YOU|COMPARE|VERSUS|VS|COMPANY|EQUITY|MARKET|INVEST|INVESTMENT)\b/g;
+    return String(query||'').toUpperCase().replace(/[^A-Z0-9.\- ]+/g,' ').replace(stop,' ').replace(/\s+/g,' ').trim();
+  }
+  function isBroadMarketRequest(query){
+    const intent=/\b(BEST|TOP|PICK|STOCKS?|TRADES?|TRADING|TODAY|BUY|SELL|CANDIDATES|MARKET)\b/i.test(String(query||''));
+    return intent&&instrumentFocus(query)==='';
+  }
+  function shouldResolveInstrumentQuery(query){
+    const focus=instrumentFocus(query);
+    if(!focus||focus.split(/\s+/).length>6)return false;
+    const queryText=String(query||'').trim();
+    const naturalQuestion=/^(WHAT|HOW|WHY|EXPLAIN|DEFINE|COMPARE|VERSUS|VS)\b/i.test(queryText)
+      && !/\b(STOCKS?|SHARES?|TICKER|SYMBOL|QUOTE|PRICE|CRYPTO|COIN|INDEX|ETF|FUND|TRADING|TRADE|BUY|SELL|INVEST|INVESTMENT|CHART|FORECAST|EQUITY|MARKET)\b/i.test(queryText);
+    return !naturalQuestion;
+  }
+  function instrumentNameMatch(item,focus){
+    const norm=v=>String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+    const target=norm(focus),symbol=norm(item?.symbol),name=norm((item?.longName||'')+' '+(item?.shortName||''));
+    if(!target||!symbol)return false;
+    const compact=target.replace(/\s/g,'');
+    if(symbol.replace(/\s/g,'')===compact||symbol.replace(/\s/g,'').startsWith(compact+'USD')||symbol.replace(/\s/g,'').startsWith(compact))return true;
+    if(name.includes(target))return true;
+    const tokens=target.split(' ').filter(x=>x.length>1);
+    return tokens.length>0&&tokens.every(x=>name.split(' ').includes(x));
+  }
+  async function resolveInstrumentFromDirectory(query){
+    const focus=instrumentFocus(query);
+    if(!focus)return null;
+    const data=await fetchJsonBounded('/api/instrument-search?q='+encodeURIComponent(focus)+'&count=10',{cache:'no-store'},8000,'Instrument directory lookup');
+    const accepted=new Set(['EQUITY','ETF','INDEX','CRYPTOCURRENCY','MUTUALFUND']);
+    const matches=(Array.isArray(data?.results)?data.results:[])
+      .filter(x=>x&&x.symbol&&accepted.has(String(x.quoteType||'').toUpperCase())&&instrumentNameMatch(x,focus));
+    if(!matches.length)return null;
+    const norm=v=>String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,'').trim();
+    const target=norm(focus);
+    matches.sort((a,b)=>{
+      const score=x=>{
+        const sym=norm(x.symbol),name=norm((x.longName||'')+' '+(x.shortName||''));
+        return (sym===target?10000:0)+(name.includes(target)?5000:0)+Number(x.score||0);
+      };
+      return score(b)-score(a);
+    });
+    const best=matches[0],next=matches[1];
+    if(next&&best.symbol!==next.symbol&&norm(best.longName||best.shortName)!==target&&norm(next.longName||next.shortName)!==target){
+      if(Math.abs(Number(best.score||0)-Number(next.score||0))<5)return null;
+    }
+    return {ticker:String(best.symbol).toUpperCase(),name:String(best.longName||best.shortName||best.symbol),confidence:82,score:78,evidenceMentions:0,positive:0,negative:0,candidates:matches.slice(0,5).map(x=>({ticker:x.symbol,name:x.longName||x.shortName||x.symbol,quoteType:x.quoteType})),method:'Live instrument directory match',reason:'Resolved from the current instrument directory for this query; market data is fetched separately.',disclaimer:'Directory match is not a live quote or investment recommendation.',instrumentProvider:data.provider||'Yahoo Finance instrument search'};
+  }
+
   function createForecastLedgerRecord({snapshot,candidate,decision,money,chartAnalysis}={}){
     const createdAt=new Date().toISOString();
     const horizonDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
@@ -523,7 +573,15 @@
       const cycle=buildAgentCycle();
       const web=liveWebSignal();
       let candidate=window.FinPilotDeepLearning?.resolveCandidate(query,search,web)||null;
-      const broadRequest=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL|CANDIDATES|MARKET)\b/i.test(query);
+      const broadRequest=isBroadMarketRequest(query);
+      if(!candidate&&!broadRequest&&shouldResolveInstrumentQuery(query)){
+        try{
+          candidate=await resolveInstrumentFromDirectory(query);
+          if(!candidate)searchWarning=searchWarning||'No unambiguous instrument match was found for this query. Search evidence is retained, but FinPilot will not substitute an unrelated stock.';
+        }catch(e){
+          searchWarning=searchWarning||'Instrument directory lookup failed; no unrelated stock will be substituted.';
+        }
+      }
 
       if(!candidate&&broadRequest){
         try{

@@ -31,7 +31,8 @@ assert.doesNotMatch(moduleText, /market\.live\?'LIVE DATA':'NON-LIVE DATA'/, 'UI
 assert.match(deepText, /\['AXISBANK','Axis Bank Limited'\]/, 'Axis Bank must be in the known instrument registry');
 assert.match(deepText, /SBI:'SBIN'/, 'SBI alias should resolve to State Bank of India ticker SBIN');
 assert.match(deepText, /const normalizePhrase=text=>/, 'instrument matching must use normalized token boundaries');
-assert.match(deepText, /hasPhrase\(corpus,c\[0\]\)/, 'resolver should match whole ticker/company tokens rather than substrings');
+assert.match(deepText, /hasPhrase\(q,c\[0\]\)/, 'known instrument identity must be anchored to the user query, not incidental headlines');
+assert.doesNotMatch(deepText, /hasPhrase\(corpus,c\[0\]\)/, 'search result mentions must never select an unrelated instrument');
 assert.doesNotMatch(deepText, /corpus\.includes\(c\[0\]\)/, 'substring-based ticker false positives must not return');
 assert.match(moduleText, /\[o,h,l,c\]\.every\(v=>Number\.isFinite\(v\)&&v>0\)/, 'chart analysis must discard zero-price candles');
 assert.match(moduleText, /const s20=positive\(market\.sma20\),s50=positive\(market\.sma50\)/, 'null/zero moving averages must remain unavailable');
@@ -159,5 +160,10 @@ assert.match(moduleText, /\/api\/market-data-os\?ticker=/, 'ineligible snapshots
 assert.match(moduleText, /quoteVerified=Boolean\(os\?\.verified===true&&os\?\.executionEligible===true/, 'predictions may use only independently verified quotes');
 assert.match(moduleText, /PROVIDER_TIMESTAMP/, 'risk scenario must require provider-sourced quote time');
 assert.match(moduleText, /INDEPENDENT_PROVIDER_VERIFIED/, 'the quote provenance should be explicit in the analysis trace');
+
+
+assert.match(moduleText, /\/api\/instrument-search\?q=/, 'unlisted company names and tickers should use live instrument-directory lookup');
+assert.match(moduleText, /function isBroadMarketRequest\(query\)/, 'only entity-free discovery requests may fall back to market picks');
+assert.match(moduleText, /No unambiguous instrument match was found/, 'unresolved entity requests must not silently substitute an unrelated stock');
 
 console.log('one-click-pipeline: contract checks passed');

@@ -74,8 +74,7 @@ function resolveCandidate(query,search,web){
     const needle=' '+normalizePhrase(term)+' ';
     return needle.length>2&&hay.includes(needle);
   };
-  // Exact issuer/symbol aliases must outrank incidental mentions in search snippets.
-  const queryForResolve=normalizePhrase(q.replace(/\b(BUY|SELL|STOCKS?|SHARES?|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO|PRICE|CHART|COMPANY)\b/g,' '));
+  const queryForResolve=normalizePhrase(q.replace(/\b(BUY|SELL|STOCKS?|SHARES?|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|TOP|FOR|THE|OF|TO|PRICE|CHART|COMPANY|QUOTE|FORECAST|LATEST|CURRENT|LIVE|NEWS|REPORT|PERFORMANCE|OUTLOOK|UPDATE|INVEST|INVESTMENT|SHOW|FIND|ME|MY|PLEASE|GIVE|ABOUT|ON|IN|WHAT|IS|A|AN)\b/g,' '));
   const compactQuery=queryForResolve.replace(/\s/g,'');
   const aliases={
     AXISBANK:'AXISBANK',AXISBANKLIMITED:'AXISBANK',
@@ -85,35 +84,19 @@ function resolveCandidate(query,search,web){
   const exactTicker=aliases[compactQuery]||compactQuery;
   const exact=catalog.find(c=>normalizePhrase(c[0]).replace(/\s/g,'')===exactTicker||normalizePhrase(c[1]).replace(/\s/g,'')===compactQuery);
   if(exact&&compactQuery){
-    const ticker=exact[0],name=exact[1];
+    const [ticker,name]=exact;
     return {ticker,name,confidence:88,score:84,evidenceMentions:0,positive:0,negative:0,candidates:[{ticker,name,confidence:88,evidenceScore:84,evidenceMentions:0,positive:0,negative:0}],method:'Exact query match',reason:'The requested symbol/company name matched the instrument registry directly.',disclaimer:'Instrument match only; verify the exchange quote, freshness and risk gates before acting.'};
   }
-  const results=Array.isArray(search?.results)?search.results:[];
-  const corpus=(q+' '+results.map(x=>(x.title||'')+' '+(x.snippet||'')).join(' ')).toUpperCase();
-  const broad=/\b(BEST|TOP|PICK|STOCK|TRADE|TRADING|TODAY|BUY|SELL)\b/.test(q)&&!catalog.some(c=>hasPhrase(q,c[0])||hasPhrase(q,c[1]));
-  let candidates=catalog.filter(c=>hasPhrase(corpus,c[0])||hasPhrase(corpus,c[1]));
-  if(!candidates.length && !broad){
-    const clean=q.replace(/\b(BUY|SELL|STOCK|SHARE|ANALYZE|ANALYSIS|TODAY|TRADE|TRADING|PICK|BEST|FOR|THE|OF|TO)\b/g,' ').trim().split(/\s+/)[0];
-    if(clean && /^[A-Z0-9._-]{1,20}$/.test(clean))candidates=[[clean,clean+' (symbol detected from query)']];
+  // Search headlines are evidence, not identity resolution. Never select a company merely
+  // because an unrelated headline mentions it. Unlisted/global entities go to live lookup.
+  const explicit=catalog.filter(c=>hasPhrase(q,c[0])||hasPhrase(q,c[1]));
+  const aliasMatches=Object.entries(aliases).filter(([alias])=>hasPhrase(q,alias)).map(([,ticker])=>catalog.find(c=>c[0]===ticker)).filter(Boolean);
+  const matches=[...new Map([...explicit,...aliasMatches].map(c=>[c[0],c])).values()];
+  if(matches.length===1){
+    const [ticker,name]=matches[0];
+    return {ticker,name,confidence:84,score:80,evidenceMentions:0,positive:0,negative:0,candidates:[{ticker,name,confidence:84,evidenceScore:80,evidenceMentions:0,positive:0,negative:0}],method:'Explicit query entity match',reason:'The requested query explicitly names this instrument; news mentions are not used to choose its identity.',disclaimer:'Instrument identity only; price, timestamp and risk checks are separate.'};
   }
-  if(!candidates.length)return null;
-  const f=features(typeof state!=='undefined'?state:{},web);
-  const scored=candidates.map(c=>{
-    let mentions=0,positive=0,negative=0;
-    results.forEach(r=>{
-      const t=((r.title||'')+' '+(r.snippet||'')).toUpperCase();
-      if(hasPhrase(t,c[0])||hasPhrase(t,c[1])){
-        mentions++;
-        const lo=t.toLowerCase();positive+=(lo.match(/\b(gain|rise|bullish|growth|profit|strong|beat|award|deal|contract|buy)\b/g)||[]).length;
-        negative+=(lo.match(/\b(fall|drop|bearish|loss|risk|warning|downgrade|debt|weak|sell)\b/g)||[]).length;
-      }
-    });
-    const evidenceScore=clamp(48+Math.min(24,mentions*8)+(positive-negative)*4+f.evidence*.08);
-    const confidence=clamp(50+Math.min(25,mentions*6)+Math.abs(positive-negative)*3+(web?.confidence||0)*.12);
-    return {ticker:c[0],name:c[1],evidenceMentions:mentions,positive,negative,evidenceScore:Math.round(evidenceScore),confidence:Math.round(confidence)};
-  }).sort((a,b)=>(b.evidenceScore+b.confidence*.35)-(a.evidenceScore+a.confidence*.35));
-  const top=scored[0];
-  return {ticker:top.ticker,name:top.name,confidence:top.confidence,score:top.evidenceScore,candidates:scored.slice(0,5),method:broad?'Evidence-ranked candidate from today search':'Symbol-resolved analysis',disclaimer:'Candidate selection is evidence-ranked, not a guaranteed best trade or personalized investment advice.'};
+  return null;
 }
 function runFleet(state,context){
   const s=load(),marketSnapshot=context?.marketSnapshot||state?.marketSnapshot||null,f=features(state,context?.web||null,marketSnapshot),results={};

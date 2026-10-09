@@ -10,6 +10,8 @@ assert.match(frontend, /d\.verified&&d\.status==='LIVE'/, 'stream data must be v
 assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asOf\)\)/, 'fallback report must have explicit live flag and valid timestamp');
 assert.match(frontend, /NON-LIVE · ANALYSIS ONLY/, 'non-live fallback must be labelled analysis-only');
 assert.match(server, /\/api\/market-data-stream/);
+assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer resolution endpoint must be registered');
+assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
 assert.match(server, /selectPrimaryMarketQuote\(quotes,timestampState\)/, 'market quote selection should prefer a fresh provider timestamp');
 assert.match(server, /price:winner\.price/, 'the exposed price must come from the provider named in the response');
 assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&primaryTimestampValid/, 'the execution safety gate must continue to require provider timestamp provenance');
