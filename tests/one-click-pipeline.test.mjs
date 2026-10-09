@@ -182,4 +182,11 @@ assert.match(moduleText, /\/api\/research\/fetch\?url=/, 'task-specific discover
 assert.match(moduleText, /Task-specific source page retrieval/, 'supplemental page retrieval must have an explicit bounded request label');
 assert.match(moduleText, /retrievalStatus:discovery\.pageRetrieval\?\.status/, 'retrieval status should be preserved in the analysis provenance');
 
+
+const marketOsText = fs.readFileSync(new URL('../public/market-data-os.js', import.meta.url), 'utf8');
+assert.match(marketOsText, /d\.executionEligible===true&&providerTime/, 'dashboard LIVE label must require explicit execution eligibility and provider timestamp provenance');
+assert.match(marketOsText, /age>=-30000&&age<=90000/, 'dashboard LIVE label must reject future-dated and stale quotes');
+assert.match(marketOsText, /x\.executionEligible===true&&String\(x\.sourceTimestampType\|\|x\.timestampType\|\|''\)\.toUpperCase\(\)==='PROVIDER_TIMESTAMP'/, 'fallback polling must require the same provider timestamp gate as the stream');
+assert.match(marketOsText, /'UNVERIFIED · ANALYSIS ONLY'/, 'recent but unverified data must not be labelled live');
+
 console.log('one-click-pipeline: contract checks passed');
