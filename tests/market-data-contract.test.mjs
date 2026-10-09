@@ -32,6 +32,8 @@ assert.match(server, /FINPILOT_YAHOO_COOLDOWN_MS\|\|60000/);
 
 assert.match(server,/fetchTejHqEod\(t,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Indian equity EOD fallback must be restricted to Indian symbols');
 assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED/,'EOD fallback must announce that live quotes were unavailable');
+assert.match(server,/PRIMARY_EQUITY_QUOTE_STALE_OR_NON_LIVE/,'stale or non-live primary equity quotes must trigger the EOD fallback path');
+assert.match(server,/report\?\.live===false/,'a non-live primary quote must never be accepted as fresh merely because retrieval succeeded');
 assert.match(server,/fetchTejHqEod\(raw,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Market Data OS may expose EOD context only as a fallback');
 assert.match(server,/TejHQ public EOD/,'EOD source must retain its explicit provider provenance');
 
