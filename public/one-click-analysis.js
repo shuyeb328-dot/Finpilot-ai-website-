@@ -230,6 +230,15 @@
     const web=report.webSignal||{};
     const paper=report.paper;
     const money=scenarioSafe(report);
+    const scenarioDays=Math.max(1,Math.min(365,Number(money?.horizon)||30));
+    const scenarioQuote=report.marketReport||null;
+    const scenarioTicker=String(scenarioQuote?.ticker||scenarioQuote?.symbol||'').trim().toUpperCase();
+    const requestedTicker=String(report.candidate?.ticker||report.ticker||'').trim().toUpperCase();
+    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))<=120000&&(!requestedTicker||!scenarioTicker||requestedTicker===scenarioTicker));
+    const scenarioStartedAt=new Date();
+    const scenarioReviewAt=new Date(scenarioStartedAt.getTime()+scenarioDays*86400000);
+    const formatScenarioDate=date=>date.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'});
+    const scenarioTimingLabel=scenarioQuoteValid?('Illustrative '+scenarioDays+'-day window · review by '+formatScenarioDate(scenarioReviewAt)+' IST'):'Unavailable until a fresh, matching live quote is verified';
     const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
@@ -270,6 +279,7 @@
         </div>
 <div class="card" style="margin-top:12px;border:1px solid #d8e0ef;background:#fbfcff">
           <div class="sectionTitle"><div><span class="eyebrow">₹1,000 EXAMPLE</span><h3 style="font-size:18px;margin-top:5px">What ₹1,000 could look like</h3></div><span class="pill ${money?.riskBand==='HIGH'?'high':money?.riskBand==='MEDIUM'?'med':'low'}">${money?.riskBand||'CHECK'}</span></div>
+          <div class="notice" style="margin-bottom:10px"><b>Expected P/L timing:</b> ${escLocal(scenarioTimingLabel)}<br><span class="muted">${scenarioQuoteValid?'Scenario calculated '+formatScenarioDate(scenarioStartedAt)+' IST using quote timestamp '+formatScenarioDate(new Date(scenarioQuote.asOf))+' IST. Profit/loss can occur earlier, later, or not at all; this is a review horizon, not a forecast guarantee.':'FinPilot will not assign an expected profit/loss date without verified fresh market data.'}</span></div>
           <div class="grid cards" style="margin-bottom:10px">
             <div class="card"><span class="muted">Suggested view</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
             <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability||0}%</div><span class="muted">Model estimate</span></div>
