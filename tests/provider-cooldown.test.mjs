@@ -29,6 +29,13 @@ assert.equal(list[0].retryAfterMs,120_000);
 
 recordProviderSuccess('binance');
 assert.equal(providerCooldownStatus('binance',start+11_000),null,'a successful provider request must clear its cooldown and failure streak');
+recordProviderFailure('binance-os','HTTP_418',start+20_000);
+assert.equal(providerCooldownStatus('binance',start+20_000).retryAfterMs,60_000,'binance-os and binance adapter labels must share the same upstream cooldown');
+assert.equal(providerCooldownStatus('binance-os',start+20_000).source,'binance','cooldown diagnostics should use the canonical provider identity');
+assert.equal(activeProviderCooldowns(start+20_000).length,1,'adapter aliases must not create duplicate active cooldown records');
+recordProviderSuccess('binance-os');
+assert.equal(providerCooldownStatus('binance',start+21_000),null,'success from a provider alias must clear the shared cooldown');
+
 
 assert.equal(recordProviderFailure('coinbase','HTTP_404',start),null,'ordinary missing-route errors must not create rate-limit cooldowns');
 const limited=recordProviderFailure('kraken','HTTP_429',start);
@@ -36,4 +43,4 @@ assert.equal(limited.kind,'RATE_LIMIT','HTTP 429 should use the rate-limit coold
 assert.equal(limited.retryAfterMs,30_000,'first HTTP 429 cooldown should start at 30 seconds');
 resetProviderCooldownsForTests();
 assert.equal(activeProviderCooldowns(start).length,0,'test reset should clear the cooldown state');
-console.log('provider-cooldown: 15 contract checks passed');
+console.log('provider-cooldown: 19 contract checks passed');
