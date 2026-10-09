@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
+import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
 resetAutonomousCoreForTests();
 assert.equal(OS_REGISTRY.length,12);
 assert.ok(OS_REGISTRY.some(x=>x.id==='ai-security-os'));
@@ -59,4 +59,18 @@ for(const action of ['place_order','move_money','disable_security','self_modify_
 }
 assert.equal(evaluateSecurityRequest({action:'run_health_check'}).allowed,true);
 assert.equal(evaluateSecurityRequest({action:'unknown-action'}).allowed,false);
+const eligibleShadow=evaluateShadowCandidate({candidateId:'shadow-v2',baselineScore:70,candidateScore:75,samples:25,testsPassed:true,riskRegression:false,evidence:['Held-out test set','No safety regression']});
+assert.equal(eligibleShadow.status,'SHADOW_ELIGIBLE_NOT_PROMOTED');
+assert.equal(eligibleShadow.automaticPromotion,false);
+assert.equal(eligibleShadow.productionMutation,false);
+assert.equal(eligibleShadow.financialExecution,false);
+const underSampled=evaluateShadowCandidate({candidateId:'shadow-v3',baselineScore:70,candidateScore:90,samples:4,testsPassed:true,evidence:['small test']});
+assert.ok(underSampled.blockers.includes('INSUFFICIENT_SHADOW_SAMPLES'));
+const riskRegression=evaluateShadowCandidate({candidateId:'shadow-v4',baselineScore:70,candidateScore:90,samples:100,testsPassed:true,riskRegression:true,evidence:['benchmark']});
+assert.ok(riskRegression.blockers.includes('RISK_REGRESSION_DETECTED'));
+const missingEvidence=evaluateShadowCandidate({candidateId:'shadow-v5',baselineScore:70,candidateScore:90,samples:100,testsPassed:true});
+assert.ok(missingEvidence.blockers.includes('EVIDENCE_REQUIRED'));
+const unknownAdapters=snap.os.filter(x=>x.status==='UNKNOWN');
+assert.ok(unknownAdapters.every(x=>x.evidenceLevel==='NONE'),'unknown health adapters must expose zero evidence');
+assert.ok(snap.os.every(x=>x.adapter&&x.observedAt),'each OS status must identify its adapter and observation time');
 console.log('Autonomous Core OS: registry, health truthfulness, governed cycle, bounded learning and security policy tests passed.');
