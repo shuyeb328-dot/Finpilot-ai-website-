@@ -799,15 +799,15 @@ async function fetchGlobalProviderQuote(symbol){
  // It is never considered live or execution-eligible; symbol coverage varies by exchange.
  addProvider('stooq-public',async()=>{
   const raw=String(symbol).trim().toLowerCase();
-  const candidates=/\\.(us|uk|de|fr|jp|hk|ca|au)$/.test(raw)?[raw]:[/^[a-z0-9.-]+$/.test(raw)?raw+'.us':raw,raw];
+  const candidates=/\.(us|uk|de|fr|jp|hk|ca|au)$/.test(raw)?[raw]:[/^[a-z0-9.-]+$/.test(raw)?raw+'.us':raw,raw];
   let lastError='Stooq public EOD unavailable';
   for(const stooqSymbol of [...new Set(candidates)]){
    try{
     const u='https://stooq.com/q/d/l/?s='+encodeURIComponent(stooqSymbol)+'&i=d';
     const r=await fetch(u,{headers:{'Accept':'text/csv','User-Agent':'FinPilot/8.6 market-data adapter'},signal:AbortSignal.timeout(8000)});
     const txt=await r.text();
-    if(!r.ok||/^N\\/D|Exceeded|<html/i.test(txt))throw new Error('Stooq public HTTP/data unavailable');
-    const lines=txt.trim().split(/\\r?\\n/);
+    if(!r.ok||/^N\/D|Exceeded|<html/i.test(txt))throw new Error('Stooq public HTTP/data unavailable');
+    const lines=txt.trim().split(/\r?\n/);
     if(lines.length<3)throw new Error('Stooq public EOD insufficient candles');
     const head=lines.shift().split(',').map(x=>x.trim().toLowerCase());
     const rows=lines.map(line=>{const v=line.split(',');const o=Object.fromEntries(head.map((k,i)=>[k,v[i]]));return {time:new Date(o.date+'T00:00:00Z').toISOString(),open:Number(o.open),high:Number(o.high),low:Number(o.low),close:Number(o.close),volume:Number(o.volume||0)}}).filter(x=>Number.isFinite(Date.parse(x.time))&&[x.open,x.high,x.low,x.close].every(v=>Number.isFinite(v)&&v>0));
