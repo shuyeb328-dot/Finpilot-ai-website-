@@ -678,13 +678,15 @@ function recordSearchEvidence(){const added=ingestSearchEvidence(window.__lastSe
 function webSearch(){const q=document.getElementById('globalSearch').value.trim();if(!q)return;show('search');document.getElementById('searchQuery').value=q;doSearch(q)}
 async function finpilotLaunch(q){
  q=String(q||'').trim();
- const box=document.getElementById('searchResults');
+ let box=document.getElementById('searchResults');
  if(!q){
   if(box)box.innerHTML='<div class="notice highNotice"><b>Enter a query first.</b><br>Previous results are not a current analysis.</div>';
   window.__lastSearch={query:'',results:[],provider:null,live:false};window.__lastMarketMatch=null;window.__fpLastRenderedQuery='';
   toast('Enter a stock, ETF, crypto symbol or finance question first');return {ok:false,error:'EMPTY_QUERY'};
  }
  if(window.__fpAnalysisRunning){toast('FinPilot is already analyzing. Please wait for the result.');return {ok:false,error:'ANALYSIS_BUSY'}}
+ if(typeof window.show==='function'&&!document.getElementById('search')?.classList.contains('active'))window.show('search');
+ box=document.getElementById('searchResults');
 
  window.__fpAnalysisRunning=true;window.__fpLastLaunchedQuery=q;
  const buttons=[document.getElementById('searchHeroRunAll'),document.getElementById('searchOneClick'),document.getElementById('oneClickTop'),...document.querySelectorAll('.searchQuick button')].filter(Boolean);
