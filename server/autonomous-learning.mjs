@@ -121,8 +121,9 @@ function pickAgent(){
   state.cursor=(AUTONOMOUS_AGENT_PROFILES.findIndex(x=>x.id===chosen.id)+1)%AUTONOMOUS_AGENT_PROFILES.length;
   return chosen;
 }
+// The opt-in flag controls the recurring timer, not explicitly requested one-off cycles.
 function free(getSchedulerState){
-  if(!state.enabled||state.running)return false;
+  if(state.running)return false;
   const s=getSchedulerState?.()||{running:0,maxConcurrency:5,queue:[]};
   const spare=Math.max(0,Number(s.maxConcurrency||5)-Number(s.running||0));
   const urgent=(s.queue||[]).filter(x=>Number(x.priority||0)>=140).length;
