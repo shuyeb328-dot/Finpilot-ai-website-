@@ -8,7 +8,9 @@ assert.match(frontend, /\/api\/market-data-stream\?ticker=/, 'frontend should co
 assert.doesNotMatch(frontend, /new EventSource\('\/api\/market-stream\?ticker=/, 'frontend should not use the legacy crypto-only stream');
 assert.match(frontend, /d\.verified&&d\.status==='LIVE'/, 'stream data must be verified and LIVE before being shown as live');
 assert.match(frontend, /x\.live===true&&asOf&&Number\.isFinite\(Date\.parse\(asOf\)\)/, 'fallback report must have explicit live flag and valid timestamp');
-assert.match(frontend, /NON-LIVE · ANALYSIS ONLY/, 'non-live fallback must be labelled analysis-only');
+assert.match(frontend, /END-OF-DAY · ANALYSIS ONLY/, 'historical EOD fallback must be labelled analysis-only');
+assert.match(frontend, /STALE · DO NOT TRADE/, 'stale or unknown market data must be visibly blocked from trading');
+assert.match(frontend, /DELAYED · ANALYSIS ONLY/, 'delayed market data must be labelled analysis-only');
 assert.match(server, /\/api\/market-data-stream/);
 assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer resolution endpoint must be registered');
 assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
