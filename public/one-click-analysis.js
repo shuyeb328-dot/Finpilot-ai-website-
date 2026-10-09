@@ -440,7 +440,27 @@
         }
       }
 
-      const directMarket=await directMarketPromise;
+      let directMarket=await directMarketPromise;
+      const normalizeTicker=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
+      // A short query can match a different instrument on another exchange (for example
+      // "SBI" can map to an unrelated US-listed fund while web evidence resolves SBIN).
+      // Fetch the resolved candidate's quote before rendering anything.
+      if(candidate?.ticker&&directMarket&&normalizeTicker(directMarket.ticker||directMarket.symbol)!==normalizeTicker(candidate.ticker)){
+        stage('Market symbol mismatch detected — fetching the resolved instrument…');
+        try{
+          const resolved=await fetchJsonBounded(
+            '/api/stock-report?ticker='+encodeURIComponent(String(candidate.ticker).trim().toUpperCase())+'&interval=1h&multi=1&ts='+Date.now(),
+            {cache:'no-store',headers:{'Cache-Control':'no-cache'}},
+            12000,
+            'Resolved market quote request'
+          );
+          directMarket=resolved?.ok&&resolved?.report?resolved.report:null;
+          if(!directMarket)searchWarning=searchWarning||'The search-resolved instrument quote is unavailable; market-dependent scenarios will be blocked.';
+        }catch(e){
+          directMarket=null;
+          searchWarning=searchWarning||String(e?.message||'Resolved instrument quote unavailable');
+        }
+      }
       if(directMarket&&!candidate&&directMarket.ticker){
         candidate={
           ticker:directMarket.ticker,
