@@ -605,16 +605,17 @@ function ingestSearchEvidence(d){
  const existingClaims=new Set((state.evidence||[]).map(e=>String(e.claim||'').trim().toLowerCase()).filter(Boolean));
  let added=0;
  for(const x of d.results){
-  const url=String(x?.url||'').trim();
-  const claim=[x?.title,x?.snippet].filter(Boolean).join(' — ').trim();
+  const url=String(x?.canonicalUrl||x?.articleUrl||x?.url||'').trim();
+  const material=x?.retrievedText||x?.snippet||'';
+  const claim=[x?.articleTitle||x?.title,material].filter(Boolean).join(' — ').trim().slice(0,1800);
   if(!claim&&!url)continue;
   if(url&&existingUrls.has(url))continue;
   const claimKey=claim.toLowerCase();
   if(!url&&claimKey&&existingClaims.has(claimKey))continue;
-  const source=String(x?.source||d.provider||'Web Search');
-  const confidence=manual?45:72;
-  const type=manual?'User-provided research — not independently verified':'Live web evidence';
-  const freshness=manual?'Unverified — user supplied':d.cached?'Cached source result':'Fresh';
+  const source=String(x?.retrievalStatus==='RETRIEVED'?'Retrieved public page':x?.source||d.provider||'Web Search');
+  const confidence=manual?45:x?.retrievalStatus==='RETRIEVED'?60:50;
+  const type=manual?'User-provided research — not independently verified':x?.retrievalStatus==='RETRIEVED'?'Retrieved public page text — claims not fact-checked':'Search result snippet — article not fetched';
+  const freshness=manual?'Unverified — user supplied':x?.retrievalStatus==='RETRIEVED'?'Retrieved at '+new Date(x.pageFetchedAt||Date.now()).toLocaleTimeString():d.cached?'Cached source result':'Search snippet only';
   state.evidence.unshift(evidenceItem(source,claim||'Source link supplied by user; page content was not fetched by FinPilot.',confidence,type,url,freshness));
   if(url)existingUrls.add(url);
   if(claimKey)existingClaims.add(claimKey);
@@ -622,14 +623,15 @@ function ingestSearchEvidence(d){
  }
  state.evidence=state.evidence.slice(0,100);
  state.findings=buildFindings();
+ const fetchedCount=d.results.filter(x=>x?.retrievalStatus==='RETRIEVED').length;
  state.findings.unshift({
   domain:'Web Evidence',severity:manual?'MEDIUM':'LOW',score:Math.min(100,(manual?35:50)+added*5),
-  title:manual?`User-provided research for “${d.query}”`:`Live search evidence for “${d.query}”`,
-  detail:manual?`${added} user-provided item(s) added. FinPilot did not independently fetch or verify their contents, publication dates, or authenticity.`:`${added} result(s) from ${d.provider||'web search'} were added to the Financial Brain evidence ledger.`,
+  title:manual?'User-provided research for "'+d.query+'"':'Research evidence for "'+d.query+'"',
+  detail:manual?added+' user-provided item(s) added. FinPilot did not independently fetch or verify their contents, publication dates, or authenticity.':added+' result(s) from '+(d.provider||'web search')+' were added; '+fetchedCount+' public page(s) were retrieved. Retrieved text is not independent fact-checking.',
   source:'Internet Search',query:d.query,provider:d.provider,time:new Date().toISOString(),provenance:manual?'USER_PROVIDED':'WEB_SEARCH'
  });
  if(!manual)state.lastEvidenceSync=new Date().toISOString();
- state.lastSearchEvidence={query:d.query,provider:d.provider,count:added,time:new Date().toISOString(),provenance:manual?'USER_PROVIDED':'WEB_SEARCH'};
+ state.lastSearchEvidence={query:d.query,provider:d.provider,count:added,time:new Date().toISOString(),provenance:manual?'USER_PROVIDED':'WEB_SEARCH',retrievedPages:fetchedCount};
  save();return added;
 }
 async function fpFetchJson(url,options={},timeoutMs=10000,label='Request'){
@@ -692,6 +694,27 @@ function importGoogleEvidence(){
  if(typeof toast==='function')toast('Added '+added+' unverified evidence item(s)');
  return added;
 }
+async function retrieveTopSearchPages(results,searchSequence){
+ const enriched=(Array.isArray(results)?results:[]).map(x=>({...x}));
+ const targets=enriched.map((item,index)=>({item,index})).filter(({item})=>/^https:\/\//i.test(String(item?.url||''))).slice(0,2);
+ if(!targets.length)return enriched;
+ const box=document.getElementById('searchResults');
+ if(box)box.innerHTML='<div class="searchLoading"><div class="loaderRing"></div><div><b>FinPilot found '+enriched.length+' sources. Retrieving the top public pages…</b><div class="muted">Two source pages at most, with security checks and a strict size limit.</div></div></div>';
+ await Promise.all(targets.map(async({item,index})=>{
+  try{
+   const fetched=await fpFetchJson('/api/research/fetch?url='+encodeURIComponent(item.url),{cache:'no-store'},8500,'Article retrieval');
+   if(!fetched?.ok||!String(fetched.text||'').trim()){
+    enriched[index]={...item,retrievalStatus:'UNAVAILABLE',retrievalMessage:fetched?.message||'Publisher page was not readable'};
+    return;
+   }
+   enriched[index]={...item,articleTitle:fetched.title||item.title,articleUrl:fetched.canonicalUrl||fetched.finalUrl||item.url,canonicalUrl:fetched.canonicalUrl||fetched.finalUrl||item.url,retrievedText:String(fetched.text).slice(0,15000),publisherPublishedAt:fetched.publishedAt||null,pageFetchedAt:fetched.extractedAt||new Date().toISOString(),retrievalStatus:fetched.retrievalStatus||'RETRIEVED',retrievalCached:fetched.cached===true,retrievedContentLength:Number(fetched.textLength)||String(fetched.text).length,retrievalMessage:fetched.warning||null};
+  }catch(error){
+   enriched[index]={...item,retrievalStatus:'UNAVAILABLE',retrievalMessage:String(error?.message||'Page retrieval failed').slice(0,180)};
+  }
+ }));
+ if(searchSequence!==window.__fpSearchSequence)return enriched;
+ return enriched;
+}
 async function doSearch(q){
  q=String(q||'').trim();if(!q)return;
  const searchSequence=window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
@@ -705,9 +728,12 @@ async function doSearch(q){
  try{
   const d=await fpFetchJson('/api/search?q='+encodeURIComponent(q)+'&count=10',{cache:'no-store'},10000,'Web search');
   if(searchSequence!==window.__fpSearchSequence)return;
-  window.__lastSearch={...d,query:q};
-  const results=Array.isArray(d.results)?d.results:[];
-  const added=ingestSearchEvidence(d);
+  const rawResults=Array.isArray(d.results)?d.results:[];
+  const results=await retrieveTopSearchPages(rawResults,searchSequence);
+  if(searchSequence!==window.__fpSearchSequence)return;
+  const enrichedData={...d,query:q,results};
+  window.__lastSearch=enrichedData;
+  const added=ingestSearchEvidence(enrichedData);
   const provider=d.provider||'web';
   let marketMatch=null;
   if(!window.__fpAnalysisRunning&&/^[A-Za-z]{1,6}(?:[.-][A-Za-z]{1,4})?$/.test(q)){
@@ -721,14 +747,21 @@ async function doSearch(q){
   const cached=d.cached===true||String(d.freshness||'').toUpperCase()==='CACHED';
   const freshness=cached?'CACHED LIVE-SOURCE RESULT':live?'LIVE WEB FETCH':'FALLBACK / DELAYED';
   const top=results[0];
+  const retrievedCount=results.filter(x=>x?.retrievalStatus==='RETRIEVED').length;
   const rows=results.map((x,i)=>{
-    const title=esc(x?.title||'Untitled result'),snippet=esc(x?.snippet||'No snippet available'),source=esc(x?.source||provider),published=x?.publishedAt?esc(x.publishedAt):'Fetched now',url=esc(x?.url||'#');
+    const title=esc(x?.articleTitle||x?.title||'Untitled result');
+    const snippet=esc(String(x?.retrievedText||x?.snippet||'No snippet available').slice(0,520));
+    const source=esc(x?.source||provider);
+    const published=x?.publisherPublishedAt?esc(x.publisherPublishedAt):x?.publishedAt?esc(x.publishedAt):'Publication date unavailable';
+    let url='#';try{const parsed=new URL(String(x?.articleUrl||x?.url||''));if(['https:','http:'].includes(parsed.protocol))url=esc(parsed.href)}catch{}
+    const retrieval=x?.retrievalStatus==='RETRIEVED'?'<span class="sourceBadge">ARTICLE RETRIEVED</span>':x?.retrievalStatus==='PARTIAL'?'<span class="sourceBadge">PARTIAL TEXT</span>':x?.retrievalStatus==='UNAVAILABLE'?'<span class="sourceBadge">LINK ONLY</span>':'<span class="sourceBadge">SEARCH RESULT</span>';
+    const retrievalNote=x?.retrievalStatus==='UNAVAILABLE'?'<span class="muted">'+esc(x.retrievalMessage||'Publisher could not be fetched')+'</span>':x?.retrievalStatus==='RETRIEVED'?'<span class="muted">'+(x.retrievalCached?'Retrieved from short cache':'Fetched from public page')+' · not fact-checked</span>':'<span class="muted">Search listing, not full article text</span>';
     const relevance=Math.max(55,Math.min(99,96-i*4));
-    return '<article class="searchResultCard"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span><span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a><span class="muted">Added to Evidence Ledger</span></div></div></article>';
+    return '<article class="searchResultCard"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span>'+retrieval+'<span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>'+retrievalNote+'<span class="muted">Evidence saved</span></div></div></article>';
   }).join('');
   if(searchSequence!==window.__fpSearchSequence)return;
   window.__lastMarketMatch=marketMatch;
-  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div></div>':'';
+  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.articleTitle||top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+retrievedCount+'/'+Math.min(2,results.length)+'</b><small>pages retrieved</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div></div>':'';
   const marketCard=marketMatch?'<div class="searchAnswer marketMatchCard"><div><span class="eyebrow">MARKET MATCH</span><h3>'+esc(marketMatch.name||marketMatch.ticker||q.toUpperCase())+' · '+esc(marketMatch.ticker||q.toUpperCase())+'</h3><p class="muted">Verified FinPilot market record. Latest price: <b>'+((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'₹':'$')+Number(marketMatch.price||0).toLocaleString((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'en-IN':'en-US',{maximumFractionDigits:2})+'</b> · RSI '+Number(marketMatch.rsi||0).toFixed(1)+' · risk '+Number(marketMatch.riskScore||0)+'/100.</p></div><button class="btn primary" type="button">⚡ Analyze this asset</button></div>':'';const emptyNotice=d.fallback==='GOOGLE_SEARCH_BRIDGE'?'<div class="notice"><b>Free search unavailable</b><br>'+esc(d.message||'Open Google Search to continue.')+'</div>':'<div class="notice">No results returned. Try a broader query or use the external search link below.</div>';box.innerHTML=marketCard+summary+(rows||emptyNotice);
   window.__fpLastRenderedQuery=q;
   if(marketMatch){const mb=box.querySelector('.searchAnswer button');if(mb)mb.onclick=()=>startOneClickAnalysis(marketMatch.ticker||q);}
