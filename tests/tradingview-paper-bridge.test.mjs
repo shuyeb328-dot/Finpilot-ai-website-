@@ -73,6 +73,8 @@ assert.equal(api.tvSymbol('RELIANCE.NS','AUTO'),'NSE:RELIANCE');
 assert.equal(api.tvSymbol('RELIANCE','INDIA'),'NSE:RELIANCE');
 assert.equal(api.tvSymbol('AAPL','US'),'NASDAQ:AAPL');
 assert.equal(api.tvSymbol('NASDAQ:MSFT','AUTO'),'NASDAQ:MSFT');
+assert.equal(api.normalizeSymbol('CME_MINI:ES1!'),'CME_MINI:ES1!','continuous futures symbols should be supported');
+assert.equal(api.paperSymbol('CME_MINI:ES1!'),'CME_MINI:ES1!','future venue and symbol identity should be preserved');
 assert.match(api.widgetUrl('AAPL'),/symbol=NASDAQ%3AAAPL/);
 assert.equal(api.widgetUrl(''), '');
 assert.equal(api.paperSymbol('NASDAQ:AAPL'),'AAPL');
