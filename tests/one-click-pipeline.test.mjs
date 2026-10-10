@@ -291,3 +291,4 @@ assert.match(moduleText, /Mean log loss ↓/, 'the result panel must show log lo
 assert.match(moduleText, /Probabilities calibrated:<\/b> NO\./, 'raw estimates must never be called calibrated');
 assert.match(moduleText, /probabilitySource:'FINPILOT_SCENARIO_HEURISTIC'/, 'forecast records must identify heuristic probability provenance');
 assert.match(moduleText, /forecastStatus:eligible\?'PENDING_OUTCOME':!snapshotEligible\?'BLOCKED_UNVERIFIED_DATA':'BLOCKED_INVALID_PROBABILITY_VECTOR'/, 'invalid probability vectors must be blocked');
+assert.match(moduleText,/exchange:snapshot\?\.instrument\?\.exchange\|\|null/,'forecast records must retain exchange identity for outcome settlement');
