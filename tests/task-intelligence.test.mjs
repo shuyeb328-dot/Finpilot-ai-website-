@@ -27,7 +27,34 @@ assert.match(optionsDiscovery.query,/option chain expiry contract specifications
 const serverContract=readFileSync(new URL('../server/server.mjs',import.meta.url),'utf8');
 assert.match(serverContract,/POST'&&u\.pathname==='\/api\/task-research'/,'a task research endpoint should expose the supplemental source discovery flow');
 assert.match(serverContract,/searchWeb\(discovery\.query,\{count:4,freeOnly:true\}\)/,'supplemental discovery must stay free-only and limited to four results');
+assert.match(serverContract,/filterFinancialSearchResults\(rawResults,plan\)/,'task-specific symbol search must filter unrelated acronym matches');
+assert.match(serverContract,/searchContextQuery/,'bare ticker queries use financial context');
+assert.match(serverContract,/SBC:'SBC\.NS'/,'SBC market data must resolve to its intended NSE listing');
+assert.match(serverContract,/LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED/,'delayed charts remain execution-ineligible');
+assert.match(serverContract,/filterFinancialSearchResults\(rawResults,plan\)/,'task-specific symbol search must remove unrelated acronym results');
+assert.match(serverContract,/searchContextQuery/,'bare ticker search must include financial context while preserving the user query');
 assert.match(serverContract,/quoteEligible:false/,'supplemental headlines must never be eligible market quotes');
+const lowercaseSbc=planFinancialTask('sbc');
+assert.equal(lowercaseSbc.assetClass,'INDIAN_EQUITY','lowercase ticker queries must resolve to the same instrument class');
+assert.equal(lowercaseSbc.instrument.queryToken,'SBC','ticker identity must be case-normalized before discovery');
+assert.equal(lowercaseSbc.instrument.explicitSymbol,true,'bare lowercase ticker must be recognized as an explicit symbol');
+const bareSbc=planFinancialTask('SBC');
+assert.equal(bareSbc.assetClass,'INDIAN_EQUITY','bare SBC ticker must use the Indian-equity route, not generic web research');
+assert.equal(bareSbc.taskType,'MARKET_DATA_ANALYSIS','bare ticker queries must be handled as market-data analysis');
+assert.equal(bareSbc.instrument.queryToken,'SBC','bare SBC input must keep its ticker identity');
+assert.equal(bareSbc.needsQuote,true,'ticker market analysis requires verified price data');
+const sbcDiscovery=buildSupplementalDiscovery(bareSbc);
+assert.match(sbcDiscovery.query,/NSE BSE official exchange/i,'SBC discovery must use equity-specific primary-source hints');
+assert.equal(bareSbc.forecastPolicy,'REQUIRE_VALIDATED_MARKET_DATA','stale prices must not unlock an unverified forecast');
+const sbcResults=filterFinancialSearchResults([
+ {title:'SBC Exports share price rises after quarterly financial results',snippet:'NSE listed company reports revenue and profit growth.'},
+ {title:'Introducing the SBC football player of the week',snippet:'A football star wins a local award.'},
+ {title:'Powerful 16-core SBC computer with 128 GB RAM',snippet:'A single-board computer goes official.'},
+ {title:'SBC Awards Lisboa 2026',snippet:'Gaming supplier award ceremony.'}
+],bareSbc);
+assert.equal(sbcResults.length,1,'ticker discovery must filter sports, hardware and unrelated acronym matches');
+assert.match(sbcResults[0].title,/share price/i);
+
 const research=planFinancialTask('Why did Reliance announce an acquisition?');
 assert.equal(research.taskType,'NEWS_OR_FUNDAMENTAL_RESEARCH'); assert.equal(research.forecastPolicy,'RESEARCH_ONLY');
 assert.ok(indian.sourcePlan.some(x=>x.id==='tej-eod'));

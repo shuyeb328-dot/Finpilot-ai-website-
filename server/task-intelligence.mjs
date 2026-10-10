@@ -37,7 +37,7 @@ function resolveAssetClass(q){
  if(COMMODITY_TERMS.test(q))return 'COMMODITY';
  if(PROPERTY_TERMS.test(q))return 'REAL_ESTATE';
  if(INDEX_TERMS.test(q))return /nifty|sensex|bank nifty/i.test(q)?'INDIAN_INDEX':'GLOBAL_INDEX';
- if(/\b(nse|bse|irfc|reliance|tata motors|tcs|infosys|sbin|hdfc|icici|indian stock|india stock)\b/i.test(q))return 'INDIAN_EQUITY';
+ if(/^\s*SBC(?:\.(?:NS|BO))?\s*$/i.test(q)||/\b(nse|bse|sbc exports|irfc|reliance|tata motors|tcs|infosys|sbin|hdfc|icici|indian stock|india stock)\b/i.test(q))return 'INDIAN_EQUITY';
  if(/\b(nyse|nasdaq|nyse-listed|us stock|american stock|tesla|nvidia|apple stock|microsoft stock|aapl|nvda|tsla|msft)\b/i.test(q))return 'GLOBAL_EQUITY';
  if(NEWS_TERMS.test(q)&&!PRICE_TERMS.test(q))return 'FINANCIAL_RESEARCH';
  if(/\b(stock|share|equity|ticker|company|etf|fund)\b/i.test(q))return 'GLOBAL_EQUITY';
@@ -50,14 +50,14 @@ function resolveTaskType(q,assetClass){
  if(/\b(compare|versus|vs|best|top|screen|scan)\b/i.test(q))return 'COMPARISON_OR_SCREEN';
  if(/\b(buy|sell|trade|trading|intraday|stop.?loss|target|entry|exit|position size)\b/i.test(q))return 'TRADE_SCENARIO';
  if(/\b(forecast|prediction|predict|outlook|next \d+ days?)\b/i.test(q))return 'FORECAST';
- if(PRICE_TERMS.test(q)||['CRYPTO','OPTIONS','FUTURES','FOREX','COMMODITY','INDIAN_INDEX','GLOBAL_INDEX'].includes(assetClass))return 'MARKET_DATA_ANALYSIS';
+ if(PRICE_TERMS.test(q)||['CRYPTO','OPTIONS','FUTURES','FOREX','COMMODITY','INDIAN_INDEX','GLOBAL_INDEX','INDIAN_EQUITY','GLOBAL_EQUITY'].includes(assetClass))return 'MARKET_DATA_ANALYSIS';
  if(assetClass==='FINANCIAL_RESEARCH')return 'NEWS_OR_FUNDAMENTAL_RESEARCH';
  return 'GENERAL_RESEARCH';
 }
 function inferInstrument(q){
  const cryptoPair=String(q||'').toUpperCase().match(/\b([A-Z0-9]{2,15})\s*[/-]\s*(USDT|USDC|USD|EUR|BTC|ETH)\b/);
  if(cryptoPair)return {queryToken:cryptoPair[1]+'/'+cryptoPair[2],explicitSymbol:true,confidence:'MEDIUM'};
- const raw=q.match(/\b[A-Z]{1,6}(?:\.(?:NS|BO|L|TO|AX|DE|PA|HK|T|SW))?\b/g)||[];
+ const raw=String(q||'').toUpperCase().match(/\b[A-Z]{1,6}(?:\.(?:NS|BO|L|TO|AX|DE|PA|HK|T|SW))?\b/g)||[];
  const stop=new Set(['I','A','AI','CEO','CFO','RSI','SMA','EMA','USD','INR','USDT','BTC','ETH','NSE','BSE','NYSE','NASDAQ','ETF','FNO','PE','CE','BUY','SELL','LIVE','TODAY','BEST','TOP','AND','THE','FOR','WITH','FROM']);
  const symbol=raw.find(x=>!stop.has(x)&&(/[.]/.test(x)||x.length>=2));
  if(symbol)return {queryToken:symbol,explicitSymbol:true,confidence:'MEDIUM'};
@@ -91,7 +91,8 @@ export function buildSupplementalDiscovery(input={}) {
   FINANCIAL_RESEARCH:'official filing regulator investor relations primary source',
   GENERAL_FINANCE:'official regulator primary source investor education'
  };
- const queryText=(focus+' '+(hints[plan.assetClass]||hints.GENERAL_FINANCE)).replace(/[ \t\r\n]+/g,' ').trim().slice(0,300);
+ const issuerFocus=String(plan.instrument?.queryToken||'').toUpperCase()==='SBC'?'SBC Exports India stock':focus;
+ const queryText=(issuerFocus+' '+(hints[plan.assetClass]||hints.GENERAL_FINANCE)).replace(/[ \t\r\n]+/g,' ').trim().slice(0,300);
  return {
   schemaVersion:1,
   originalQuery:query,
@@ -107,4 +108,23 @@ export function buildSupplementalDiscovery(input={}) {
   disclaimer:'Supplemental search discovers headlines and documents only. It is not a live price feed and cannot unlock a market forecast or paper order.'
  };
 }
+export function filterFinancialSearchResults(rows, plan) {
+ const sourceRows=Array.isArray(rows)?rows:[];
+ const assetClass=String(plan?.assetClass||'').toUpperCase();
+ if(!plan?.instrument?.explicitSymbol||!['INDIAN_EQUITY','GLOBAL_EQUITY','CRYPTO'].includes(assetClass))return sourceRows;
+ const queryToken=String(plan.instrument.queryToken||'').toUpperCase();
+ const base=queryToken.split(/[/.]/)[0].replace(/[^A-Z0-9]/g,'');
+ if(!base)return sourceRows;
+ const aliases={
+  BTC:'BTC|BITCOIN',ETH:'ETH|ETHEREUM',SOL:'SOL|SOLANA',XRP:'XRP|RIPPLE',
+  BNB:'BNB|BINANCE COIN',SBC:'SBC'
+ };
+ const tokenPattern=new RegExp('\\b(?:'+(aliases[base]||base)+')\\b','i');
+ const financePattern=/\b(?:stock|stocks|share|shares|equity|equities|share price|price target|market cap|market value|financial|finance|earnings?|revenue|profit|loss|results|filing|investor|valuation|dividend|securities|exchange|trading|volume|broker|exports|listed|listing|annual report|quarterly|ipo|fundamentals?|nse|bse|crypto|cryptocurrency|bitcoin|ethereum|solana|coinbase|kraken|binance|usd|usdt|market)\b/i;
+ return sourceRows.filter(row=>{
+  const text=String(row?.title||'')+' '+String(row?.snippet||row?.description||'');
+  return tokenPattern.test(text)&&financePattern.test(text);
+ });
+}
+
 export function getSourceCatalog(){return SOURCE_CATALOG.map(x=>({...x,assetClasses:[...x.assetClasses],dataTypes:[...x.dataTypes]}));}

@@ -13,7 +13,7 @@ import {searchWeb} from './search-provider.mjs';
 import {normalizeMarketTick} from './market-tick-contract.mjs';
 import {createBoundedRateLimiter} from './bounded-rate-limiter.mjs';
 import {isAllowedRequestOrigin,MAX_REQUEST_BODY_BYTES} from './request-security.mjs';
-import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from './task-intelligence.mjs';
+import {planFinancialTask,buildSupplementalDiscovery,filterFinancialSearchResults,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
 import {fetchNasdaqEod} from './nasdaq-eod.mjs';
 import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus} from './autonomous-core.mjs';
@@ -414,8 +414,11 @@ async function taskResearch(req,res){
  try{
   // Enforce the free-only RSS path even if another search provider is configured.
   const data=await searchWeb(discovery.query,{count:4,freeOnly:true});
+  const rawResults=Array.isArray(data.results)?data.results:[];
+  const resultsForTask=plan.instrument?.explicitSymbol?filterFinancialSearchResults(rawResults,plan):rawResults;
+  const filteredCount=Math.max(0,rawResults.length-resultsForTask.length);
   const retrievedAt=new Date().toISOString();
-  const results=(Array.isArray(data.results)?data.results:[]).map(x=>({
+  const results=resultsForTask.map(x=>({
    ...x,
    discoveryQuery:discovery.query,
    sourceRole:discovery.sourceRole,
@@ -435,8 +438,11 @@ async function taskResearch(req,res){
     fetchedAt:data.fetchedAt||null,
     retrievedAt,
     resultCount:results.length,
+    filteredOutCount:filteredCount,
+    relevanceFilter:plan.instrument?.explicitSymbol?'SYMBOL_AND_FINANCIAL_TOPIC':'NOT_REQUIRED',
+    message:results.length?'Only ticker-matched financial sources are shown.':(plan.instrument?.explicitSymbol?'No ticker-matched financial sources passed the relevance filter; unrelated acronym matches were withheld.':'No supplemental sources returned.'),
     results,
-    error:null
+    error:results.length?null:(plan.instrument?.explicitSymbol?'NO_RELEVANT_FINANCIAL_RESULTS':null)
    }
   });
  }catch(e){
@@ -461,7 +467,22 @@ async function search(req,res,u){
  const forceRefresh=u.searchParams.get('refresh')==='1'||u.searchParams.get('fresh')==='1';
  if(!q)return send(res,400,{ok:false,error:'Missing query'});
  try{
-  const d=await searchWeb(q,{count,forceRefresh});
+  const bareTicker=/^[A-Z][A-Z0-9]{1,9}(?:\.(?:NS|BO|L|TO|AX|DE|PA|HK|T|SW))?$/i.test(q)
+    && !/^(?:NSE|BSE|NYSE|NASDAQ|USD|INR|USDT|BTCUSDT|LIVE|PRICE|STOCK|SHARES|NEWS|TODAY|FORECAST|BUY|SELL|TRADE|TRADING|OPTIONS|FUTURES|INDEX|ETF)$/i.test(q);
+  const symbolPlan=bareTicker?planFinancialTask(q):null;
+  const useSymbolContext=Boolean(symbolPlan?.instrument?.explicitSymbol&&['INDIAN_EQUITY','GLOBAL_EQUITY','CRYPTO'].includes(symbolPlan.assetClass));
+  const baseSymbol=String(symbolPlan?.instrument?.queryToken||q).toUpperCase().split(/[/.]/)[0];
+  const contextHints={INDIAN_EQUITY:baseSymbol==='SBC'?'SBC Exports Ltd NSE India stock share price financial results filings':'NSE BSE stock share price financial results filings',GLOBAL_EQUITY:'stock share price financial results investor relations filings',CRYPTO:'crypto price market exchange trading'};
+  const searchContextQuery=useSymbolContext?(baseSymbol+' '+(contextHints[symbolPlan.assetClass]||'stock financial results')).slice(0,240):q;
+  const fetched=await searchWeb(searchContextQuery,{count,forceRefresh});
+  const filtered=useSymbolContext?filterFinancialSearchResults(fetched.results,symbolPlan):fetched.results;
+  const d={...fetched,query:q,searchContextQuery,symbolSearch:useSymbolContext,results:useSymbolContext?(Array.isArray(filtered)?filtered:[]):fetched.results};
+  if(useSymbolContext){
+    d.message=d.results.length
+      ?'Ticker search returned '+d.results.length+' finance-relevant result(s) for '+baseSymbol+'. Non-financial acronym matches were filtered out. Headlines are discovery evidence, not verified prices.'
+      :'No finance-relevant results matched ticker '+baseSymbol+'. Unrelated acronym matches were withheld; try the company name or an exchange-qualified ticker.';
+    d.externalUrl='https://www.google.com/search?q='+encodeURIComponent(searchContextQuery);
+  }
   const archive=await archiveResearch(q,d);
   emitEvent('RESEARCH_UPDATE',{source:d.provider||'web',query:q,count:Array.isArray(d.results)?d.results.length:0,archive},65);
   return send(res,200,{ok:true,query:q,refreshRequested:forceRefresh,...d,...archive});
@@ -666,7 +687,7 @@ const INDIA_INDICES={NIFTY:'^NSEI',BANKNIFTY:'^NSEBANK',FINNIFTY:'^CNXFIN',SENSE
 const INDIA_EQUITIES={
  TCS:'TCS.NS',INFY:'INFY.NS',RELIANCE:'RELIANCE.NS',GAIL:'GAIL.NS',HINDZINC:'HINDZINC.NS',
  ITC:'ITC.NS',TATAPOWER:'TATAPOWER.NS',TATASTEEL:'TATASTEEL.NS',SUNPHARMA:'SUNPHARMA.NS',
- TRENT:'TRENT.NS',TECHM:'TECHM.NS',HCLTECH:'HCLTECH.NS',INDIGO:'INDIGO.NS',JUBLFOOD:'JUBLFOOD.NS',
+ TRENT:'TRENT.NS',TECHM:'TECHM.NS',HCLTECH:'HCLTECH.NS',INDIGO:'INDIGO.NS',JUBLFOOD:'JUBLFOOD.NS',SBC:'SBC.NS',
  PAYTM:'PAYTM.NS',IRFC:'IRFC.NS',SBIN:'SBIN.NS',HDFCBANK:'HDFCBANK.NS',ICICIBANK:'ICICIBANK.NS',
  BHARTIARTL:'BHARTIARTL.NS',LT:'LT.NS',ADANIPORTS:'ADANIPORTS.NS',BAJFINANCE:'BAJFINANCE.NS',
  HINDALCO:'HINDALCO.NS',WIPRO:'WIPRO.NS',MARUTI:'MARUTI.NS',AXISBANK:'AXISBANK.NS',KOTAKBANK:'KOTAKBANK.NS'
@@ -1431,8 +1452,9 @@ async function stockReport(req,res,u){
     if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
     return send(res,200,payload);
    }
-   if(report?.sourceTimestampType==='HISTORICAL_EOD'&&report.live===false&&Array.isArray(report.candles)&&report.candles.length>=2){
-    const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED',dataDisclaimer:report.dataDisclaimer};
+   if(report?.live===false&&Array.isArray(report.candles)&&report.candles.length>=2&&report.sourceTimestampType&&report.sourceTimestampType!=='UNKNOWN_TIMESTAMP'){
+    // Keep correctly matched delayed/EOD candles visible; stale quotes remain execution-ineligible.
+    const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED',dataDisclaimer:report.dataDisclaimer};
     cached(cacheKey,payload);
     return send(res,200,payload);
    }

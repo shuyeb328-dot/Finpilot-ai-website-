@@ -263,4 +263,10 @@ assert.match(serverText, /const lesson=clean\(row\?\.lesson\|\|'',600\)/, 'clien
 
 console.log('one-click-pipeline: contract checks passed');
 
-assert.match(fs.readFileSync(new URL('../public/one-click-analysis.js',import.meta.url),'utf8'),/money\?\.buyProbability==null\?'—':money\.buyProbability/,'unavailable market-data probabilities must render as not calculated, not 0%');
+const analysisSource=fs.readFileSync(new URL('../public/one-click-analysis.js',import.meta.url),'utf8');
+assert.match(analysisSource,/scenarioAvailable&&money\?\.buyProbability!=null/,'unverified market data must not render fake 0% probabilities');
+assert.match(analysisSource,/scenarioAvailable&&money\?\.riskReward!=null\?Number\(money\.riskReward\)\.toFixed\(2\)\+':1':'—'/,'risk/reward must be entirely unavailable when quote is stale');
+assert.match(analysisSource,/CURRENCY UNVERIFIED/,'unknown equity currency must not default to rupees');
+assert.match(analysisSource,/Chart withheld because the returned market-data symbol does not match the selected instrument/,'chart display must fail closed on symbol mismatch');
+assert.match(analysisSource,/exchangeConflict/,'market-dependent outputs must be blocked when source exchange conflicts with instrument type');
+

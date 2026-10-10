@@ -132,9 +132,12 @@
   function scenarioSafe(report){
     const d=report||{},m=d.marketReport||null,price=Number(m?.price),ticker=String(m?.ticker||m?.symbol||'').trim().toUpperCase();
     const requested=String(d.candidate?.ticker||d.ticker||'').trim().toUpperCase();
-    const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&(!requested||!ticker||ticker===requested)&&m.live===true&&m.executionEligible===true&&String(m.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))>=-30000&&(Date.now()-Date.parse(m.asOf))<=90000);
+    const sameInstrument=(!requested)||(Boolean(ticker)&&ticker.replace(/\.(?:NS|BO)$/,'')===requested.replace(/\.(?:NS|BO)$/,''));
+    const sourceExchange=String(m?.exchange||'').toUpperCase(),candidateMarket=String(d.candidate?.market||'').toUpperCase();
+    const exchangeConflict=(candidateMarket.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(sourceExchange))||(candidateMarket.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(sourceExchange));
+    const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&sameInstrument&&!exchangeConflict&&m.live===true&&m.executionEligible===true&&String(m.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))>=-30000&&(Date.now()-Date.parse(m.asOf))<=90000);
     if(!liveQuote){
-      return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:0,capitalAtRisk:0,targetProfit:0,stopLoss:0,maximumLoss:0,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
+      return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:null,capitalAtRisk:null,targetProfit:null,stopLoss:null,maximumLoss:null,breakEvenPct:null,breakEvenCost:null,targetPct:null,stopPct:null,trailingStopPct:null,riskReward:null,expectedValue:null,stress7:null,stress30:null,stress90:null,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
     }
     try{const engine=window.FinpilotMoneyEngine;if(engine&&typeof engine.analyze==='function'){const x=engine.analyze(report,1000,30);if(x&&Number.isFinite(Number(x.buyProbability))&&x.plan)return x;}}catch(e){}
     const risk=Math.max(0,Math.min(100,Number(d.risk??50))),conf=Math.max(0,Math.min(100,Number(d.confidence??50)));
@@ -165,13 +168,29 @@
     const computedSupport=lows.length?Math.min(...lows):null;
     const resistance=positive(market.recentHigh)??positive(market.resistance)??computedResistance;
     const support=positive(market.recentLow)??positive(market.support)??computedSupport;
+    const returnedTicker=String(market.ticker||market.symbol||'').trim().toUpperCase();
+    const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
+    const normaliseEquitySymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
+    const sourceExchangeText=(String(market.exchange||'')+' '+String(market.provider||'')).toUpperCase();
+    const candidateMarketClass=String(candidate?.market||'').toUpperCase();
+    const exchangeConflict=(candidateMarketClass.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(sourceExchangeText))||(candidateMarketClass.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(sourceExchangeText));
+    if((candidateTicker&&returnedTicker&&normaliseEquitySymbol(candidateTicker)!==normaliseEquitySymbol(returnedTicker))||exchangeConflict){
+      return {available:false,symbolMismatch:true,realtimeAvailable:false,executionEligible:false,marketTrust:'INSTRUMENT MISMATCH',candles:[],ticker:returnedTicker,name:market.name||'Unverified issuer',provider:market.provider,exchange:market.exchange||'UNKNOWN',currency:'UNKNOWN',asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',message:exchangeConflict?'Chart withheld because the source exchange conflicts with the selected instrument.':'Chart withheld because the returned market-data symbol does not match the selected instrument.'};
+    }
     const target=positive(money?.upsidePct)&&price!==null?price*(1+Number(money.upsidePct)/100):resistance;
     const stop=positive(money?.downsidePct)&&price!==null?price*(1-Number(money.downsidePct)/100):support;
     const baseTrend=price!==null&&s20!==null&&price>=s20&&(s50===null||price>=s50)?'BULLISH TREND':'DEFENSIVE / MIXED';
     const trust=marketTrustState(market);const trend=trust.trendPrefix+baseTrend;
-    return {available:candles.length>1,realtimeAvailable:trust.verified,marketTrust:trust.label,executionEligible:trust.verified,candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:market.ticker||market.symbol||candidate?.ticker,name:market.name||candidate?.name,provider:market.provider,asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',market:String(market.market||candidate?.market||'').toUpperCase(),currency:String(market.currency||(String(market.market||'').toUpperCase()==='CRYPTO'?'USD':'INR')).toUpperCase()};
+    const exchange=String(market.exchange||candidate?.exchange||'UNKNOWN').trim().toUpperCase();
+    const provider=String(market.provider||'').trim();
+    const declaredCurrency=String(market.currency||candidate?.currency||'').trim().toUpperCase();
+    const sourceIdentity=(exchange+' '+provider+' '+String(market.market||candidate?.market||'')).toUpperCase();
+    const inferredCurrency=String(market.market||candidate?.market||'').toUpperCase()==='CRYPTO'?'USD':(/\b(?:NSE|BSE|INDIA|TEJHQ)\b/.test(sourceIdentity)||/\.(?:NS|BO)$/.test(returnedTicker)?'INR':(/\b(?:NASDAQ|NYSE|NYSE AMERICAN|US EQUITY)\b/.test(sourceIdentity)||String(candidate?.market||'').toUpperCase()==='GLOBAL_EQUITY'?'USD':'UNKNOWN'));
+    const currency=declaredCurrency&&declaredCurrency!=='UNKNOWN'&&declaredCurrency!=='N/A'?declaredCurrency:inferredCurrency;
+    return {available:candles.length>1,realtimeAvailable:trust.verified,marketTrust:trust.label,executionEligible:trust.verified,candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:returnedTicker||candidate?.ticker,name:market.name||candidate?.name,provider,exchange,asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',market:String(market.market||candidate?.market||'').toUpperCase(),currency};
   }
   function chartSvg(a){
+    if(a?.symbolMismatch)return '<div class="notice highNotice"><b>Chart withheld.</b> The returned market-data symbol did not match the selected instrument. No substitute ticker is shown.</div>';
     const validCandles=Array.isArray(a?.candles)?a.candles.filter(r=>{
       if(!r)return false;
       const o=Number(r.open),h=Number(r.high),l=Number(r.low),c=Number(r.close);
@@ -281,7 +300,11 @@
     const scenarioQuote=report.marketReport||null;
     const scenarioTicker=String(scenarioQuote?.ticker||scenarioQuote?.symbol||'').trim().toUpperCase();
     const requestedTicker=String(report.candidate?.ticker||report.ticker||'').trim().toUpperCase();
-    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||!scenarioTicker||requestedTicker===scenarioTicker));
+    const scenarioCandidateMarket=String(report.candidate?.market||'').toUpperCase();
+    const scenarioQuoteExchange=String(scenarioQuote?.exchange||'').toUpperCase();
+    const scenarioExchangeConflict=(scenarioCandidateMarket.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(scenarioQuoteExchange))||(scenarioCandidateMarket.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(scenarioQuoteExchange));
+    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&!scenarioExchangeConflict&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||(scenarioTicker&&scenarioTicker.replace(/\.(?:NS|BO)$/,'')===requestedTicker.replace(/\.(?:NS|BO)$/,''))));
+    const scenarioAvailable=Boolean(scenarioQuoteValid&&money?.inputs?.marketDataVerified!==false);
     const scenarioStartedAt=new Date();
     const scenarioReviewAt=new Date(scenarioStartedAt.getTime()+scenarioDays*86400000);
     const formatScenarioDate=date=>date.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata'});
@@ -289,9 +312,10 @@
     const candidate=report.candidate||null;
     const v8=window.FinPilotV8?.analyze(report,money,{amount:1000})||null;
     const risk=Number(report.risk||0);
-    const chartCurrency=String(report.chartAnalysis?.currency||'INR').toUpperCase();
-    const chartCurrencyMark=chartCurrency==='USD'?'$':chartCurrency==='INR'?'₹':chartCurrency+' ';
-    const chartPrice=value=>Number(value)>0?chartCurrencyMark+Number(value).toLocaleString(chartCurrency==='INR'?'en-IN':'en-US',{maximumFractionDigits:chartCurrency==='USD'&&Math.abs(Number(value))<1?6:2}):'N/A';
+    const chartCurrency=String(report.chartAnalysis?.currency||'UNKNOWN').toUpperCase();
+    const chartCurrencyMark=chartCurrency==='USD'?'$':chartCurrency==='INR'?'₹':chartCurrency==='GBP'?'£':chartCurrency==='EUR'?'€':chartCurrency==='UNKNOWN'?'':chartCurrency+' ';
+    const chartPrice=value=>Number(value)>0?(chartCurrency==='UNKNOWN'?'':chartCurrencyMark)+Number(value).toLocaleString(chartCurrency==='INR'?'en-IN':'en-US',{maximumFractionDigits:chartCurrency==='USD'&&Math.abs(Number(value))<1?6:2}):'N/A';
+    const chartCurrencyLabel=chartCurrency==='UNKNOWN'?'CURRENCY UNVERIFIED':chartCurrency;
     const riskClass=risk>=70?'high':risk>=45?'med':'low';
     const paperLabel=paper?paper.final:'NOT RUN';
     const html=`
@@ -313,7 +337,7 @@
             <div class="card"><span class="muted">SMA20 / SMA50</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.sma20)} / ${chartPrice(report.chartAnalysis?.sma50)}</div></div>
             <div class="card"><span class="muted">Support / Resistance</span><div class="metric" style="font-size:16px">${chartPrice(report.chartAnalysis?.support)} / ${chartPrice(report.chartAnalysis?.resistance)}</div></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ${chartPrice(report.chartAnalysis?.target)} · Stop scenario ${chartPrice(report.chartAnalysis?.stop)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'live market adapter')} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid var(--line);background:var(--surface-2)"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses the valid candle series available in this run; it does not imply live quote freshness.</div></div>
+          <div class="notice" style="margin-top:10px"><b>Chart read:</b> ${escLocal(report.chartAnalysis?.trend||'CHECK')} · Target scenario ${chartPrice(report.chartAnalysis?.target)} · Stop scenario ${chartPrice(report.chartAnalysis?.stop)}. <span class="muted">Source: ${escLocal(report.chartAnalysis?.provider||'market data provider')} · Exchange: ${escLocal(report.chartAnalysis?.exchange||'UNKNOWN')} · ${escLocal(chartCurrencyLabel)} · ${escLocal(report.chartAnalysis?.asOf||'')}</span></div>          <div class="card" style="margin-top:10px;border:1px solid var(--line);background:var(--surface-2)"><div class="sectionTitle"><div><span class="eyebrow">CHART PATTERN</span><h3 style="font-size:17px;margin-top:4px">${escLocal(detectChartPattern(report.chartAnalysis).name)}</h3></div><span class="pill low">${detectChartPattern(report.chartAnalysis).confidence}% confidence</span></div><div class="muted">${escLocal(detectChartPattern(report.chartAnalysis).reason)}</div><div class="notice" style="margin-top:8px"><b>What to watch:</b> breakout above resistance or breakdown below support. Pattern detection uses the valid candle series available in this run; it does not imply live quote freshness.</div></div>
 
         </div>
         <div class="grid cards" style="margin-bottom:12px">
@@ -333,30 +357,30 @@
           <div class="notice ${money?.approved===true?'':'highNotice'}" style="margin-bottom:10px"><b>Exposure gate:</b> ${money?.approved===true?'CONDITIONAL · recommended scenario exposure ₹'+Number(money?.plan?.recommendedAmount||0).toLocaleString('en-IN'):'BLOCKED · recommended exposure ₹'+Number(money?.plan?.recommendedAmount||0).toLocaleString('en-IN')}.<br><span class="muted">The gain/loss cards below are hypothetical outcomes on the full ₹1,000 example, not a promise or an approved position. Do not treat the scenario amount as a trade instruction.</span></div>
           <div class="grid cards" style="margin-bottom:10px">
             <div class="card"><span class="muted">Suggested view</span><div class="metric" style="font-size:19px">${escLocal(money?.action||'CHECK')}</div><span class="muted">${money?.horizon||30}-day scenario</span></div>
-            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${money?.buyProbability==null?'—':money.buyProbability}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${money?.sellProbability==null?'—':money.sellProbability}%</div><span class="muted">Model estimate</span></div>
-            <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${money?.holdProbability==null?'—':money.holdProbability}%</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">Buy probability</span><div class="metric green" style="font-size:22px">${scenarioAvailable&&money?.buyProbability!=null?Number(money.buyProbability).toFixed(1)+'%':'—'}</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">Sell probability</span><div class="metric red" style="font-size:22px">${scenarioAvailable&&money?.sellProbability!=null?Number(money.sellProbability).toFixed(1)+'%':'—'}</div><span class="muted">Model estimate</span></div>
+            <div class="card"><span class="muted">Hold probability</span><div class="metric" style="font-size:22px">${scenarioAvailable&&money?.holdProbability!=null?Number(money.holdProbability).toFixed(1)+'%':'—'}</div><span class="muted">Model estimate</span></div>
           </div>
           <div class="grid four">
-            <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">+₹${money?.estimatedProfit==null?'—':money.estimatedProfit.toLocaleString('en-IN')}</div><span class="muted">+${money?.upsidePct==null?'—':money.upsidePct}% scenario</span></div>
-            <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">−₹${money?.estimatedLoss==null?'—':money.estimatedLoss.toLocaleString('en-IN')}</div><span class="muted">−${money?.downsidePct==null?'—':money.downsidePct}% scenario</span></div>
-            <div class="card"><span class="muted">Risk : Reward</span><div class="metric" style="font-size:20px">${money?.riskReward==null?'—':money.riskReward}:1</div><span class="muted">Potential upside / downside</span></div>
-            <div class="card"><span class="muted">Expected value</span><div class="metric ${money?.expectedValue==null?'':Number(money.expectedValue)>=0?'green':'red'}" style="font-size:20px">${money?.expectedValue==null?'—':(Number(money.expectedValue)>=0?'+':'')+'₹'+money.expectedValue.toLocaleString('en-IN')}</div><span class="muted">Probability-weighted scenario</span></div>
+            <div class="card"><span class="muted">If ₹1,000 gains</span><div class="metric green" style="font-size:20px">${scenarioAvailable&&money?.estimatedProfit!=null?'+₹'+Number(money.estimatedProfit).toLocaleString('en-IN'):'—'}</div><span class="muted">${scenarioAvailable&&money?.upsidePct!=null?'+'+Number(money.upsidePct).toFixed(2)+'% scenario':'Not calculated · fresh quote required'}</span></div>
+            <div class="card"><span class="muted">If ₹1,000 falls</span><div class="metric red" style="font-size:20px">${scenarioAvailable&&money?.estimatedLoss!=null?'−₹'+Number(money.estimatedLoss).toLocaleString('en-IN'):'—'}</div><span class="muted">${scenarioAvailable&&money?.downsidePct!=null?'−'+Number(money.downsidePct).toFixed(2)+'% scenario':'Not calculated · fresh quote required'}</span></div>
+            <div class="card"><span class="muted">Risk : Reward</span><div class="metric" style="font-size:20px">${scenarioAvailable&&money?.riskReward!=null?Number(money.riskReward).toFixed(2)+':1':'—'}</div><span class="muted">Potential upside / downside</span></div>
+            <div class="card"><span class="muted">Expected value</span><div class="metric ${scenarioAvailable&&money?.expectedValue!=null?(Number(money.expectedValue)>=0?'green':'red'):''}" style="font-size:20px">${scenarioAvailable&&money?.expectedValue!=null?(Number(money.expectedValue)>=0?'+':'')+'₹'+Number(money.expectedValue).toLocaleString('en-IN'):'—'}</div><span class="muted">Probability-weighted scenario</span></div>
           </div>
-          <div class="notice" style="margin-top:10px"><b>How the AI got this:</b> current risk ${money?.inputs?.risk||0} · CEO ${money?.inputs?.ceo||0}% · CFO ${money?.inputs?.cfo||0}% · Judge ${money?.inputs?.judge||0}% · evidence ${money?.inputs?.evidence||0} · market ${money?.inputs?.market||0}.<br><span class="muted">${escLocal(money?.probabilityBasis||'')}</span></div>
+          <div class="notice" style="margin-top:10px"><b>Decision evidence:</b> ${scenarioAvailable?'Calculated using a fresh, matching provider-timestamped quote.':'Probability and P/L model not run because a fresh, matching provider-timestamped quote is unavailable.'}<br><span class="muted">Risk ${report.risk==null?'—':report.risk} · CEO ${money?.inputs?.ceo??report.executive?.ceoConfidence??'—'} · CFO ${money?.inputs?.cfo??report.executive?.cfoConfidence??'—'} · Judge ${money?.inputs?.judge??report.executive?.judgeConfidence??'—'} · Evidence ${money?.inputs?.evidence??report.webSignal?.count??'—'} · Market data ${scenarioAvailable?'verified':'unverified'}.</span><br><span class="muted">${escLocal(money?.probabilityBasis||'')}</span></div>
           <div class="notice highNotice" style="margin-top:8px"><b>Important:</b> ${escLocal(money?.disclaimer||'Scenario only.')}</div>
         </div>
 <div class="card" style="margin-top:12px;border:1px solid var(--line);background:var(--surface)">
           <div class="sectionTitle"><div><span class="eyebrow">RISK CHECK</span><h3 style="font-size:18px;margin-top:5px">Safety and risk checks</h3></div><span class="pill ${v8?.gate?.includes('BLOCK')?'high':'low'}">${escLocal(v8?.gate||'CHECK')}</span></div>
           <div class="grid four">
             <div class="card"><span class="muted">Safe position</span><div class="metric" style="font-size:20px">₹${v8?.position?.recommended?.toLocaleString('en-IN')||0}</div><span class="muted">of ₹${v8?.position?.requested?.toLocaleString('en-IN')||0} requested</span></div>
-            <div class="card"><span class="muted">Risk-adjusted return</span><div class="metric" style="font-size:20px">${v8?.riskMetrics?.riskAdjustedReturn||0}%</div><span class="muted">quality-adjusted</span></div>
-            <div class="card"><span class="muted">7-day stress</span><div class="metric red" style="font-size:20px">−${v8?.scenarios?.stress7||0}%</div><span class="muted">stress case</span></div>
+            <div class="card"><span class="muted">Risk-adjusted return</span><div class="metric" style="font-size:20px">${scenarioAvailable&&v8?.riskMetrics?.riskAdjustedReturn!=null?Number(v8.riskMetrics.riskAdjustedReturn).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable?'quality-adjusted':'Quote required'}</span></div>
+            <div class="card"><span class="muted">7-day stress</span><div class="metric red" style="font-size:20px">${scenarioAvailable&&v8?.scenarios?.stress7!=null?'−'+Number(v8.scenarios.stress7).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable?'stress case':'Not calculated'}</span></div>
             <div class="card"><span class="muted">Signal stability</span><div class="metric" style="font-size:20px">${v8?.quality?.signalStability||0}%</div><span class="muted">CEO/CFO/evidence</span></div>
           </div>
           <div class="grid three" style="margin-top:10px">
-            <div class="card"><span class="muted">Target / stop</span><div class="metric" style="font-size:17px">+${v8?.scenarios?.targetMovePct||0}% / ${v8?.scenarios?.stopMovePct||0}%</div><span class="muted">scenario boundaries</span></div>
-            <div class="card"><span class="muted">Maximum loss</span><div class="metric red" style="font-size:18px">₹${v8?.riskMetrics?.maxLoss?.toLocaleString('en-IN')||0}</div><span class="muted">risk budget</span></div>
+            <div class="card"><span class="muted">Target / stop</span><div class="metric" style="font-size:17px">${scenarioAvailable&&v8?.scenarios?.targetMovePct!=null?'+'+Number(v8.scenarios.targetMovePct).toFixed(2)+'% / '+Number(v8.scenarios.stopMovePct).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable?'scenario boundaries':'Quote required'}</span></div>
+            <div class="card"><span class="muted">Maximum loss</span><div class="metric red" style="font-size:18px">${scenarioAvailable&&v8?.riskMetrics?.maxLoss!=null?'₹'+Number(v8.riskMetrics.maxLoss).toLocaleString('en-IN'):'—'}</div><span class="muted">${scenarioAvailable?'risk budget':'Not calculated'}</span></div>
             <div class="card"><span class="muted">Audit ID</span><div class="metric" style="font-size:15px">${escLocal(v8?.auditId||'—')}</div><span class="muted">decision trace</span></div>
           </div>
           <div class="notice" style="margin-top:10px"><b>Re-evaluation triggers:</b> ${v8?.triggers?.length?v8.triggers.map(escLocal).join(' · '):'No immediate trigger; continue monitoring.'}</div>
@@ -367,20 +391,20 @@
           <div class="grid four">
             <div class="card"><span class="muted">Requested</span><div class="metric">₹${Number(money.plan?.requestedAmount||1000).toLocaleString('en-IN')}</div><span class="muted">scenario capital</span></div>
             <div class="card"><span class="muted">Recommended exposure</span><div class="metric ${Number(money.plan?.recommendedAmount||0)>0?'green':'red'}">₹${Number(money.plan?.recommendedAmount||0).toLocaleString('en-IN')}</div><span class="muted">${money.plan?.approval==='CONDITIONAL'?'paper-only conditional size':'capital protected'}</span></div>
-            <div class="card"><span class="muted">Risk budget</span><div class="metric red">₹${Number(money.plan?.riskBudget||0).toLocaleString('en-IN')}</div><span class="muted">maximum planned risk</span></div>
-            <div class="card"><span class="muted">Maximum loss</span><div class="metric red">₹${Number(money.plan?.maximumLoss||0).toLocaleString('en-IN')}</div><span class="muted">scenario boundary</span></div>
+            <div class="card"><span class="muted">Risk budget</span><div class="metric red">${scenarioAvailable&&money.plan?.riskBudget!=null?'₹'+Number(money.plan.riskBudget).toLocaleString('en-IN'):'—'}</div><span class="muted">${scenarioAvailable?'maximum planned risk':'Quote required'}</span></div>
+            <div class="card"><span class="muted">Maximum loss</span><div class="metric red">${scenarioAvailable&&money.plan?.maximumLoss!=null?'₹'+Number(money.plan.maximumLoss).toLocaleString('en-IN'):'—'}</div><span class="muted">${scenarioAvailable?'scenario boundary':'Not calculated'}</span></div>
           </div>
           <div class="grid four" style="margin-top:10px">
-            <div class="card"><span class="muted">Target</span><div class="metric green">+${Number(money.plan?.targetPct||0).toFixed(2)}%</div><span class="muted">+₹${Number(money.plan?.targetProfit||0).toLocaleString('en-IN')}</span></div>
-            <div class="card"><span class="muted">Stop-loss</span><div class="metric red">${Number(money.plan?.stopPct||0).toFixed(2)}%</div><span class="muted">−₹${Number(money.plan?.stopLoss||0).toLocaleString('en-IN')}</span></div>
-            <div class="card"><span class="muted">Trailing stop</span><div class="metric">${Number(money.plan?.trailingStopPct||0).toFixed(2)}%</div><span class="muted">dynamic risk control</span></div>
-            <div class="card"><span class="muted">Break-even</span><div class="metric">${Number(money.plan?.breakEvenPct||0).toFixed(2)}%</div><span class="muted">cost buffer ₹${Number(money.plan?.breakEvenCost||0).toFixed(2)}</span></div>
+            <div class="card"><span class="muted">Target</span><div class="metric green">${scenarioAvailable&&money.plan?.targetPct!=null?'+'+Number(money.plan.targetPct).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable&&money.plan?.targetProfit!=null?'+₹'+Number(money.plan.targetProfit).toLocaleString('en-IN'):'Quote required'}</span></div>
+            <div class="card"><span class="muted">Stop-loss</span><div class="metric red">${scenarioAvailable&&money.plan?.stopPct!=null?Number(money.plan.stopPct).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable&&money.plan?.stopLoss!=null?'−₹'+Number(money.plan.stopLoss).toLocaleString('en-IN'):'Quote required'}</span></div>
+            <div class="card"><span class="muted">Trailing stop</span><div class="metric">${scenarioAvailable&&money.plan?.trailingStopPct!=null?Number(money.plan.trailingStopPct).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable?'dynamic risk control':'Quote required'}</span></div>
+            <div class="card"><span class="muted">Break-even</span><div class="metric">${scenarioAvailable&&money.plan?.breakEvenPct!=null?Number(money.plan.breakEvenPct).toFixed(2)+'%':'—'}</div><span class="muted">${scenarioAvailable&&money.plan?.breakEvenCost!=null?'cost buffer ₹'+Number(money.plan.breakEvenCost).toFixed(2):'Quote required'}</span></div>
           </div>
           <div class="notice" style="margin-top:10px"><b>Plan decision:</b> ${escLocal(money.plan?.actionReason||'No plan available.')}<br><b>Entry:</b> ${escLocal(money.plan?.entry||'Use verified market price only.')}</div>
           <div class="grid three" style="margin-top:10px">
-            <div class="notice"><b>7-day stress</b><br>−${Number(money.plan?.stress7||0).toFixed(2)}%</div>
-            <div class="notice"><b>30-day stress</b><br>−${Number(money.plan?.stress30||0).toFixed(2)}%</div>
-            <div class="notice"><b>90-day stress</b><br>−${Number(money.plan?.stress90||0).toFixed(2)}%</div>
+            <div class="notice"><b>7-day stress</b><br>${scenarioAvailable&&money.plan?.stress7!=null?'−'+Number(money.plan.stress7).toFixed(2)+'%':'—'}</div>
+            <div class="notice"><b>30-day stress</b><br>${scenarioAvailable&&money.plan?.stress30!=null?'−'+Number(money.plan.stress30).toFixed(2)+'%':'—'}</div>
+            <div class="notice"><b>90-day stress</b><br>${scenarioAvailable&&money.plan?.stress90!=null?'−'+Number(money.plan.stress90).toFixed(2)+'%':'—'}</div>
           </div>
           <div class="notice highNotice" style="margin-top:10px"><b>Safety:</b> ${escLocal((money.plan?.gateReasons||[]).join(' · ')||'No blocking gate detected.')} — This is a paper scenario; no real order is placed.</div>
         </div>
@@ -1054,7 +1078,7 @@
       }
       const reportTicker=String(marketReport?.ticker||marketReport?.symbol||'').trim().toUpperCase();
       const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
-      if(marketReport&&candidateTicker&&reportTicker&&reportTicker!==candidateTicker){
+      if(marketReport&&candidateTicker&&reportTicker&&reportTicker.replace(/\.(?:NS|BO)$/,'')!==candidateTicker.replace(/\.(?:NS|BO)$/,'')){
         searchWarning=searchWarning||'Market report symbol mismatch; quantitative plan blocked.';
         marketReport={...marketReport,live:false};
       }
