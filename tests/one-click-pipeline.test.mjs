@@ -80,7 +80,7 @@ assert.match(serverText, /const providerSymbols=cryptoProviderSymbols\(key,symbo
 assert.match(serverText, /const krakenPair=providerSymbols\.krakenPair/, 'Kraken fallback must keep the configured quote currency and apply the XBT alias only for BTC');
 assert.match(serverText, /const coinPair=providerSymbols\.coinbaseProduct/, 'Coinbase fallback must keep the configured quote currency rather than always using USD');
 assert.match(serverText, /const pair=providerSymbols\.krakenPair/, 'market-data verification must use the same quote-matched Kraken pair');
-assert.match(serverText, /const pair=providerSymbols\.coinbaseProduct/, 'market-data verification must use the same quote-matched Coinbase product');
+assert.match(serverText, /const url='https:\/\/api\.exchange\.coinbase\.com\/products\/'\+providerSymbols\.coinbaseProduct/, 'market-data verification must use the same quote-matched Coinbase product');
 assert.match(serverText, /coinBaseUrl\+\'\/trades\?limit=1\'/, 'live crypto fallback must use a recent trade event for provider-timestamp provenance');
 assert.match(serverText, /url\+\'\/trades\?limit=1\'/, 'market-data verification must timestamp Coinbase prices from the recent-trades endpoint');
 assert.match(serverText, /providerTradeValid\?tradeTime:null/, 'a fallback trade price must not be tagged with provider time unless a valid trade timestamp exists');
