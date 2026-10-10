@@ -99,5 +99,5 @@ jobs:
           grep -q "forecastTrainingReport" /tmp/finpilot-deep-learning.js
           grep -q "function analysisSymbol" /tmp/finpilot-tradingview-bridge.js
           grep -q "SIMULATION ONLY" /tmp/finpilot-tradingview-bridge.js
-          grep -q "does not supply a live quote feed" /tmp/finpilot-tradingview-bridge.js
+          grep -q "does not expose a quote feed" /tmp/finpilot-tradingview-bridge.js
           echo "Production agent assets and TradingView-to-paper bridge served their expected safety contracts."
