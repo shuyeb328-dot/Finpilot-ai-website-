@@ -146,7 +146,8 @@ async function settleDue(ticker,o){
   if(!(Number.isFinite(actualReturnPct)&&refPrice>0))continue;
   const outcome=outcomeForReturn(actualReturnPct);
   const scored=score({up:Number(row.p_up??row.pUp),down:Number(row.p_down??row.pDown),hold:Number(row.p_hold??row.pHold)},outcome);
-  const settledAt=nowIso();
+  const settlementClock=Number(state.clock());
+  const settledAt=new Date(Number.isFinite(settlementClock)?settlementClock:Date.now()).toISOString();
   if(state.pool&&state.schemaReady&&state.persistence==='POSTGRES'){
    await state.pool.query('UPDATE finpilot_ai_os_market_forecasts SET status=$1,outcome=$2,actual_return_pct=$3,brier_score=$4,log_loss=$5,predicted_outcome=$6,correct_top_class=$7,settled_at=$8,settlement_source_as_of=$9,settlement_provider=$10 WHERE id=$11 AND status=$12',['RESOLVED',outcome,actualReturnPct,scored.brierScore,scored.logLoss,scored.predictedOutcome,scored.correctTopClass,settledAt,o.sourceAsOf,o.provider,row.id,'PENDING_OUTCOME']);
   }else{
