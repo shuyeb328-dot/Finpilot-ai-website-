@@ -210,7 +210,7 @@ function agentsView(){
 }
 
 function toggleAgent(id){if(id.startsWith('builtin-')){toast('Built-in agents are always available');return}const a=(state.agents||[]).find(x=>x.id===id);if(a){a.enabled=!a.enabled;save();render('agents')}}
-async function createAgent(e){
+async async function createAgent(e){
  e.preventDefault();
  const name=document.getElementById('aName').value.trim(),role=document.getElementById('aRole').value.trim();
  if(!name||!role)return;
@@ -222,7 +222,11 @@ async function createAgent(e){
   if(!response.ok||!data.ok)throw new Error(data.error||('HTTP_'+response.status));
   registry=data;
  }catch(error){registryError=String(error?.message||error)}
- const agent={id:registry?.agent?.id||'custom-'+Date.now(),name,icon,role,objective,enabled:true,interval,lastRun:null,createdAt:new Date().toISOString(),osRegistryRegistered:Boolean(registry?.ok),osRegistryPersistence:registry?.persistence||'BROWSER_LOCAL_ONLY',executionMode:'USER_TRIGGERED_ONLY'};
+ if(!registry?.ok){
+  toast('Agent was not created: central AI OS registry unavailable ('+(registryError||'unknown error')+'). Please retry when the registry is healthy.');
+  return;
+ }
+ const agent={id:registry.agent.id,name,icon,role,objective,enabled:true,interval,lastRun:null,createdAt:new Date().toISOString(),osRegistryRegistered:true,osRegistryPersistence:registry.persistence||'PROCESS_MEMORY',executionMode:'USER_TRIGGERED_ONLY'};
  state.agents.push(agent);save();closeModal('agentModal');render('agents');
  if(registry?.ok){
   toast(registry.persistent?name+' created and saved to the central AI OS registry':name+' created; central registry is process-memory only and may reset on server restart');
