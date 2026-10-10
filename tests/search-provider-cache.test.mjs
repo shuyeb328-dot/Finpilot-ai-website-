@@ -65,13 +65,13 @@ try{
     searchWeb('FinPilot quota cache test',{count:3}),
     searchWeb('  finpilot   QUOTA cache TEST  ',{count:3})
   ]);
-  assert.equal(fetchCalls,3,'identical in-flight queries should share one three-source fan-out');
+  assert.equal(fetchCalls,5,'identical in-flight queries should share one five-source fan-out');
   assert.equal(first.results.length,1);
   assert.equal(first.results[0].url,'https://example.com/finpilot-quota-test','keep the clean source URL when duplicate tracking variants exist');
   assert.equal(first.live,true);
   assert.equal(first.provider,'multi-free-search');
-  assert.deepEqual(first.providers,['bing-web-rss','bing-news-rss','google-news-rss']);
-  assert.deepEqual(first.attemptedProviders,['bing-web-rss','bing-news-rss','google-news-rss']);
+  assert.deepEqual(first.providers,['bing-web-rss','bing-news-rss','google-news-rss','duckduckgo-html','yahoo-html']);
+  assert.deepEqual(first.attemptedProviders,['bing-web-rss','bing-news-rss','google-news-rss','duckduckgo-html','yahoo-html']);
   assert.equal(first.results[0].engineAgreementCount,3,'matching URLs or exact titles should record which engines found the item');
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
@@ -98,7 +98,7 @@ try{
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
   const afterOneFailure=fetchCalls;
   await assert.rejects(()=>searchWeb('FinPilot cache must not store empty results',{count:3}));
-  assert.equal(fetchCalls,afterOneFailure+3,'empty/error results must not be cached; each retry should try all enabled free providers');
+  assert.equal(fetchCalls,afterOneFailure+5,'empty/error results must not be cached; each retry should try all enabled free providers');
 
   // In auto mode, a free RSS result must win without touching a configured metered provider.
   emptyMode=false;
@@ -107,15 +107,15 @@ try{
   process.env.EXA_API_KEY='test-metered-key';
   const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
   assert.equal(freeFirst.provider,'multi-free-search');
-  assert.deepEqual(freeFirst.providers,['bing-web-rss','bing-news-rss','google-news-rss']);
-  assert.equal(fetchCalls,3,'free multi-source search should satisfy auto search without calling a metered provider');
+  assert.deepEqual(freeFirst.providers,['bing-web-rss','bing-news-rss','google-news-rss','duckduckgo-html','yahoo-html']);
+  assert.equal(fetchCalls,5,'free multi-source search should satisfy auto search without calling a metered provider');
 
   // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
   emptyMode=true;
   fetchCalls=0;
   process.env.SEARCH_ALLOW_PAID_FALLBACK='false';
   await assert.rejects(()=>searchWeb('FinPilot never spend by default test',{count:3}));
-  assert.equal(fetchCalls,3,'failed free multi-source search should not call a metered provider by default');
+  assert.equal(fetchCalls,5,'failed free multi-source search should not call a metered provider by default');
 
   // Explicit provider mode may fall back to free RSS, but a billing error must not block that free fallback.
   emptyMode=false;
@@ -123,7 +123,7 @@ try{
   process.env.SEARCH_PROVIDER='exa';
   const afterBilling=await searchWeb('FinPilot free fallback after billing error',{count:3});
   assert.equal(afterBilling.provider,'multi-free-search');
-  assert.equal(fetchCalls,4,'a billing error should stop paid retries while all free providers remain available');
+  assert.equal(fetchCalls,6,'a billing error should stop paid retries while all free providers remain available');
   // Task-specific supplemental discovery must remain free-only even when paid fallback is enabled.
   emptyMode=false;
   fetchCalls=0;
@@ -132,7 +132,7 @@ try{
   process.env.SEARCH_ALLOW_PAID_FALLBACK='true';
   const explicitlyFree=await searchWeb('FinPilot explicit free-only supplemental discovery',{count:4,freeOnly:true,forceRefresh:true});
   assert.equal(explicitlyFree.provider,'multi-free-search','freeOnly must override the configured metered provider');
-  assert.equal(fetchCalls,3,'freeOnly must use free sources only and never call metered providers');
+  assert.equal(fetchCalls,5,'freeOnly must use free sources only and never call metered providers');
 
   wrapperMode=true;
   fetchCalls=0;
@@ -140,7 +140,7 @@ try{
   assert.equal(resolved.provider,'multi-free-search');
   assert.equal(resolved.results.length,1,'Bing redirect variants resolving to the same publisher article must be deduplicated');
   assert.equal(resolved.results[0].url,'https://example.com/finpilot-quota-test','Bing RSS wrapper must resolve to the publisher HTTPS URL before article retrieval');
-  assert.equal(fetchCalls,3,'publisher-link resolution must not trigger any extra provider requests beyond the bounded fan-out');
+  assert.equal(fetchCalls,5,'publisher-link resolution must not trigger any extra provider requests beyond the bounded fan-out');
 
   // Query relevance must outrank raw engine agreement: the generic homepage appears in all three feeds,
   // while the earnings story appears in only two, but the earnings story must rank first.
@@ -149,11 +149,11 @@ try{
   fetchCalls=0;
   const ranked=await searchWeb('Microsoft earnings',{count:5,freeOnly:true,forceRefresh:true});
   assert.equal(ranked.live,true);
-  assert.equal(fetchCalls,3,'ranking must not add extra provider requests');
+  assert.equal(fetchCalls,5,'ranking must not add extra provider requests');
   assert.match(ranked.results[0].title,/earnings/i,'query-relevant finance result should beat generic high-agreement result');
   const genericResult=ranked.results.find(x=>/Microsoft Singapore/i.test(x.title));
   assert.ok(genericResult,'fixture should include generic high-agreement result');
-  assert.equal(genericResult.engineAgreementCount,3,'generic page fixture should retain its three-engine agreement');
+  assert.equal(genericResult.engineAgreementCount,5,'generic page fixture should retain its five-engine agreement');
   assert.ok(ranked.results[0].relevanceScore>genericResult.relevanceScore,'relevance score should place earnings result above generic result');
   assert.equal(ranked.results[0].engineAgreementCount,2,'earnings fixture has lower agreement, proving relevance ranks first');
   const staleResult=ranked.results.find(x=>x.url==='https://example.com/msft-earnings-stale');
