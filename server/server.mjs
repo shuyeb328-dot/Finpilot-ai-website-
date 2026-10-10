@@ -24,6 +24,7 @@ import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
+import {createTradingViewAlertInbox} from './tradingview-alert-inbox.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
@@ -1924,6 +1925,8 @@ function staticFile(req,res,u){
 // FinPilot 5.1 Security + Real-Time Automation layer
 const SECURITY={started:Date.now(),blocked:0,rateLimited:0,events:[],lastRefresh:null};
 const RATE_LIMITER=createBoundedRateLimiter({limit:Number(process.env.FINPILOT_RATE_LIMIT||240),maxClients:10000});
+const TRADINGVIEW_ALERT_LIMITER=createBoundedRateLimiter({limit:60,windowMs:60000,maxClients:1000});
+const TRADINGVIEW_ALERT_INBOX=createTradingViewAlertInbox({getToken:()=>process.env.FINPILOT_TRADINGVIEW_WEBHOOK_TOKEN||''});
 const AUTO={enabled:true,marketRefreshMs:5000,agentRefreshMs:15000,maxConcurrentAgents:5,cacheTtlMs:CACHE_TTL_MS,lastOptimization:null,optimizations:0};
 function clientKey(req){return String(req.socket?.remoteAddress||'unknown').replace(/^::ffff:/,'');}
 function securityEvent(type,detail){SECURITY.events.unshift({type,detail,time:new Date().toISOString()});SECURITY.events=SECURITY.events.slice(0,100);}
@@ -2268,6 +2271,22 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/research-queue'){await body(req);return researchQueue(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/decision-cache'){await body(req);return decisionCache(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/execution-guard'){await body(req);return executionGuard(req,res);}
+  if(req.method==='GET'&&u.pathname==='/api/tradingview-alert-status')return send(res,200,TRADINGVIEW_ALERT_INBOX.status());
+  if((req.method==='GET'&&u.pathname==='/api/tradingview-alerts')||(req.method==='POST'&&u.pathname==='/api/tradingview-alert')){
+   const limiter=TRADINGVIEW_ALERT_LIMITER.check(clientKey(req));
+   if(!limiter.allowed)return send(res,429,{ok:false,error:'TRADINGVIEW_ALERT_RATE_LIMITED'});
+   if(req.method==='GET'){
+    const result=TRADINGVIEW_ALERT_INBOX.list(req.headers['x-finpilot-webhook-token']);
+    if(!result.ok)return send(res,result.statusCode||401,result);
+    return send(res,200,result);
+   }
+   if(!/^application\\/json(?:\\s*;|$)/i.test(String(req.headers['content-type']||'')))return send(res,415,{ok:false,error:'JSON_CONTENT_TYPE_REQUIRED'});
+   const input=await body(req);
+   if(Buffer.byteLength(req._bodyCache||'','utf8')>8192)return send(res,413,{ok:false,error:'TRADINGVIEW_ALERT_TOO_LARGE',maxBytes:8192});
+   const result=TRADINGVIEW_ALERT_INBOX.ingest(input);
+   if(!result.ok)return send(res,result.statusCode||400,result);
+   return send(res,202,result);
+  }
   if(req.method==='GET'&&u.pathname==='/api/security-status')return securityStatus(req,res);
   if(req.method==='GET'&&u.pathname==='/api/realtime-status')return realtimeStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/auto-optimize')return autoOptimize(req,res);
