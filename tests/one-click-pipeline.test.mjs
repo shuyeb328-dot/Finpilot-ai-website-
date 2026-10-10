@@ -72,9 +72,15 @@ assert.match(serverText, /cooldownActive:cooldownMs>0/, 'cooldownActive must be 
 assert.match(serverText, /cooldownMs,\s*cooldown:moduleCooldown/, 'provider health must return a coherent cooldown timer and state');
 assert.match(serverText, /existing\.providerCooldownUntil=Math\.max\(Number\(existing\.providerCooldownUntil\)\|\|0,Number\(p\.cooldownUntil\)\|\|0\)/, 'provider registry cooldown deadlines must survive canonical provider aggregation');
 assert.match(serverText, /const report=hit\.report\?gateMarketReport\(hit\.report,t,interval\):null/, 'cached reports must be rechecked for freshness before execution eligibility is returned');
-assert.match(serverText, /const baseAsset=key\.replace\(\/USDT\$\/,''\)/, 'crypto provider fallbacks must normalize BTCUSDT-style aliases before building fallback pair names');
-assert.match(serverText, /const krakenPair=baseAsset==='BTC'\?'XBTUSD':baseAsset\+'USD'/, 'Kraken fallback must use its XBT symbol for BTC aliases and the canonical base asset for other coins');
-assert.match(serverText, /const coinPair=baseAsset\+'-USD'/, 'Coinbase fallback must use a canonical BASE-USD pair rather than appending USD to USDT aliases');
+
+
+
+assert.match(serverText, /import \{cryptoProviderSymbols\} from '\.\/crypto-provider-symbols\.mjs';/, 'crypto fallbacks must use the shared quote-preserving provider-symbol resolver');
+assert.match(serverText, /const providerSymbols=cryptoProviderSymbols\(key,symbol\)/, 'live crypto fallback must resolve products from the configured Binance symbol');
+assert.match(serverText, /const krakenPair=providerSymbols\.krakenPair/, 'Kraken fallback must keep the configured quote currency and apply the XBT alias only for BTC');
+assert.match(serverText, /const coinPair=providerSymbols\.coinbaseProduct/, 'Coinbase fallback must keep the configured quote currency rather than always using USD');
+assert.match(serverText, /const pair=providerSymbols\.krakenPair/, 'market-data verification must use the same quote-matched Kraken pair');
+assert.match(serverText, /const pair=providerSymbols\.coinbaseProduct/, 'market-data verification must use the same quote-matched Coinbase product');
 assert.match(serverText, /const name=baseAsset;/, 'crypto reports must expose the canonical base symbol to market snapshot validation');
 assert.match(serverText, /provider:'google-search-bridge',results:\[\],externalUrl:google/, 'free search failures should return a usable external Google Search fallback instead of HTTP 502');
 assert.match(serverText, /fallback:'GOOGLE_SEARCH_BRIDGE'/, 'the search API must label its Google fallback explicitly');
