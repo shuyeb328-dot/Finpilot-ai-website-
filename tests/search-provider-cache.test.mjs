@@ -52,7 +52,7 @@ try{
   assert.equal(first.live,true);
   assert.equal(first.provider,'multi-free-search');
   assert.deepEqual(first.providers,['duckduckgo-html','brave-html','yahoo-html','bing-news-rss','google-news-rss']);
-  assert.deepEqual(first.attemptedProviders,['duckduckgo-html','yahoo-html','bing-news-rss','google-news-rss']);
+  assert.deepEqual(first.attemptedProviders,['duckduckgo-html','brave-html','yahoo-html','bing-news-rss','google-news-rss']);
   assert.equal(first.results[0].engineAgreementCount,5,'matching URLs or exact titles should record which engines found the item');
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
@@ -88,7 +88,7 @@ try{
   process.env.EXA_API_KEY='test-metered-key';
   const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
   assert.equal(freeFirst.provider,'multi-free-search');
-  assert.deepEqual(freeFirst.providers,['duckduckgo-html','yahoo-html','bing-news-rss','google-news-rss']);
+  assert.deepEqual(freeFirst.providers,['duckduckgo-html','brave-html','yahoo-html','bing-news-rss','google-news-rss']);
   assert.equal(fetchCalls,5,'free multi-engine search should satisfy auto search without calling a metered provider');
 
   // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
