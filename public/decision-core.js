@@ -25,7 +25,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  // Search sentiment is not a substitute for verified price evidence.
  const queryText=String(web?.query||state?.query||state?.ticker||'').trim();
  const symbolToken=(queryText.toUpperCase().match(/\b[A-Z][A-Z0-9.^-]{1,11}\b/g)||[])
-   .find(token=>!new Set(['ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ']).has(token))||'';
+   .find(token=>!new Set(['ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','STOCKS','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ','USA','US','ABOUT','OUTLOOK','PREDICT','FORECAST','TARGET','RISK','RETURN','PROBABILITY','PROBABILITIES','NEXT','WEEK','MONTH','SHORT','LONG','TERM','HORIZON','GIVE','ME','CAN','YOU','PLEASE','WHAT','WHETHER','SHOULD','IN','OF','ON','UNDER','OVER','LOW','TOP','EXPLORE','COMPANY','LATEST','NEWS','LIVE','QUOTE','CHECK','LOOK','UP','FIND','COMPARE','FROM','TODAY','TICKER']).has(token))||'';
  const requestedSymbol=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
  const marketSensitive=Boolean(requestedSymbol)||['market','portfolio','equity','crypto','options','futures','trading'].includes(String(quantum.intent||'').toLowerCase());
 
@@ -34,6 +34,14 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const quoteObjects=snapshot?[snapshot,snapshot.report,snapshot.instrument,snapshot.quote,snapshot.marketDataOS,snapshot.snapshot,snapshot.snapshot?.instrument,snapshot.snapshot?.quote].filter(x=>x&&typeof x==='object'):[];
  const firstValue=(keys)=>{for(const row of quoteObjects){for(const key of keys){if(row[key]!==undefined&&row[key]!==null&&row[key]!=='')return row[key];}}return undefined;};
  const normalizeSymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/\s+/g,'');
+ const equivalentSymbols={
+  BITCOIN:['BTC'],ETHEREUM:['ETH'],ETHER:['ETH'],SOLANA:['SOL'],RIPPLE:['XRP'],
+  NIFTY:['^NSEI','NIFTY50'],NIFTY50:['^NSEI','NIFTY'],SENSEX:['^BSESN'],BANKNIFTY:['^NSEBANK']
+ };
+ const symbolMatches=Boolean(quoteSymbol&&(!requestedSymbol||
+   normalizeSymbol(quoteSymbol)===normalizeSymbol(requestedSymbol)||
+   (equivalentSymbols[normalizeSymbol(requestedSymbol)]||[]).includes(normalizeSymbol(quoteSymbol))||
+   (equivalentSymbols[normalizeSymbol(quoteSymbol)]||[]).includes(normalizeSymbol(requestedSymbol))));
  const quoteSymbol=String(firstValue(['ticker','symbol','requestedTicker'])||snapshot?.requested?.ticker||snapshot?.instrument?.ticker||'').toUpperCase();
  const price=Number(firstValue(['price','lastPrice','last','close']));
  const quoteAsOf=firstValue(['asOf','sourceAsOf','providerTimestamp','timestamp']);
@@ -43,7 +51,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const qualityEligibility=firstValue(['forecastEligible']);
  const marketOsDecision=snapshot?.marketDataOS?.decision||snapshot?.marketDataOS?.status;
  const eligible=topEligibility===true||qualityEligibility===true||marketOsDecision==='ALLOW_ANALYSIS_AND_PAPER';
- const symbolMatches=Boolean(quoteSymbol&&(!requestedSymbol||normalizeSymbol(quoteSymbol)===normalizeSymbol(requestedSymbol)));
+
  const quoteValid=Boolean(snapshot&&symbolMatches&&Number.isFinite(price)&&price>0&&timestampType==='PROVIDER_TIMESTAMP'&&Number.isFinite(ageMs)&&ageMs>=-30000&&ageMs<=90000&&eligible);
 
  const domains=new Set();
@@ -94,10 +102,14 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const cfoSignal=clamp((liquidityScore*.42)+(debtScore*.28)+(stabilityScore*.2)+(cfoAgent?.domainScore||0)*.1);
  const judgeSignal=clamp((ceoSignal*.35)+(cfoSignal*.35)+(stabilityScore*.15)+(avgConfidence*.15));
 
- const ceo=positive
-   ? 'Opportunity exists, but the live evidence must be confirmed against fundamentals before increasing exposure.'
+ const ceo=marketSensitive&&!quotePassed
+   ? 'Market recommendation withheld because a fresh, matching provider-timestamped quote has not passed verification.'
+   : marketSensitive&&!sourcePassed
+   ? 'Market recommendation withheld until at least two independent evidence source domains corroborate the thesis.'
+   : positive
+   ? 'Opportunity exists, but evidence must still be confirmed against fundamentals and suitability before increasing exposure.'
    : cautious
-   ? 'Protect capital until the negative live signals are verified and the downside case is resolved.'
+   ? 'Protect capital until the negative signals are verified and the downside case is resolved.'
    : 'No decisive edge is established from the current evidence; preserve capital and demand stronger confirmation.';
  const cfo=reserveMonths<3
    ? 'Liquidity is the binding constraint: '+reserveMonths.toFixed(1)+' months of emergency coverage is below the preferred buffer.'
@@ -153,7 +165,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    ? 'Live web search for “'+web.query+'” is '+web.stance.toLowerCase()+' based on '+webCount+' evidence item(s). '+(positive?'News flow is supportive, but fundamentals still require verification.':cautious?'News flow contains caution signals; verify primary sources before acting.':'News flow is mixed; headlines alone are insufficient for a trade signal.')
    : 'No live web evidence is attached to this council.';
  const evidenceFreshness=stale?'STALE':freshLive>0?'FRESH':'RECENT';
- const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
+ const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(marketGateBlocked?'Market-sensitive decision is blocked by quote provenance or independent-source requirements. '):(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
  return {
    decision:judge,summary,risk:Math.round(risk),confidence:decisionConfidenceFinal,
    voices,evidenceFreshness,decisionGates,marketEvidence,
