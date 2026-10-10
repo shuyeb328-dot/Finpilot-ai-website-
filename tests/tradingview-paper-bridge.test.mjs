@@ -26,6 +26,16 @@ const host=makeElement('paperlab');
 const ticket=makeElement('paperSymbol');ticket.value='BTC';
 const status=makeElement('paperMarketStatus');
 let refreshPaperCalls=0;
+let inboxFetchCalls=0;
+const fetch=async(url,options={})=>{
+  inboxFetchCalls++;
+  assert.equal(url,'/api/tradingview-alerts');
+  assert.equal(options.method,'GET');
+  assert.equal(options.cache,'no-store');
+  assert.equal(options.credentials,'same-origin');
+  assert.equal(options.headers['X-FinPilot-Webhook-Token'],'test-shared-secret-not-stored');
+  return {ok:true,status:200,json:async()=>({ok:true,count:1,items:[{receivedAt:'2026-10-10T12:00:00.000Z',symbol:'NASDAQ:AAPL',action:'BUY',status:'RECEIVED_UNVERIFIED'}]})};
+};
 const document={
   readyState:'loading',
   body:makeElement('body'),
@@ -51,7 +61,7 @@ const document={
 };
 const window={refreshPaper(){refreshPaperCalls++;return Promise.resolve()}};
 class MockEvent {constructor(type,options={}){this.type=type;Object.assign(this,options)}}
-vm.runInNewContext(source,{window,document,MutationObserver:function(){},setInterval,clearInterval,Event:MockEvent,console});
+vm.runInNewContext(source,{window,document,MutationObserver:function(){},setInterval,clearInterval,Event:MockEvent,console,fetch});
 const api=window.FinPilotTradingViewBridge;
 
 assert.equal(api.normalizeSymbol(' btcusdt '),'BTCUSDT');
@@ -76,6 +86,17 @@ assert.equal(api.paperSymbol('javascript:alert(1)'),'');
 api.mount();
 const first=host.querySelector('#fpTradingViewBridge');
 assert.ok(first,'mount should insert the TradingView bridge into the Paper Arena');
+assert.match(first._innerHTML,/fpTvAlertInbox/,'bridge should include a secure alert inbox');
+assert.match(first._innerHTML,/"token":"PASTE_RENDER_SHARED_SECRET"/,'bridge should provide a non-secret alert JSON template');
+assert.match(first._innerHTML,/\\{\\{ticker\\}\\}/,'template should use TradingView ticker placeholder');
+const inboxToken=first.querySelector('#fpTvAlertToken');
+inboxToken.value='test-shared-secret-not-stored';
+first.querySelector('#fpTvAlertLoad').fire('click');
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(inboxFetchCalls,1,'loading the inbox should call the authenticated GET endpoint');
+assert.match(first.querySelector('#fpTvAlertStatus').textContent,/Authenticated/);
+assert.match(first.querySelector('#fpTvAlerts').textContent,/NASDAQ:AAPL · BUY · RECEIVED_UNVERIFIED/);
+assert.equal(first.querySelector('#fpTvAlertToken').value,'test-shared-secret-not-stored','secret remains in the current page control only');
 api.mount();
 assert.equal(host._children.filter(x=>x.id==='fpTradingViewBridge').length,1,'repeated mount must not duplicate an existing bridge');
 
