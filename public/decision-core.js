@@ -21,6 +21,56 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const cautious=web?.stance==='Cautious';
  const mixed=!positive&&!cautious;
 
+ // Market-sensitive decisions must be backed by a fresh, matching provider-timestamped quote.
+ // Search sentiment is not a substitute for verified price evidence.
+ const queryText=String(web?.query||state?.query||state?.ticker||'').trim();
+ const symbolToken=(queryText.toUpperCase().match(/\b[A-Z][A-Z0-9.^-]{1,11}\b/g)||[])
+   .find(token=>!new Set(['ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ']).has(token))||'';
+ const requestedSymbol=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
+ const marketSensitive=Boolean(requestedSymbol)||['market','portfolio','equity','crypto','options','futures','trading'].includes(String(quantum.intent||'').toLowerCase());
+
+ const snapshots=[state?.marketSnapshot,state?.latestMarketSnapshot,window.__fpMarketSnapshot].filter(x=>x&&typeof x==='object');
+ const snapshot=snapshots[0]||null;
+ const quoteObjects=snapshot?[snapshot,snapshot.report,snapshot.instrument,snapshot.quote,snapshot.marketDataOS,snapshot.snapshot,snapshot.snapshot?.instrument,snapshot.snapshot?.quote].filter(x=>x&&typeof x==='object'):[];
+ const firstValue=(keys)=>{for(const row of quoteObjects){for(const key of keys){if(row[key]!==undefined&&row[key]!==null&&row[key]!=='')return row[key];}}return undefined;};
+ const normalizeSymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/\s+/g,'');
+ const quoteSymbol=String(firstValue(['ticker','symbol','requestedTicker'])||snapshot?.requested?.ticker||snapshot?.instrument?.ticker||'').toUpperCase();
+ const price=Number(firstValue(['price','lastPrice','last','close']));
+ const quoteAsOf=firstValue(['asOf','sourceAsOf','providerTimestamp','timestamp']);
+ const timestampType=String(firstValue(['sourceTimestampType','timestampType'])||'UNKNOWN_TIMESTAMP').toUpperCase();
+ const ageMs=Number.isFinite(Date.parse(String(quoteAsOf||'')))?Date.now()-Date.parse(String(quoteAsOf)):null;
+ const topEligibility=snapshot?.executionEligible;
+ const qualityEligibility=firstValue(['forecastEligible']);
+ const marketOsDecision=snapshot?.marketDataOS?.decision||snapshot?.marketDataOS?.status;
+ const eligible=topEligibility===true||qualityEligibility===true||marketOsDecision==='ALLOW_ANALYSIS_AND_PAPER';
+ const symbolMatches=Boolean(quoteSymbol&&(!requestedSymbol||normalizeSymbol(quoteSymbol)===normalizeSymbol(requestedSymbol)));
+ const quoteValid=Boolean(snapshot&&symbolMatches&&Number.isFinite(price)&&price>0&&timestampType==='PROVIDER_TIMESTAMP'&&Number.isFinite(ageMs)&&ageMs>=-30000&&ageMs<=90000&&eligible);
+
+ const domains=new Set();
+ const addDomain=url=>{const m=String(url||'').trim().match(/^https?:\/\/([^/?#:]+)/i);if(m)domains.add(m[1].toLowerCase().replace(/^www\./,''));};
+ for(const url of (Array.isArray(web?.urls)?web.urls:[]))addDomain(url);
+ for(const row of live)addDomain(row?.url);
+ const independentSourceCount=domains.size;
+ const quoteBlock= !marketSensitive?'NOT_REQUIRED':!snapshot?'NO_VERIFIED_QUOTE':!quoteSymbol?'SYMBOL_UNKNOWN':!symbolMatches?'SYMBOL_MISMATCH':timestampType!=='PROVIDER_TIMESTAMP'?'PROVIDER_TIMESTAMP_REQUIRED':!Number.isFinite(ageMs)||ageMs < -30000||ageMs>90000?'QUOTE_STALE_OR_TIMESTAMP_INVALID':!eligible?'QUOTE_NOT_EXECUTION_ELIGIBLE':'PASS';
+ const quotePassed=!marketSensitive||quoteBlock==='PASS';
+ const sourceBlock=!marketSensitive||independentSourceCount>=2?'PASS':'INSUFFICIENT_INDEPENDENT_SOURCES';
+ const sourcePassed=sourceBlock==='PASS';
+ const marketGateBlocked=marketSensitive&&(!quotePassed||!sourcePassed);
+ const marketEvidence={
+  required:marketSensitive,quoteStatus:quotePassed?(marketSensitive?'VERIFIED_MATCHING_FRESH':'NOT_REQUIRED'):quoteBlock,
+  ticker:quoteSymbol||null,requestedTicker:requestedSymbol||null,provider:firstValue(['provider','exchange'])||null,
+  asOf:quoteAsOf||null,ageMs:Number.isFinite(ageMs)?Math.round(ageMs):null,
+  sourceTimestampType:timestampType,price:Number.isFinite(price)&&price>0?price:null,
+  independentSourceCount,sourceDomains:[...domains].slice(0,8),blockingReason:marketGateBlocked?( !quotePassed?quoteBlock:sourceBlock):null
+ };
+ const decisionGates=[
+  {id:'market_quote',label:'Market quote provenance',status:!marketSensitive?'NOT_REQUIRED':quotePassed?'PASS':'BLOCKED',severity:marketSensitive&&!quotePassed?'CRITICAL':'INFO',blocking:marketSensitive&&!quotePassed,message:!marketSensitive?'No market-specific decision was requested.':quotePassed?'Matching instrument has a fresh provider timestamp and passes the paper-eligibility data gate.':'Market-sensitive decision withheld: '+quoteBlock+'.'},
+  {id:'source_diversity',label:'Independent source diversity',status:!marketSensitive?'NOT_REQUIRED':sourcePassed?'PASS':'BLOCKED',severity:marketSensitive&&!sourcePassed?'HIGH':'INFO',blocking:marketSensitive&&!sourcePassed,message:!marketSensitive?'Independent market sources are not required for this non-market task.':sourcePassed?'Evidence covers '+independentSourceCount+' independent source domains.':'Only '+independentSourceCount+' independent source domain(s) were found; at least two are required.'},
+  {id:'liquidity',label:'Liquidity buffer',status:reserveMonths<3?'BLOCKED':reserveMonths<6?'REVIEW':'PASS',severity:reserveMonths<3?'HIGH':reserveMonths<6?'MEDIUM':'LOW',blocking:reserveMonths<3,message:reserveMonths<3?'Emergency coverage is '+reserveMonths.toFixed(1)+' months, below the three-month safety threshold.':reserveMonths<6?'Emergency coverage is below six months; consider liquidity before increasing risk.':'Emergency coverage passes the three-month minimum.'},
+  {id:'high_severity_findings',label:'High-severity findings',status:high?'BLOCKED':'PASS',severity:high?'HIGH':'LOW',blocking:high>0,message:high?high+' high-severity finding(s) require resolution before adding risk.':'No high-severity Financial Brain findings are currently recorded.'},
+  {id:'evidence_recency',label:'Financial Brain recency',status:stale?'REVIEW':'PASS',severity:stale?'MEDIUM':'LOW',blocking:false,message:stale?'The latest local Financial Brain refresh is stale or missing; refresh before relying on the summary.':'The local Financial Brain was refreshed recently; this does not by itself verify market data.'}
+ ];
+
  // Independent specialist scoring: the decision engine consumes the actual agent matrix,
  // rather than displaying fixed 78/87/90/92/86 values.
  let matrix=[];
@@ -60,6 +110,8 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    ? 'CFO wins: strengthen liquidity before increasing risk'
    : high
    ? 'Risk gate wins: resolve the highest-severity finding before adding new risk'
+   : marketGateBlocked
+   ? 'WAIT — verified market quote and independent-source checks are required'
    : cautious
    ? 'CFO/Risk wins: verify live negative signals before taking market risk'
    : positive && evidenceScore>=65 && marketScore>=60
@@ -75,13 +127,17 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    + Math.min(5,Math.max(0,webCount-2))
    + Math.min(5,Math.max(0,quantum.confidence-60)*.12)
  );
- const risk=clamp(
+ const unadjustedRisk=clamp(
    20+high*17+medium*5+
    (reserveMonths<3?25:reserveMonths<6?9:0)+
    (debtRatio>.5?18:debtRatio>.25?8:0)+
    (cautious?12:0)+
-   (stale?7:0)
+   (stale?7:0)+
+   (marketGateBlocked?15:0)
  );
+ const decisionConfidenceGated=marketSensitive&&!quotePassed?Math.min(40,decisionConfidence):marketGateBlocked?Math.min(50,decisionConfidence):decisionConfidence;
+ const decisionConfidenceFinal=Math.round(clamp(decisionConfidenceGated));
+ const risk=unadjustedRisk;
 
  const voiceBase=[
   ['Bull','Preserve long-term compounding while requiring evidence strong enough to justify added exposure.',clamp(ceoSignal+2)],
@@ -99,14 +155,14 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const evidenceFreshness=stale?'STALE':freshLive>0?'FRESH':'RECENT';
  const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
  return {
-   decision:judge,summary,risk:Math.round(risk),confidence:Math.round(decisionConfidence),
-   voices,evidenceFreshness,
+   decision:judge,summary,risk:Math.round(risk),confidence:decisionConfidenceFinal,
+   voices,evidenceFreshness,decisionGates,marketEvidence,
    executive:{
      ceo,cfo,judge,
      ceoConfidence:Math.round(clamp(ceoSignal)),
      cfoConfidence:Math.round(clamp(cfoSignal)),
-     judgeConfidence:Math.round(clamp(decisionConfidence)),
-     inputs:{liquidity:Math.round(liquidityScore),debt:Math.round(debtScore),stability:Math.round(stabilityScore),evidence:Math.round(evidenceScore),market:Math.round(marketScore),specialistAverage:Math.round(avgConfidence),disagreement:Math.round(disagreement)}
+     judgeConfidence:decisionConfidenceFinal,
+     inputs:{liquidity:Math.round(liquidityScore),debt:Math.round(debtScore),stability:Math.round(stabilityScore),evidence:Math.round(evidenceScore),market:Math.round(marketScore),specialistAverage:Math.round(avgConfidence),disagreement:Math.round(disagreement),marketSensitive,quoteVerified:quotePassed,independentSourceCount}
    },
    webSignal:web,
    quantumSignal:quantum,
