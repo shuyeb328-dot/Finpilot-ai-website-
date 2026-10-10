@@ -60,6 +60,8 @@ assert.match(server,/id:'nasdaq-public',configured:true,role:'no-key US equity E
 assert.match(server,/sourceTimestampType:gp\.sourceTimestampType\|\|'HISTORICAL_EOD'/,'global historical fallback must preserve source-date provenance');
 assert.match(server,/executionEligibilityReason:gp\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical fallback must remain execution-ineligible');
 assert.match(server,/report\?\.live===false&&Array\.isArray\(report\.candles\)&&report\.candles\.length>=2/,'matching delayed/EOD candles may remain visible for historical context only');
+assert.match(server,/report\.executionEligibilityReason!=='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'/,'unofficial Yahoo equity history must not be shown when the trusted EOD fallback is available');
+assert.match(server,/report\.executionEligibilityReason!=='NO_VERIFIED_MARKET_DATA'/,'unavailable market data cannot bypass the no-price safety fallback');
 assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED/,'EOD candles must be labelled historical and remain ineligible');
 assert.match(server,/executionEligibilityReason:historicalReport\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical equity fallback must state its analysis-only execution gate');
 assert.doesNotMatch(server,/const SBC_SERVER=/,'a fixed stale SBC price snapshot must not be used as a silent fallback');

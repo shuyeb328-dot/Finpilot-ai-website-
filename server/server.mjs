@@ -1452,7 +1452,7 @@ async function stockReport(req,res,u){
     if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
     return send(res,200,payload);
    }
-   if(report?.live===false&&Array.isArray(report.candles)&&report.candles.length>=2&&report.sourceTimestampType&&report.sourceTimestampType!=='UNKNOWN_TIMESTAMP'){
+   if(report?.live===false&&Array.isArray(report.candles)&&report.candles.length>=2&&report.sourceTimestampType&&report.sourceTimestampType!=='UNKNOWN_TIMESTAMP'&&report.executionEligibilityReason!=='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'&&report.executionEligibilityReason!=='NO_VERIFIED_MARKET_DATA'){
     // Keep correctly matched delayed/EOD candles visible; stale quotes remain execution-ineligible.
     const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED',dataDisclaimer:report.dataDisclaimer};
     cached(cacheKey,payload);
