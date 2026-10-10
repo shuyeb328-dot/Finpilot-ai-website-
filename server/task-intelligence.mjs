@@ -29,6 +29,23 @@ const PROPERTY_TERMS=/\b(real estate|property|rental yield|housing market|land p
 const NEWS_TERMS=/\b(why|news|headline|earnings|results|filing|annual report|quarterly report|acquisition|merger|lawsuit|regulation|announcement)\b/i;
 const PRICE_TERMS=/\b(price|quote|live|current|today|intraday|chart|candles?|rsi|support|resistance|forecast|prediction|buy|sell|trade|trading|stop.?loss|target)\b/i;
 function cleanQuery(query){return String(query||'').replace(/\s+/g,' ').trim().slice(0,500);}
+const INDIAN_EQUITY_SYMBOLS = new Set([
+ 'SBC','IRFC','RELIANCE','TCS','INFY','GAIL','HINDZINC','ITC','TATAPOWER','TATASTEEL',
+ 'SUNPHARMA','TRENT','TECHM','HCLTECH','INDIGO','JUBLFOOD','PAYTM','SBIN','HDFCBANK',
+ 'ICICIBANK','BHARTIARTL','LT','ADANIPORTS','BAJFINANCE','HINDALCO','WIPRO','MARUTI',
+ 'AXISBANK','KOTAKBANK','NIFTY','BANKNIFTY','FINNIFTY','SENSEX'
+]);
+const GLOBAL_EQUITY_SYMBOLS = new Set([
+ 'AAPL','MSFT','NVDA','TSLA','AMZN','GOOGL','GOOG','META','AMD','INTC','ORCL','CRM',
+ 'NFLX','AVGO','TSM','ADBE','JPM','V','MA','KO','PEP','COST','WMT','DIS','UBER',
+ 'SHOP','BABA','SAP','SHEL','RY','NESN','7203','0700','600519','005930','2330'
+]);
+const SYMBOL_STOPWORDS = new Set([
+ 'I','A','AI','CEO','CFO','RSI','SMA','EMA','USD','INR','USDT','NSE','BSE','NYSE','NASDAQ',
+ 'ETF','FNO','PE','CE','BUY','SELL','LIVE','TODAY','BEST','TOP','AND','THE','FOR','WITH',
+ 'FROM','NEWS','PRICE','STOCK','SHARES','FORECAST','TRADE','TRADING','OPTIONS','FUTURES',
+ 'INDEX','BANK','GOLD','SILVER','OIL','CRUDE','BTC','ETH'
+]);
 function resolveAssetClass(q){
  if(CRYPTO_TERMS.test(q))return 'CRYPTO';
  if(OPTION_TERMS.test(q))return 'OPTIONS';
@@ -37,8 +54,13 @@ function resolveAssetClass(q){
  if(COMMODITY_TERMS.test(q))return 'COMMODITY';
  if(PROPERTY_TERMS.test(q))return 'REAL_ESTATE';
  if(INDEX_TERMS.test(q))return /nifty|sensex|bank nifty/i.test(q)?'INDIAN_INDEX':'GLOBAL_INDEX';
- if(/^\s*SBC(?:\.(?:NS|BO))?\s*$/i.test(q)||/\b(nse|bse|sbc exports|irfc|reliance|tata motors|tcs|infosys|sbin|hdfc|icici|indian stock|india stock)\b/i.test(q))return 'INDIAN_EQUITY';
- if(/\b(nyse|nasdaq|nyse-listed|us stock|american stock|tesla|nvidia|apple stock|microsoft stock|aapl|nvda|tsla|msft)\b/i.test(q))return 'GLOBAL_EQUITY';
+ const compact=String(q||'').trim().toUpperCase();
+ if(/\.(?:NS|BO)$/.test(compact))return 'INDIAN_EQUITY';
+ if(/\.(?:L|TO|AX|DE|PA|HK|T|SW|AS|MI|SA|JK|KL|BK|SI|NZ|JO|SR|TA|KS|KQ|TW|SS|SZ|MX)$/.test(compact))return 'GLOBAL_EQUITY';
+ const bareSymbol=/^[A-Z][A-Z0-9]{1,9}$/.test(compact)&&!SYMBOL_STOPWORDS.has(compact);
+ if(INDIAN_EQUITY_SYMBOLS.has(compact)||/\b(nse|bse|sbc exports|irfc|reliance|tata motors|tcs|infosys|sbin|hdfc|icici|indian stock|india stock)\b/i.test(q))return 'INDIAN_EQUITY';
+ if(GLOBAL_EQUITY_SYMBOLS.has(compact)||/\b(nyse|nasdaq|nyse-listed|us stock|american stock|tesla|nvidia|apple stock|microsoft stock|aapl|nvda|tsla|msft|amazon|alphabet|meta platforms)\b/i.test(q))return 'GLOBAL_EQUITY';
+ if(bareSymbol)return 'GLOBAL_EQUITY';
  if(NEWS_TERMS.test(q)&&!PRICE_TERMS.test(q))return 'FINANCIAL_RESEARCH';
  if(/\b(stock|share|equity|ticker|company|etf|fund)\b/i.test(q))return 'GLOBAL_EQUITY';
  return 'GENERAL_FINANCE';
@@ -91,8 +113,7 @@ export function buildSupplementalDiscovery(input={}) {
   FINANCIAL_RESEARCH:'official filing regulator investor relations primary source',
   GENERAL_FINANCE:'official regulator primary source investor education'
  };
- const issuerFocus=String(plan.instrument?.queryToken||'').toUpperCase()==='SBC'?'SBC Exports India stock':focus;
- const queryText=(issuerFocus+' '+(hints[plan.assetClass]||hints.GENERAL_FINANCE)).replace(/[ \t\r\n]+/g,' ').trim().slice(0,300);
+ const queryText=(focus+' '+(hints[plan.assetClass]||hints.GENERAL_FINANCE)).replace(/[ \t\r\n]+/g,' ').trim().slice(0,300);
  return {
   schemaVersion:1,
   originalQuery:query,
@@ -116,8 +137,10 @@ export function filterFinancialSearchResults(rows, plan) {
  const base=queryToken.split(/[/.]/)[0].replace(/[^A-Z0-9]/g,'');
  if(!base)return sourceRows;
  const aliases={
-  BTC:'BTC|BITCOIN',ETH:'ETH|ETHEREUM',SOL:'SOL|SOLANA',XRP:'XRP|RIPPLE',
-  BNB:'BNB|BINANCE COIN',SBC:'SBC'
+  BTC:'BTC|BITCOIN',ETH:'ETH|ETHEREUM',SOL:'SOL|SOLANA',XRP:'XRP|RIPPLE',BNB:'BNB|BINANCE COIN',
+  AAPL:'AAPL|APPLE',MSFT:'MSFT|MICROSOFT',NVDA:'NVDA|NVIDIA',TSLA:'TSLA|TESLA',AMZN:'AMZN|AMAZON',
+  GOOGL:'GOOGL|GOOG|ALPHABET|GOOGLE',GOOG:'GOOG|GOOGL|ALPHABET|GOOGLE',META:'META|FACEBOOK',
+  RELIANCE:'RELIANCE',IRFC:'IRFC|INDIAN RAILWAY FINANCE',TCS:'TCS|TATA CONSULTANCY SERVICES',INFY:'INFY|INFOSYS'
  };
  const tokenPattern=new RegExp('\\b(?:'+(aliases[base]||base)+')\\b','i');
  const financePattern=/\b(?:stock|stocks|share|shares|equity|equities|share price|price target|market cap|market value|financial|finance|earnings?|revenue|profit|loss|results|filing|investor|valuation|dividend|securities|exchange|trading|volume|broker|exports|listed|listing|annual report|quarterly|ipo|fundamentals?|nse|bse|crypto|cryptocurrency|bitcoin|ethereum|solana|coinbase|kraken|binance|usd|usdt|market)\b/i;

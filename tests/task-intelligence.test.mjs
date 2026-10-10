@@ -35,6 +35,10 @@ assert.match(serverContract,/filterFinancialSearchResults\(rawResults,plan\)/,'t
 assert.match(serverContract,/searchContextQuery/,'bare ticker search must include financial context while preserving the user query');
 assert.match(serverContract,/quoteEligible:false/,'supplemental headlines must never be eligible market quotes');
 const lowercaseSbc=planFinancialTask('sbc');
+assert.equal(planFinancialTask('irfc').assetClass,'INDIAN_EQUITY','lowercase Indian tickers must route through the shared symbol registry');
+assert.equal(planFinancialTask('TCS.NS').assetClass,'INDIAN_EQUITY','exchange-qualified India tickers must route correctly');
+assert.equal(planFinancialTask('MSFT').assetClass,'GLOBAL_EQUITY','global tickers must use the generic equity path');
+assert.equal(planFinancialTask('AAPL').assetClass,'GLOBAL_EQUITY','global ticker support must not depend on one example');
 assert.equal(lowercaseSbc.assetClass,'INDIAN_EQUITY','lowercase ticker queries must resolve to the same instrument class');
 assert.equal(lowercaseSbc.instrument.queryToken,'SBC','ticker identity must be case-normalized before discovery');
 assert.equal(lowercaseSbc.instrument.explicitSymbol,true,'bare lowercase ticker must be recognized as an explicit symbol');
@@ -44,8 +48,16 @@ assert.equal(bareSbc.taskType,'MARKET_DATA_ANALYSIS','bare ticker queries must b
 assert.equal(bareSbc.instrument.queryToken,'SBC','bare SBC input must keep its ticker identity');
 assert.equal(bareSbc.needsQuote,true,'ticker market analysis requires verified price data');
 const sbcDiscovery=buildSupplementalDiscovery(bareSbc);
-assert.match(sbcDiscovery.query,/NSE BSE official exchange/i,'SBC discovery must use equity-specific primary-source hints');
+assert.match(sbcDiscovery.query,/NSE BSE official exchange/i,'Indian tickers must use exchange-specific discovery hints');
+assert.doesNotMatch(sbcDiscovery.query,/SBC Exports Ltd/i,'discovery must not use a ticker-specific query override');
 assert.equal(bareSbc.forecastPolicy,'REQUIRE_VALIDATED_MARKET_DATA','stale prices must not unlock an unverified forecast');
+const globalDiscovery=buildSupplementalDiscovery(planFinancialTask('MSFT'));
+assert.match(globalDiscovery.query,/SEC filings/,'global tickers must use global issuer research hints');
+const msftResults=filterFinancialSearchResults([
+ {title:'Microsoft (MSFT) Q4 earnings beat estimates',snippet:'Microsoft revenue and cloud growth topped analyst expectations.'},
+ {title:'NFL scores and results',snippet:'Sports results and league news.'}
+],planFinancialTask('MSFT'));
+assert.equal(msftResults.length,1,'ticker search must retain financial headlines and drop unrelated sports');
 const sbcResults=filterFinancialSearchResults([
  {title:'SBC Exports share price rises after quarterly financial results',snippet:'NSE listed company reports revenue and profit growth.'},
  {title:'Introducing the SBC football player of the week',snippet:'A football star wins a local award.'},

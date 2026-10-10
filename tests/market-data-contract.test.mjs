@@ -45,7 +45,7 @@ assert.match(server, /FINPILOT_YAHOO_COOLDOWN_MS\|\|60000/);
 
 
 assert.match(server,/fetchTejHqEod\(t,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Indian equity EOD fallback must be restricted to Indian symbols');
-assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED/,'EOD fallback must announce that live quotes were unavailable');
+assert.doesNotMatch(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED/,'historical fallback must not use ambiguous EOD-live wording');
 assert.match(server,/PRIMARY_EQUITY_QUOTE_STALE_OR_NON_LIVE/,'stale or non-live primary equity quotes must trigger the EOD fallback path');
 assert.match(server,/report\?\.live===false/,'a non-live primary quote must never be accepted as fresh merely because retrieval succeeded');
 assert.match(server,/fetchTejHqEod\(raw,\{allowedSymbols:Object\.keys\(INDIA_EQUITIES\)\}\)/,'Market Data OS may expose EOD context only as a fallback');
@@ -62,7 +62,8 @@ assert.match(server,/executionEligibilityReason:gp\.executionEligibilityReason\|
 assert.match(server,/report\?\.live===false&&Array\.isArray\(report\.candles\)&&report\.candles\.length>=2/,'matching delayed/EOD candles may remain visible for historical context only');
 assert.match(server,/report\.executionEligibilityReason!=='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'/,'unofficial Yahoo equity history must not be shown when the trusted EOD fallback is available');
 assert.match(server,/report\.executionEligibilityReason!=='NO_VERIFIED_MARKET_DATA'/,'unavailable market data cannot bypass the no-price safety fallback');
-assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED/,'EOD candles must be labelled historical and remain ineligible');
+assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED/,'historical candles must be labelled analysis-only and remain ineligible');
+assert.doesNotMatch(server,/t==='SBC'/,'market fallback must not use ticker-specific exceptions');
 assert.match(server,/executionEligibilityReason:historicalReport\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical equity fallback must state its analysis-only execution gate');
 assert.doesNotMatch(server,/const SBC_SERVER=/,'a fixed stale SBC price snapshot must not be used as a silent fallback');
 assert.match(server,/END_OF_DAY_ANALYSIS_ONLY/,'historical context must not be labelled VERIFIED_LIVE');

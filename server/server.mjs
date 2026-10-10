@@ -472,7 +472,7 @@ async function search(req,res,u){
   const symbolPlan=bareTicker?planFinancialTask(q):null;
   const useSymbolContext=Boolean(symbolPlan?.instrument?.explicitSymbol&&['INDIAN_EQUITY','GLOBAL_EQUITY','CRYPTO'].includes(symbolPlan.assetClass));
   const baseSymbol=String(symbolPlan?.instrument?.queryToken||q).toUpperCase().split(/[/.]/)[0];
-  const contextHints={INDIAN_EQUITY:baseSymbol==='SBC'?'SBC Exports Ltd NSE India stock share price financial results filings':'NSE BSE stock share price financial results filings',GLOBAL_EQUITY:'stock share price financial results investor relations filings',CRYPTO:'crypto price market exchange trading'};
+  const contextHints={INDIAN_EQUITY:'NSE BSE stock share price financial results filings',GLOBAL_EQUITY:'stock share price financial results investor relations filings',CRYPTO:'crypto price market exchange trading'};
   const searchContextQuery=useSymbolContext?(baseSymbol+' '+(contextHints[symbolPlan.assetClass]||'stock financial results')).slice(0,240):q;
   const fetched=await searchWeb(searchContextQuery,{count,forceRefresh});
   const filtered=useSymbolContext?filterFinancialSearchResults(fetched.results,symbolPlan):fetched.results;
@@ -1465,7 +1465,7 @@ async function stockReport(req,res,u){
     const historicalReport=await fetchTejHqEod(t,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
     const sourceReport={
      ...historicalReport,
-     ...(t==='SBC'?{ticker:'SBC',symbol:'SBC',name:'SBC Exports Ltd.',market:'INDIA_EQUITY',exchange:'NSE · TejHQ EOD',currency:'INR'}:{}),
+
      executionEligibilityReason:historicalReport.executionEligibilityReason||'HISTORICAL_DATA_ANALYSIS_ONLY'
     };
     const report=gateMarketReport(sourceReport,t,interval);
@@ -1475,13 +1475,12 @@ async function stockReport(req,res,u){
     if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
     return send(res,200,payload);
    }catch(eodErr){
-    if(t==='SBC'){
-     const dataDisclaimer='No verified live quote or historical candle series was available. FinPilot withholds the prior fixed snapshot rather than displaying an unverified price.';
-     const sourceReport={ticker:'SBC',symbol:'SBC',name:'SBC Exports Ltd.',market:'INDIA_EQUITY',exchange:'NSE',currency:'INR',price:null,asOf:null,sourceTimestampType:'UNKNOWN_TIMESTAMP',live:false,executionEligible:false,executionEligibilityReason:'NO_VERIFIED_MARKET_DATA',dataFreshness:'UNAVAILABLE',candles:[],dataDisclaimer};
-     const report=gateMarketReport(sourceReport,t,interval);
-     return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'NO_VERIFIED_MARKET_DATA',dataDisclaimer});
-    }
-    throw new Error('Live equity provider failed ('+String(liveErr?.message||liveErr)+'); TejHQ EOD fallback failed ('+String(eodErr?.message||eodErr)+')');
+    const indianListing=Boolean(INDIA_EQUITIES[t]||/\.(?:NS|BO)$/.test(t));
+    const knownSymbol=INDIA_EQUITIES[t]||t;
+    const dataDisclaimer='No verified live quote or historical candle series was available for '+t+'. FinPilot withholds any unverified price; forecasts and paper execution remain blocked.';
+    const sourceReport={ticker:t,symbol:knownSymbol,name:t,market:indianListing?'INDIA_EQUITY':'GLOBAL_EQUITY',exchange:/\.BO$/.test(t)?'BSE':indianListing?'NSE':'UNKNOWN',currency:indianListing?'INR':'UNKNOWN',price:null,asOf:null,sourceTimestampType:'UNKNOWN_TIMESTAMP',live:false,executionEligible:false,executionEligibilityReason:'NO_VERIFIED_MARKET_DATA',dataFreshness:'UNAVAILABLE',candles:[],dataDisclaimer};
+    const report=gateMarketReport(sourceReport,t,interval);
+    return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'NO_VERIFIED_MARKET_DATA',dataDisclaimer});
    }
   }
  }catch(e){

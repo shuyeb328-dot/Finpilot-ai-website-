@@ -12,6 +12,16 @@
     const s=document.createElement('script');s.id='finpilotQuantumScript';s.src='/quantum-ai.js';s.defer=true;document.head.appendChild(s);
   }
   loadQuantumControlPlane();
+  function marketRegion(value){
+    const normalized=String(value||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+    if(/\b(?:INDIA|INDIAN|NSE|BSE)\b/.test(normalized))return 'INDIA';
+    if(/\b(?:GLOBAL|US|USA|UNITED STATES|NYSE|NASDAQ|LSE|LONDON STOCK EXCHANGE|TSX|TORONTO STOCK EXCHANGE|ASX|AUSTRALIAN SECURITIES EXCHANGE|XETRA|EURONEXT|TSE|TOKYO STOCK EXCHANGE|AMEX|NYSE AMERICAN)\b/.test(normalized))return 'GLOBAL';
+    return 'UNKNOWN';
+  }
+  function hasMarketRegionConflict(candidateMarket,sourceIdentity){
+    const expected=marketRegion(candidateMarket),actual=marketRegion(sourceIdentity);
+    return expected!=='UNKNOWN'&&actual!=='UNKNOWN'&&expected!==actual;
+  }
   let rawDoSearch = null;
   let running = false;
   let activeRunId = 0;
@@ -133,8 +143,9 @@
     const d=report||{},m=d.marketReport||null,price=Number(m?.price),ticker=String(m?.ticker||m?.symbol||'').trim().toUpperCase();
     const requested=String(d.candidate?.ticker||d.ticker||'').trim().toUpperCase();
     const sameInstrument=(!requested)||(Boolean(ticker)&&ticker.replace(/\.(?:NS|BO)$/,'')===requested.replace(/\.(?:NS|BO)$/,''));
-    const sourceExchange=String(m?.exchange||'').toUpperCase(),candidateMarket=String(d.candidate?.market||'').toUpperCase();
-    const exchangeConflict=(candidateMarket.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(sourceExchange))||(candidateMarket.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(sourceExchange));
+    const candidateMarket=String(d.candidate?.market||'').toUpperCase();
+    const sourceIdentity=[m?.exchange,m?.provider,m?.market].filter(Boolean).join(' ');
+    const exchangeConflict=hasMarketRegionConflict(candidateMarket,sourceIdentity);
     const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&sameInstrument&&!exchangeConflict&&m.live===true&&m.executionEligible===true&&String(m.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))>=-30000&&(Date.now()-Date.parse(m.asOf))<=90000);
     if(!liveQuote){
       return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:null,capitalAtRisk:null,targetProfit:null,stopLoss:null,maximumLoss:null,breakEvenPct:null,breakEvenCost:null,targetPct:null,stopPct:null,trailingStopPct:null,riskReward:null,expectedValue:null,stress7:null,stress30:null,stress90:null,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
@@ -171,9 +182,9 @@
     const returnedTicker=String(market.ticker||market.symbol||'').trim().toUpperCase();
     const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
     const normaliseEquitySymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
-    const sourceExchangeText=(String(market.exchange||'')+' '+String(market.provider||'')).toUpperCase();
+    const sourceExchangeText=[market.exchange,market.provider,market.market].filter(Boolean).join(' ');
     const candidateMarketClass=String(candidate?.market||'').toUpperCase();
-    const exchangeConflict=(candidateMarketClass.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(sourceExchangeText))||(candidateMarketClass.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(sourceExchangeText));
+    const exchangeConflict=hasMarketRegionConflict(candidateMarketClass,sourceExchangeText);
     if((candidateTicker&&returnedTicker&&normaliseEquitySymbol(candidateTicker)!==normaliseEquitySymbol(returnedTicker))||exchangeConflict){
       return {available:false,symbolMismatch:true,realtimeAvailable:false,executionEligible:false,marketTrust:'INSTRUMENT MISMATCH',candles:[],ticker:returnedTicker,name:market.name||'Unverified issuer',provider:market.provider,exchange:market.exchange||'UNKNOWN',currency:'UNKNOWN',asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',message:exchangeConflict?'Chart withheld because the source exchange conflicts with the selected instrument.':'Chart withheld because the returned market-data symbol does not match the selected instrument.'};
     }
@@ -301,8 +312,8 @@
     const scenarioTicker=String(scenarioQuote?.ticker||scenarioQuote?.symbol||'').trim().toUpperCase();
     const requestedTicker=String(report.candidate?.ticker||report.ticker||'').trim().toUpperCase();
     const scenarioCandidateMarket=String(report.candidate?.market||'').toUpperCase();
-    const scenarioQuoteExchange=String(scenarioQuote?.exchange||'').toUpperCase();
-    const scenarioExchangeConflict=(scenarioCandidateMarket.includes('INDIAN')&&/\b(?:NASDAQ|NYSE)\b/.test(scenarioQuoteExchange))||(scenarioCandidateMarket.includes('GLOBAL')&&/\b(?:NSE|BSE)\b/.test(scenarioQuoteExchange));
+    const scenarioQuoteIdentity=[scenarioQuote?.exchange,scenarioQuote?.provider,scenarioQuote?.market].filter(Boolean).join(' ');
+    const scenarioExchangeConflict=hasMarketRegionConflict(scenarioCandidateMarket,scenarioQuoteIdentity);
     const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&!scenarioExchangeConflict&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||(scenarioTicker&&scenarioTicker.replace(/\.(?:NS|BO)$/,'')===requestedTicker.replace(/\.(?:NS|BO)$/,''))));
     const scenarioAvailable=Boolean(scenarioQuoteValid&&money?.inputs?.marketDataVerified!==false);
     const scenarioStartedAt=new Date();
