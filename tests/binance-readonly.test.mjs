@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {createHmac} from 'node:crypto';
+import {binanceReadOnlyStatus,checkBinanceReadOnlyAccount,isBinanceConnectorAuthorized} from '../server/binance-readonly.mjs';
+const secret='test-secret-not-a-real-credential',token='x'.repeat(40),env={BINANCE_API_KEY:'test-key',BINANCE_API_SECRET:secret,FINPILOT_BINANCE_CONNECTOR_TOKEN:token};
+assert.deepEqual(binanceReadOnlyStatus(env),{configured:true,connectorProtected:true,mode:'READ_ONLY',permissionsRequested:['account balances','account metadata'],trading:false,transfers:false,withdrawals:false});
+assert.equal(binanceReadOnlyStatus({}).configured,false);
+assert.equal(isBinanceConnectorAuthorized('Bearer '+token,token),true);
+assert.equal(isBinanceConnectorAuthorized('x'.repeat(39),token),false);
+assert.equal(isBinanceConnectorAuthorized('anything','short'),false);
+let requestedUrl='',headers={};
+const result=await checkBinanceReadOnlyAccount({env,now:()=>1780000000000,fetchImpl:async(url,options)=>{requestedUrl=String(url);headers=options.headers;return {ok:true,status:200,json:async()=>({accountType:'SPOT',canTrade:false,canWithdraw:false,canDeposit:true,balances:[{asset:'USDT',free:'12.50',locked:'0.0'},{asset:'BTC',free:'0.002',locked:'0'}]})}}});
+assert.equal(result.ok,true);assert.equal(result.status,'CONNECTED');assert.equal(result.balanceCount,2);assert.equal(result.balances[0].asset,'USDT');assert.equal(result.executionEnabled,false);assert.equal(headers['X-MBX-APIKEY'],'test-key');assert.equal(requestedUrl.includes(secret),false);
+const u=new URL(requestedUrl),sig=u.searchParams.get('signature');u.searchParams.delete('signature');assert.equal(sig,createHmac('sha256',secret).update(u.searchParams.toString()).digest('hex'));
+assert.equal((await checkBinanceReadOnlyAccount({env:{}})).status,'NOT_CONFIGURED');
+assert.equal((await checkBinanceReadOnlyAccount({env,fetchImpl:async()=>({ok:false,status:401})})).status,'AUTH_FAILED');
+assert.equal((await checkBinanceReadOnlyAccount({env,fetchImpl:async()=>({ok:false,status:418})})).status,'RATE_LIMITED');
+assert.equal((await checkBinanceReadOnlyAccount({env,fetchImpl:async()=>({ok:true,status:200,json:async()=>({})})})).status,'INVALID_RESPONSE');
+console.log('binance-readonly: all tests passed');
