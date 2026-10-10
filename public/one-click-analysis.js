@@ -15,7 +15,7 @@
   function marketRegion(value){
     const normalized=String(value||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim();
     if(/\b(?:INDIA|INDIAN|NSE|BSE)\b/.test(normalized))return 'INDIA';
-    if(/\b(?:GLOBAL|US|USA|UNITED STATES|NYSE|NASDAQ|LSE|LONDON STOCK EXCHANGE|TSX|TORONTO STOCK EXCHANGE|ASX|AUSTRALIAN SECURITIES EXCHANGE|XETRA|EURONEXT|TSE|TOKYO STOCK EXCHANGE|AMEX|NYSE AMERICAN)\b/.test(normalized))return 'GLOBAL';
+    if(/\b(?:GLOBAL|US|USA|UNITED STATES|NYSE|NASDAQ|NMS|NGM|NCM|NYQ|ASE|PCX|TOR|GER|FRA|PAR|LSE|LONDON STOCK EXCHANGE|TSX|TORONTO STOCK EXCHANGE|ASX|AUSTRALIAN SECURITIES EXCHANGE|XETRA|EURONEXT|TSE|TOKYO STOCK EXCHANGE|AMEX|NYSE AMERICAN)\b/.test(normalized))return 'GLOBAL';
     return 'UNKNOWN';
   }
   function marketVenue(value,symbol=''){
@@ -43,15 +43,20 @@
     if(/\.TW$/.test(ticker)||/\bTWSE\b|TAIWAN STOCK EXCHANGE/.test(text))return 'TWSE';
     if(/\.SS$/.test(ticker)||/\bSSE\b|SHANGHAI STOCK EXCHANGE/.test(text))return 'SSE';
     if(/\.SZ$/.test(ticker)||/\bSZSE\b|SHENZHEN STOCK EXCHANGE/.test(text))return 'SZSE';
-    if(/\bNASDAQ\b/.test(text))return 'NASDAQ';
-    if(/\bNYSE\b|NEW YORK STOCK EXCHANGE|NYSE AMERICAN|NYSE ARCA/.test(text))return 'NYSE';
-    if(/\bAMEX\b/.test(text))return 'AMEX';
+    if(/\b(?:NMS|NGM|NCM|NASDAQ)\b/.test(text))return 'NASDAQ';
+    if(/\bNYQ\b|\bNYSE\b|NEW YORK STOCK EXCHANGE|NYSE AMERICAN/.test(text))return 'NYSE';
+    if(/\b(?:PCX)\b|NYSE ARCA|NYSEARCA/.test(text))return 'NYSE_ARCA';
+    if(/\b(?:ASE|AMEX)\b/.test(text))return 'AMEX';
+    if(/\bTOR\b/.test(text))return 'TSX';
+    if(/\bGER\b/.test(text))return 'XETRA';
+    if(/\bFRA\b/.test(text))return 'FRANKFURT';
+    if(/\bPAR\b/.test(text))return 'EURONEXT';
     return 'UNKNOWN';
   }
   function inferMarketCurrency(sourceIdentity,symbol=''){
     const text=String(sourceIdentity||'').toUpperCase(),ticker=String(symbol||'').toUpperCase();
     const venue=marketVenue(text,ticker);
-    const currencies={NSE:'INR',BSE:'INR',NASDAQ:'USD',NYSE:'USD',AMEX:'USD',LSE:'GBP',TSX:'CAD',ASX:'AUD',XETRA:'EUR',EURONEXT:'EUR',HKG:'HKD',TSE:'JPY',SIX:'CHF',SGX:'SGD',B3:'BRL',IDX:'IDR',BURSA:'MYR',SET:'THB',NZX:'NZD',TADAWUL:'SAR',TASE:'ILS',KRX:'KRW',TWSE:'TWD',SSE:'CNY',SZSE:'CNY'};
+    const currencies={NSE:'INR',BSE:'INR',NASDAQ:'USD',NYSE:'USD',NYSE_ARCA:'USD',AMEX:'USD',LSE:'GBP',TSX:'CAD',ASX:'AUD',XETRA:'EUR',FRANKFURT:'EUR',EURONEXT:'EUR',HKG:'HKD',TSE:'JPY',SIX:'CHF',SGX:'SGD',B3:'BRL',IDX:'IDR',BURSA:'MYR',SET:'THB',NZX:'NZD',TADAWUL:'SAR',TASE:'ILS',KRX:'KRW',TWSE:'TWD',SSE:'CNY',SZSE:'CNY'};
     return currencies[venue]||'UNKNOWN';
   }
   function hasMarketRegionConflict(candidateMarket,sourceIdentity,candidateExchange='',candidateSymbol=''){

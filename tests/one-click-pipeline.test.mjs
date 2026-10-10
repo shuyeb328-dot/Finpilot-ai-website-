@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-12/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-13/, 'rebuilt one-click module must use a new asset version');
 assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
@@ -256,7 +256,7 @@ assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/,
 assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
 assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
 assert.match(pageText, /deep-learning-os\.js\?v=20261010-6/, 'the page must cache-bust the specialist module version');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-12/, 'the page must reference the latest analysis module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-13/, 'the page must reference the latest analysis module version');
 
 
 assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
@@ -274,6 +274,8 @@ assert.match(analysisSource,/hasMarketRegionConflict\(candidateMarket,sourceIden
 assert.match(analysisSource,/marketRegion\(value\)/,'chart and forecast checks must use a shared normalized market-region classifier');
 assert.match(analysisSource,/function marketVenue\(value,symbol=/,'venue checks must distinguish different listings within the global-equity region');
 assert.match(analysisSource,/function inferMarketCurrency\(sourceIdentity,symbol=/,'currency must use source exchange provenance, not the broad GLOBAL_EQUITY class');
+assert.match(analysisSource,/NMS\|NGM\|NCM/,'Yahoo short exchange codes for Nasdaq must be normalized before currency and venue checks');
+assert.match(analysisSource,/NYQ/,'Yahoo NYSE exchange codes must be normalized before currency and venue checks');
 assert.doesNotMatch(analysisSource,/String\(candidate\?\.market\|\|''\)\.toUpperCase\(\)==='GLOBAL_EQUITY'\?'USD'/,'unknown global equities must not be automatically labelled USD');
 assert.match(analysisSource,/scenarioAvailable&&v8\?\.quality\?\.signalStability!=null/,'signal stability must remain unavailable without a verified quote');
 assert.ok(analysisSource.includes('Historical support ')&&analysisSource.includes('no live target/stop'),'historical charts must not be presented as live target/stop forecasts');
