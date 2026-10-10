@@ -1,4 +1,6 @@
 const TIMEOUT_MS=Number(process.env.SEARCH_TIMEOUT_MS||8000);
+const configuredFreeTimeout=Number(process.env.FREE_SEARCH_TIMEOUT_MS||4500);
+const FREE_SEARCH_TIMEOUT_MS=Number.isFinite(configuredFreeTimeout)?Math.min(6500,Math.max(2500,configuredFreeTimeout)):4500;
 const jsonHeaders={'Accept':'application/json'};
 function providerError(message,status){const e=new Error(message);e.code='SEARCH_PROVIDER_UNAVAILABLE';if(Number.isFinite(Number(status)))e.status=Number(status);return e}
 async function providerFetch(url,options={}){
@@ -119,7 +121,7 @@ async function serpapi(q,count){
 
 async function googleNewsRss(q,count){
  const u='https://news.google.com/rss/search?q='+encodeURIComponent(q)+'&hl=en-IN&gl=IN&ceid=IN:en';
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(FREE_SEARCH_TIMEOUT_MS,5000));
  try{
   const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
   if(!r.ok)throw providerError('Google News RSS returned HTTP '+r.status);
@@ -137,7 +139,7 @@ async function googleNewsRss(q,count){
 
 async function bingNewsRss(q,count){
  const u='https://www.bing.com/news/search?q='+encodeURIComponent(q)+'&format=rss&mkt=en-in';
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(FREE_SEARCH_TIMEOUT_MS,5000));
  try{
   const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
   if(!r.ok)throw providerError('Bing News RSS returned HTTP '+r.status);
@@ -175,15 +177,15 @@ function resolveDuckDuckGoUrl(value){
  }catch{return raw}
 }
 async function duckduckgoHtml(q,count){
- const u='https://html.duckduckgo.com/html/?q='+encodeURIComponent(q);
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ const u='https://lite.duckduckgo.com/lite/?q='+encodeURIComponent(q);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
  try{
   const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0','Accept':'text/html,application/xhtml+xml'}});
   if(!r.ok)throw providerError('DuckDuckGo search returned HTTP '+r.status,r.status);
   const html=await r.text();
   const anchors=[...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
-  const titleAnchors=anchors.filter(([,attrs])=>/\bresult__a\b/i.test(htmlAttribute(attrs,'class')));
-  const snippets=anchors.filter(([,attrs])=>/\bresult__snippet\b/i.test(htmlAttribute(attrs,'class'))).map(([,attrs,body])=>cleanText(body));
+  const titleAnchors=anchors.filter(([,attrs])=>/(?:^|\s)(?:result__a|result-link|ac-algo)(?:\s|$)/i.test(htmlAttribute(attrs,'class')));
+  const snippets=anchors.filter(([,attrs])=>/(?:^|\s)(?:result__snippet|result-snippet|compText)(?:\s|$)/i.test(htmlAttribute(attrs,'class'))).map(([,attrs,body])=>cleanText(body));
   if(!titleAnchors.length&&/captcha|anomaly detected|bots use duckduckgo/i.test(html))throw providerError('DuckDuckGo returned an automated-access challenge');
   const items=[];
   for(let i=0;i<titleAnchors.length&&items.length<count;i++){

@@ -106,6 +106,10 @@ assert.match(pageText, /User-provided research — not independently verified/, 
 assert.match(pageText, /Publication date not verified/, 'manual import must not invent publication dates');
 assert.match(pageText, /if\(!manual\)\{state\.lastEvidenceSync=.*syncCoreBrainEvidence\(d\);\}/, 'only fetched web search results should update local freshness and sync to Core Brain; manual imports must remain separate');
 assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
+assert.match(pageText, /function searchEngineLabel\(value\)/, 'search results must have human-readable engine names');
+assert.match(pageText, /data-search-engine-coverage/, 'search UI must disclose engine coverage and failed-source status');
+assert.match(pageText, /matchingEngines/, 'search result cards must render engine provenance');
+assert.match(pageText, /externalSearchLinks/, 'search results must provide alternate free search-engine links');
 assert.match(pageText, /data-search-result-index=/, 'search result cards must be addressable for targeted retrieval updates');
 assert.match(pageText, /Article retrieval retry/, 'retry must use the safe backend retrieval endpoint rather than browser scraping');
 assert.match(pageText, /Publisher still blocks automated retrieval; original snippet retained/, 'failed retries must preserve the original search snippet and explain the limitation');

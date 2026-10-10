@@ -14,11 +14,11 @@ globalThis.fetch=async url=>{
   const href=String(url);
   if(href.includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
   await new Promise(resolve=>setTimeout(resolve,15));
-  if(href.includes('html.duckduckgo.com')){
+  if(href.includes('lite.duckduckgo.com')){
     if(emptyMode)return {ok:true,status:200,text:async()=>'<html><body>No results</body></html>'};
     const title=wrapperMode?'Resolved publisher story':'Quota test source';
     const snippet=wrapperMode?'Article-link resolver regression test with enough readable context.':'Evidence for the search cache test with enough context.';
-    return {ok:true,status:200,text:async()=>'<html><body><a class="result__a" href="https://example.com/finpilot-quota-test">'+title+'</a><a class="result__snippet">'+snippet+'</a></body></html>'};
+    return {ok:true,status:200,text:async()=>'<html><body><a class="result-link" href="https://example.com/finpilot-quota-test">'+title+'</a><a class="result-snippet">'+snippet+'</a></body></html>'};
   }
   const xml=emptyMode
     ? '<rss><channel></channel></rss>'
@@ -40,6 +40,7 @@ try{
   assert.equal(first.live,true);
   assert.equal(first.provider,'multi-free-search');
   assert.deepEqual(first.providers,['duckduckgo-html','bing-news-rss','google-news-rss']);
+  assert.deepEqual(first.attemptedProviders,['duckduckgo-html','bing-news-rss','google-news-rss']);
   assert.equal(first.results[0].engineAgreementCount,3,'matching URLs or exact titles should record which engines found the item');
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
@@ -110,7 +111,7 @@ try{
   assert.equal(resolved.results[0].url,'https://example.com/finpilot-quota-test','Bing RSS wrapper must resolve to the publisher HTTPS URL before article retrieval');
   assert.equal(fetchCalls,3,'publisher-link resolution must not trigger any extra provider requests beyond the bounded fan-out');
 
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first RSS, paid-fallback guard, billing-error free fallback, Bing publisher URL resolution');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first parallel multi-engine search, paid-fallback guard, billing-error free fallback, clean source URLs');
 }finally{
   globalThis.fetch=originalFetch;
 }

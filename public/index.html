@@ -785,6 +785,10 @@ function refreshCurrentSearch(){
  toast('Refreshing free search sources; cached results will be bypassed');
  doSearch(q,true);
 }
+function searchEngineLabel(value){
+ const labels={'duckduckgo-html':'DuckDuckGo','bing-news-rss':'Bing News','google-news-rss':'Google News','google-search-bridge':'Google Search','google':'Google Custom Search','brave':'Brave Search','exa':'Exa','serpapi':'SerpAPI','tavily':'Tavily'};
+ return labels[String(value||'').toLowerCase()]||String(value||'Search source').replace(/[-_]+/g,' ');
+}
 async function doSearch(q,forceRefresh=false){
  q=String(q||'').trim();if(!q)return;
  const searchSequence=window.__fpSearchSequence=(Number(window.__fpSearchSequence)||0)+1;
@@ -805,6 +809,11 @@ async function doSearch(q,forceRefresh=false){
   window.__lastSearch=enrichedData;
   const added=ingestSearchEvidence(enrichedData);
   const provider=d.provider||'web';
+  const activeEngines=Array.isArray(d.providers)?d.providers:(d.provider?[d.provider]:[]);
+  const attemptedEngines=Array.isArray(d.attemptedProviders)?d.attemptedProviders:[];
+  const failedEngines=Array.isArray(d.providerErrors)?d.providerErrors:[];
+  const engineCoverageText=attemptedEngines.length?activeEngines.length+'/'+attemptedEngines.length+' free search engines responded'+(failedEngines.length?' · unavailable: '+failedEngines.map(x=>searchEngineLabel(x.provider)).join(', '):' · all attempted engines responded'):'Search source: '+searchEngineLabel(provider);
+  const externalSearchLinks=(Array.isArray(d.externalUrls)?d.externalUrls:[]).map(item=>{try{const u=new URL(String(item?.url||''));if(u.protocol!=='https:')return '';return '<a class="btn" href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">Open '+esc(item.provider||'search source')+' ↗</a>'}catch{return ''}}).filter(Boolean).join('');
   let marketMatch=null;
   if(!window.__fpAnalysisRunning&&/^[A-Za-z]{1,6}(?:[.-][A-Za-z]{1,4})?$/.test(q)){
     try{
@@ -822,17 +831,20 @@ async function doSearch(q,forceRefresh=false){
     const title=esc(x?.articleTitle||x?.title||'Untitled result');
     const snippet=esc(String(x?.retrievedText||x?.snippet||'No snippet available').slice(0,520));
     const source=esc(x?.source||provider);
+    const engineNames=Array.isArray(x?.matchingEngines)?x.matchingEngines.map(searchEngineLabel):[];
+    const engineCount=Math.max(0,Number(x?.engineAgreementCount)||engineNames.length);
+    const engineBadge=engineNames.length?'<span class="sourceBadge">Engine: '+esc(engineNames.join(' + '))+'</span><span>'+engineCount+' engine match'+(engineCount===1?'':'es')+'</span>':x?.provider?'<span class="sourceBadge">Engine: '+esc(searchEngineLabel(x.provider))+'</span>':'';
     const published=x?.publisherPublishedAt?esc(x.publisherPublishedAt):x?.publishedAt?esc(x.publishedAt):'Publication date unavailable';
     let url='#';try{const parsed=new URL(String(x?.articleUrl||x?.url||''));if(['https:','http:'].includes(parsed.protocol))url=esc(parsed.href)}catch{}
     const retrieval=x?.retrievalStatus==='RETRIEVED'?'<span class="sourceBadge">ARTICLE RETRIEVED</span>':x?.retrievalStatus==='PARTIAL'?'<span class="sourceBadge">PARTIAL TEXT</span>':x?.retrievalStatus==='UNAVAILABLE'?'<span class="sourceBadge">LINK ONLY</span>':'<span class="sourceBadge">SEARCH RESULT</span>';
     const retrievalNote=x?.retrievalStatus==='UNAVAILABLE'?'<span class="muted">'+esc(x.retrievalMessage||'Publisher could not be fetched')+'</span>':x?.retrievalStatus==='RETRIEVED'?'<span class="muted">'+(x.retrievalCached?'Retrieved from short cache':'Fetched from public page')+' · not fact-checked</span>':'<span class="muted">Search listing, not full article text</span>';
     const relevance=Math.max(55,Math.min(99,96-i*4));
     const retry=x?.retrievalStatus==='UNAVAILABLE'&&/^https:\/\//i.test(String(x?.url||''))?'<button class="btn" type="button" onclick="retryResearchSource('+i+')" aria-label="Retry retrieving '+title+'">↻ Retry retrieval</button>':'';
-    return '<article class="searchResultCard" data-search-result-index="'+i+'"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span>'+retrieval+'<span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>'+retry+retrievalNote+'<span class="muted">Evidence saved</span></div></div></article>';
+    return '<article class="searchResultCard" data-search-result-index="'+i+'"><div class="resultRank">'+String(i+1).padStart(2,'0')+'</div><div class="resultBody"><div class="resultMeta"><span class="sourceBadge">'+source+'</span>'+retrieval+engineBadge+'<span>'+published+'</span><span>Relevance '+relevance+'%</span></div><h3>'+title+'</h3><p>'+snippet+'</p><div class="resultBottom"><a class="btn primary" href="'+url+'" target="_blank" rel="noopener noreferrer">Open source ↗</a>'+retry+retrievalNote+'<span class="muted">Evidence saved</span></div></div></article>';
   }).join('');
   if(searchSequence!==window.__fpSearchSequence)return;
   window.__lastMarketMatch=marketMatch;
-  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.articleTitle||top.title||'Untitled')+'</b>. Review primary evidence before acting.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+retrievedCount+'/'+Math.min(5,results.filter(x=>/^https:\/\//i.test(String(x?.url||''))&&!/^https:\/\/news\.google\.com\/rss\/articles\//i.test(String(x?.url||''))).length)+'</b><small>pages retrieved</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div><div class="answerActions"><button class="btn" type="button" onclick="refreshCurrentSearch()">↻ Refresh free sources</button></div></div>':'';
+  const summary=top?'<div class="searchAnswer"><div><span class="eyebrow">SEARCH INTELLIGENCE</span><h3>FinPilot found '+results.length+' relevant sources</h3><p class="muted">The strongest result is <b>'+esc(top.articleTitle||top.title||'Untitled')+'</b>. Review primary evidence before acting.</p><p class="muted" data-search-engine-coverage="true">'+esc(engineCoverageText)+'. Cross-engine matching compares URLs or exact titles only; it is not independent fact verification.</p></div><div class="answerStats"><span><b>'+results.length+'</b><small>sources</small></span><span><b>'+retrievedCount+'/'+Math.min(5,results.filter(x=>/^https:\/\//i.test(String(x?.url||''))&&!/^https:\/\/news\.google\.com\/rss\/articles\//i.test(String(x?.url||''))).length)+'</b><small>pages retrieved</small></span><span><b>'+added+'</b><small>ledger added</small></span><span><b>'+esc(freshness)+'</b><small>data status</small></span></div><div class="answerActions">'+externalSearchLinks+'<button class="btn" type="button" onclick="refreshCurrentSearch()">↻ Refresh free sources</button></div></div>':'';
   const marketCard=marketMatch?'<div class="searchAnswer marketMatchCard"><div><span class="eyebrow">MARKET MATCH</span><h3>'+esc(marketMatch.name||marketMatch.ticker||q.toUpperCase())+' · '+esc(marketMatch.ticker||q.toUpperCase())+'</h3><p class="muted">Verified FinPilot market record. Latest price: <b>'+((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'₹':'$')+Number(marketMatch.price||0).toLocaleString((/\\.NS$|\\.BO$|\\^NSE|\\^BSE|NIFTY|BANKNIFTY|FINNIFTY|SENSEX/i.test(String(marketMatch.ticker||q)))?'en-IN':'en-US',{maximumFractionDigits:2})+'</b> · RSI '+Number(marketMatch.rsi||0).toFixed(1)+' · risk '+Number(marketMatch.riskScore||0)+'/100.</p></div><button class="btn primary" type="button">⚡ Analyze this asset</button></div>':'';const emptyNotice=d.fallback==='GOOGLE_SEARCH_BRIDGE'?'<div class="notice"><b>Free search unavailable</b><br>'+esc(d.message||'Open Google Search to continue.')+'</div>':'<div class="notice">No results returned. Try a broader query or use the external search link below.</div><button class="btn" type="button" onclick="refreshCurrentSearch()">↻ Retry free search</button>';box.innerHTML=marketCard+summary+(rows||emptyNotice);
   window.__fpLastRenderedQuery=q;
   if(marketMatch){const mb=box.querySelector('.searchAnswer button');if(mb)mb.onclick=()=>startOneClickAnalysis(marketMatch.ticker||q);}
