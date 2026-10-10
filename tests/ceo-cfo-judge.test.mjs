@@ -22,7 +22,7 @@ const goodQuote=()=>({
  ticker:'IRFC',symbol:'IRFC',price:103,asOf:new Date().toISOString(),
  sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',executionEligible:true
 });
-const corroboratedWeb={query:'IRFC',ticker:'IRFC',provider:'public research',count:3,stance:'Positive',confidence:80,
+const corroboratedWeb={query:'IRFC',provider:'public research',count:3,stance:'Positive',confidence:80,
  urls:['https://www.nseindia.com/example','https://www.screener.in/company/IRFC/','https://www.bseindia.com/example']};
 const cases=[
  ['Liquidity gate',run({emergency:100000,spending:52000,income:90000}),d=>{assert.equal(d.executive.cfo.startsWith('Liquidity is the binding constraint'),true);assert.equal(d.decision,'CFO wins: strengthen liquidity before increasing risk');assert.ok(d.decisionGates.some(g=>g.id==='liquidity'&&g.blocking))}],
