@@ -147,7 +147,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    (stale?7:0)+
    (marketGateBlocked?15:0)
  );
- const decisionConfidenceGated=marketSensitive&&!quotePassed?Math.min(40,decisionConfidence):marketGateBlocked?Math.min(50,decisionConfidence):decisionConfidence;
+ const decisionConfidenceGated=marketSensitive&&!quotePassed?Math.min(40,decisionConfidence):marketGateBlocked?Math.min(50,decisionConfidence):(reserveMonths<3||high>0)?Math.min(55,decisionConfidence):decisionConfidence;
  const decisionConfidenceFinal=Math.round(clamp(decisionConfidenceGated));
  const risk=unadjustedRisk;
 
@@ -165,7 +165,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    ? 'Live web search for “'+web.query+'” is '+web.stance.toLowerCase()+' based on '+webCount+' evidence item(s). '+(positive?'News flow is supportive, but fundamentals still require verification.':cautious?'News flow contains caution signals; verify primary sources before acting.':'News flow is mixed; headlines alone are insufficient for a trade signal.')
    : 'No live web evidence is attached to this council.';
  const evidenceFreshness=stale?'STALE':freshLive>0?'FRESH':'RECENT';
- const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(marketGateBlocked?'Market-sensitive decision is blocked by quote provenance or independent-source requirements. '):(stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
+ const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(marketGateBlocked?'Market-sensitive decision is blocked by quote provenance or independent-source requirements. ':stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
  return {
    decision:judge,summary,risk:Math.round(risk),confidence:decisionConfidenceFinal,
    voices,evidenceFreshness,decisionGates,marketEvidence,
