@@ -11,6 +11,7 @@
   const HISTORY_URL='/api/agent-evaluation/history?limit=10';
   const TRAINING_STATUS_URL='/api/ai-os/training/status';
   const TRAINING_CYCLE_URL='/api/ai-os/training/cycle';
+  const MEMORY_URL='/api/agent-memory';
   let launcher=null, panel=null, lastStatus=null, busy=false, trainingBusy=false;
 
   function node(tag,cls,text){
@@ -101,6 +102,35 @@
       runButton.title=manualAllowed?'Fetch one bounded market-learning cycle.':'Manual cycles are disabled in deployment configuration.';
       runButton.textContent=trainingBusy?'Running market cycle…':manualAllowed?'Run one market cycle':'Market cycle disabled';
     }
+  }
+  function renderMemoryStatus(data){
+    const host=panel.querySelector('[data-role="memory-status"]');
+    if(!host)return;
+    host.replaceChildren(node('h3','','Layered Agent Memory'));
+    const counts=data.layerCounts||{};
+    const grid=node('div','fpEvalStats');
+    grid.append(
+      stat('PERSISTENCE',data.persistent?'PostgreSQL':data.persistence||'Unknown',data.persistent?'Durable memory active':'Process-memory fallback / unavailable'),
+      stat('TOTAL RECORDS',data.totalRecords??0,'Eligible for retention and retrieval'),
+      stat('SERVER RUNS',data.serverExecutedRecords??data.serverExecutedRuns??0,'Completed server routines, not truth labels'),
+      stat('UNVERIFIED CLIENT',data.unverifiedClientRecords??data.clientReportedRuns??0,'Quarantined telemetry')
+    );
+    const layers=node('div','fpEvalFacts');
+    for(const name of ['EPISODIC','SEMANTIC','PROCEDURAL','OUTCOME']){
+      layers.append(node('span','',name+': '+Number(counts[name]||0)));
+    }
+    host.append(grid,layers,node('p','fpEvalMuted',data.persistenceDetail||'Memory persistence status is not available.'));
+    const list=node('div','fpEvalMemoryRecords');
+    for(const record of (Array.isArray(data.records)?data.records:[]).slice(0,5)){
+      const row=node('div','fpEvalCase');
+      const meta=node('div','fpEvalHistoryRow');
+      meta.append(node('strong','',String(record.agent||'Unknown')+' · '+String(record.layer||'UNCLASSIFIED')),
+        node('span','',String(record.verificationStatus||'UNVERIFIED')));
+      row.append(meta,node('p','',String(record.content||'')),node('p','fpEvalMuted',stamp(record.observedAt)+' · '+String(record.source||'unknown source')));
+      list.append(row);
+    }
+    if(!list.childElementCount)list.append(node('p','fpEvalMuted','No memory records yet. Empty layers remain zero until supported evidence or verified outcomes actually exist.'));
+    host.append(list);
   }
   function renderTrainingResult(result){
     const host=panel.querySelector('[data-role="training-result"]');
@@ -199,6 +229,8 @@
       renderStatus(status);renderHistory(history);
       try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}
       catch(error){const host=panel.querySelector('[data-role="training-status"]');if(host)host.replaceChildren(node('h3','','Market Forecast Learning'),node('p','fpEvalMuted','Training status unavailable: '+(error.message||'unknown error')));}
+      try{const memory=await getJson(MEMORY_URL);renderMemoryStatus(memory);}
+      catch(error){const host=panel.querySelector('[data-role="memory-status"]');if(host)host.replaceChildren(node('h3','','Layered Agent Memory'),node('p','fpEvalMuted','Memory status unavailable: '+(error.message||'unknown error')));}
       if(!busy)statusMessage('Ready. Evaluation runs only when requested; recurring market learning remains governed by server configuration.','info');
     }catch(error){statusMessage(error.message||'Unable to load evaluation status.','error');}
   }
@@ -211,6 +243,7 @@
       const [status,history]=await Promise.all([getJson(STATUS_URL),getJson(HISTORY_URL)]);
       renderStatus(status);renderHistory(history);
       try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}catch{}
+      try{const memory=await getJson(MEMORY_URL);renderMemoryStatus(memory);}catch{}
     }catch(error){
       statusMessage('Evaluation could not complete: '+(error.message||'unknown error'),'error');
     }finally{setBusy(false);}
@@ -228,6 +261,7 @@
     const message=node('p','fpEvalMessage','Loading evaluation status…');message.dataset.role='message';
     const status=node('div','fpEvalStats');status.dataset.role='status';
     const training=node('section','fpEvalTraining');training.dataset.role='training-status';
+    const memory=node('section','fpEvalTraining');memory.dataset.role='memory-status';
     const trainingResult=node('div','fpEvalTrainingResult');trainingResult.dataset.role='training-result';
     const trainingActions=node('div','fpEvalActions');
     const cycleButton=button('Market cycle disabled','',runTrainingCycle);cycleButton.dataset.action='market-cycle';cycleButton.disabled=true;
@@ -238,7 +272,7 @@
     const result=node('div','fpEvalResult');result.dataset.role='run-result';
     const history=node('div','fpEvalHistory');history.dataset.role='history';
     const footer=node('p','fpEvalFooter','Guardrails: user-triggered only · no automatic promotion · no real-money execution · disabled Binance connector unchanged.');
-    card.append(header,message,status,training,trainingActions,trainingResult,actions,result,history,footer);
+    card.append(header,message,status,training,memory,trainingActions,trainingResult,actions,result,history,footer);
     panel.append(card);
     panel.addEventListener('click',event=>{if(event.target===panel)panel.hidden=true;});
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&panel&&!panel.hidden)panel.hidden=true;});
