@@ -81,7 +81,7 @@
     if(raw===null||raw===undefined||String(raw).trim()==='')return null;
     const text=String(raw).trim();
     let ms;
-    if(typeof raw==='number'||/^\\d{10,13}$/.test(text)){
+    if(typeof raw==='number'||/^\d{10,13}$/.test(text)){
       const value=Number(raw);
       if(!Number.isFinite(value))return null;
       ms=value<100000000000?value*1000:value;
@@ -267,8 +267,8 @@
     const p=ensure(state),fills=[];expirePaperOrders(state);reconcileOrders(state);const px=prices||p.marketSnapshot||{};
     const tickKey=marketMeta?.seq!=null?String(marketMeta.seq):(marketMeta?.receivedAt||marketMeta?.asOf||null);
     if(tickKey&&p.execution.lastTick===tickKey)return fills;
-    if(marketMeta?.executionEligible===false||marketMeta?.verified===false){if(tickKey)p.execution.lastTick=tickKey;return fills;}
-    if(marketMeta&&(marketMeta.sourceAsOf||marketMeta.asOf||marketMeta.receivedAt)){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
+    const hasMarketMeta=Boolean(marketMeta&&Object.keys(marketMeta).length);const quoteAge=hasMarketMeta?estimateQuoteAgeSec(marketMeta):null;if(hasMarketMeta&&(marketMeta.executionEligible!==true||marketMeta.verified!==true||marketMeta.sourceTimestampType!=='PROVIDER_TIMESTAMP'||quoteAge===null||quoteAge>30)){if(tickKey)p.execution.lastTick=tickKey;return fills;}
+    if(hasMarketMeta&&quoteAge>10){/* quote is still usable but surfaced as aged by the risk gate */}
     if(tickKey)p.execution.lastTick=tickKey;
     p.execution.tickCount=Math.max(0,num(p.execution.tickCount,0))+1;
     p.execution.lastTickAt=now();
@@ -331,14 +331,14 @@
   function processMarketTick(state,tick={}){
     const p=ensure(state),symbol=String(tick.symbol||tick.ticker||'').toUpperCase(),price=Math.max(0,num(tick.price));
     if(!symbol||price<=0)return {ok:false,error:'Market tick requires symbol and positive price',fills:[],virtualOnly:true};
-    const receivedAt=tick.receivedAt||now(),sourceAsOf=tick.sourceAsOf||tick.asOf||receivedAt;
+    const receivedAt=tick.receivedAt||now(),sourceAsOf=tick.sourceAsOf||tick.asOf||null;
     const bid=Math.max(0,num(tick.bid,price)),ask=Math.max(0,num(tick.ask,price)),seq=tick.seq!=null?String(tick.seq):receivedAt;
-    const meta={...tick,symbol,price,bid,ask,seq,receivedAt,sourceAsOf,asOf:sourceAsOf,verified:tick.verified!==false};
+    const meta={...tick,symbol,price,bid,ask,seq,receivedAt,sourceAsOf,asOf:sourceAsOf,sourceTimestampType:tick.sourceTimestampType||'UNKNOWN_TIMESTAMP',verified:tick.verified===true,executionEligible:tick.executionEligible===true};
     p.marketSnapshot[symbol]=price;
-    p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,asOf:sourceAsOf,streamSeq:seq,streamStatus:tick.status||'LIVE',executionEligible:tick.executionEligible!==false,verification:tick.verification||p.lastMarket?.verification||{available:true,providerCount:tick.providerCount||1}};
+    p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,sourceAsOf,asOf:sourceAsOf,sourceTimestampType:meta.sourceTimestampType,streamSeq:seq,streamStatus:tick.status||'UNKNOWN',verified:meta.verified,executionEligible:meta.executionEligible,verification:tick.verification||p.lastMarket?.verification||{available:false,providerCount:tick.providerCount||0}};
     const fills=processOpenOrders(state,{[symbol]:price},meta);
     const age=estimateQuoteAgeSec(meta);
-    const executionFresh=meta.executionEligible!==false && meta.verified!==false && age<=30;
+    const executionFresh=meta.executionEligible===true && meta.verified===true && meta.sourceTimestampType==='PROVIDER_TIMESTAMP' && age!==null && age<=30;
     let exposure=0,unreal=0;
     p.agents.forEach(a=>a.positions.forEach(pos=>{
       if(executionFresh&&pos.symbol===symbol)pos.last=price;
@@ -347,9 +347,9 @@
       unreal+=(last-pos.avg)*pos.qty;
     }));
     p.unrealizedPnl=+unreal.toFixed(2);
-    const riskFills=age<=30&&executionFresh?processRiskExits(state,{[symbol]:price}):[];
+    const riskFills=age!==null&&age<=30&&executionFresh?processRiskExits(state,{[symbol]:price}):[];
     p.execution.lastTick=seq;p.execution.lastTickAt=receivedAt;
-    p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible!==false,virtualOnly:true});
+    p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible===true,sourceTimestampType:meta.sourceTimestampType,virtualOnly:true});
     if(p.journal.length>500)p.journal=p.journal.slice(0,500);
     reconcileOrders(state);p.updatedAt=now();
     return {ok:true,symbol,price,bid,ask,seq,fills:[...fills,...riskFills],execution:{tickCount:p.execution.tickCount,lastTick:seq},virtualOnly:true};
