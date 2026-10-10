@@ -10,19 +10,29 @@ assert.equal(typeof compute,'function');
 
 const money=value=>'₹'+Number(value).toLocaleString('en-IN');
 const fresh=()=> 'Fresh';
-const live=claims=>claims.map((claim,i)=>({id:'w'+i,source:'SerpApi',claim,type:'Live web evidence',url:'https://example.com/'+i}));
+const live=claims=>claims.map((claim,i)=>({id:'w'+i,source:'SerpApi',claim,type:'Live web evidence',url:'https://source'+i+'.example/'+i}));
 
 const run=(args)=>{
- const state={emergency:args.emergency,spending:args.spending,income:args.income,lastEvidenceSync:new Date().toISOString(),learning:{confidenceAdjustment:0}};
+ const state={emergency:args.emergency,spending:args.spending,income:args.income,lastEvidenceSync:new Date().toISOString(),learning:{confidenceAdjustment:0},marketSnapshot:args.marketSnapshot,evidence:args.evidence||[]};
  return compute(state,args.findings||[],args.web||null,money,fresh);
 };
 
+const goodQuote=()=>({
+ ticker:'IRFC',symbol:'IRFC',price:103,asOf:new Date().toISOString(),
+ sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',executionEligible:true
+});
+const corroboratedWeb={query:'IRFC',ticker:'IRFC',provider:'public research',count:3,stance:'Positive',confidence:80,
+ urls:['https://www.nseindia.com/example','https://www.screener.in/company/IRFC/','https://www.bseindia.com/example']};
 const cases=[
- ['Liquidity gate',run({emergency:100000,spending:52000,income:90000}),d=>{assert.equal(d.executive.cfo.startsWith('Liquidity is the binding constraint'),true);assert.equal(d.decision,'CFO wins: strengthen liquidity before increasing risk')}],
- ['High-severity risk gate',run({emergency:300000,spending:50000,income:90000,findings:[{severity:'HIGH',domain:'Debt'}]}),d=>{assert.equal(d.executive.cfo.includes('high-severity'),true);assert.equal(d.decision,'Risk gate wins: resolve the highest-severity finding before adding new risk')}],
- ['Positive web CEO',run({emergency:300000,spending:50000,income:90000,web:{query:'IRFC',provider:'serpapi',count:3,stance:'Positive',confidence:80}}),d=>{assert.equal(d.webSignal.stance,'Positive');assert.ok(['Conditional opportunity: proceed only after fundamental and suitability checks','Judge: preserve flexibility and wait for stronger evidence'].includes(d.decision));assert.ok(d.executive.ceoConfidence>=0&&d.executive.ceoConfidence<=100);assert.ok(d.quantumSignal)}],
- ['Cautious web risk',run({emergency:300000,spending:50000,income:90000,web:{query:'IRFC',provider:'serpapi',count:3,stance:'Cautious',confidence:80}}),d=>{assert.equal(d.webSignal.stance,'Cautious');assert.equal(d.decision,'CFO/Risk wins: verify live negative signals before taking market risk');assert.ok(d.executive.cfoConfidence>=0&&d.executive.cfoConfidence<=100);assert.ok(d.quantumSignal)}]
+ ['Liquidity gate',run({emergency:100000,spending:52000,income:90000}),d=>{assert.equal(d.executive.cfo.startsWith('Liquidity is the binding constraint'),true);assert.equal(d.decision,'CFO wins: strengthen liquidity before increasing risk');assert.ok(d.decisionGates.some(g=>g.id==='liquidity'&&g.blocking))}],
+ ['High-severity risk gate',run({emergency:300000,spending:50000,income:90000,findings:[{severity:'HIGH',domain:'Debt'}]}),d=>{assert.equal(d.executive.cfo.includes('high-severity'),true);assert.equal(d.decision,'Risk gate wins: resolve the highest-severity finding before adding new risk');assert.ok(d.decisionGates.some(g=>g.id==='high_severity_findings'&&g.blocking))}],
+ ['Positive headlines without quote are blocked',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,urls:[]}}),d=>{assert.equal(d.webSignal.stance,'Positive');assert.equal(d.marketEvidence.quoteStatus,'NO_VERIFIED_QUOTE');assert.match(d.decision,/WAIT/);assert.ok(d.confidence<=40);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.blocking))}],
+ ['Cautious web risk still respects hard data gate',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,stance:'Cautious'}}),d=>{assert.equal(d.webSignal.stance,'Cautious');assert.match(d.decision,/WAIT/);assert.ok(d.marketEvidence.blockingReason);assert.ok(d.executive.cfoConfidence>=0&&d.executive.cfoConfidence<=100)}],
+ ['Fresh matching quote plus independent sources clears market gates',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH');assert.equal(d.marketEvidence.independentSourceCount,3);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.status==='PASS'));assert.ok(d.decisionGates.some(g=>g.id==='source_diversity'&&g.status==='PASS'))}],
+ ['Observation-only timestamp is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),sourceTimestampType:'OBSERVATION_TIMESTAMP'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'PROVIDER_TIMESTAMP_REQUIRED');assert.match(d.decision,/WAIT/)}],
+ ['Wrong symbol is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),ticker:'TCS'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'SYMBOL_MISMATCH');assert.match(d.decision,/WAIT/)}],
+ ['Stale quote is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),asOf:new Date(Date.now()-180000).toISOString()},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_STALE_OR_TIMESTAMP_INVALID');assert.match(d.decision,/WAIT/)}]
 ];
 
 for(const [name,result,check] of cases){check(result);console.log('PASS:',name)}
-console.log('CEO/CFO/Judge automated tests: 4/4 passed with dynamic Quantum-aware scoring');
+console.log('CEO/CFO/Judge automated tests: '+cases.length+'/'+cases.length+' passed with verified market quote, source-diversity and risk gates');
