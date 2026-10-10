@@ -59,7 +59,7 @@ export function createTradingViewAlertInbox(options={}){
   if(!auth.ok){rejected++;return auth;}
   if(!payload||typeof payload!=='object'||Array.isArray(payload)){rejected++;return {ok:false,statusCode:400,error:'ALERT_JSON_OBJECT_REQUIRED'};}
   const symbol=boundedText(payload.ticker??payload.symbol??payload.tickerid,32).toUpperCase();
-  if(!/^[A-Z0-9][A-Z0-9._:-]{0,31}$/.test(symbol)){rejected++;return {ok:false,statusCode:400,error:'INVALID_ALERT_SYMBOL'};}
+  if(!/^[A-Z0-9][A-Z0-9._:!+-]{0,31}$/.test(symbol)){rejected++;return {ok:false,statusCode:400,error:'INVALID_ALERT_SYMBOL'};}
   const rawAction=boundedText(payload.action??payload.side??payload.signal,24).toUpperCase();
   const action=rawAction==='BUY'||rawAction==='LONG'?'BUY':rawAction==='SELL'||rawAction==='SHORT'?'SELL':rawAction==='HOLD'?'HOLD':'';
   if(!action){rejected++;return {ok:false,statusCode:400,error:'INVALID_ALERT_ACTION',allowed:['BUY','SELL','HOLD','LONG','SHORT']};}
