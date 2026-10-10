@@ -6,7 +6,7 @@ const MARKET_ALIASES = new Map([
 ]);
 
 export function normalizeMarketPicksMarket(value, hasExplicitTickers = false) {
-  const raw = String(value ?? '').trim().toUpperCase().replace(/[\\s-]+/g, '_');
+  const raw = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
   if (!raw) return { ok: true, market: hasExplicitTickers ? 'AUTO' : 'INDIA' };
   const market = MARKET_ALIASES.get(raw);
   if (!market) return { ok: false, market: null, error: 'UNSUPPORTED_MARKET', supported: ['INDIA', 'US', 'GLOBAL', 'AUTO'] };
@@ -35,7 +35,7 @@ export function resolveMarketPicksUniverse({ market, requestedTickers = [], indi
 function candidateMarket(row) {
   const market = String(row?.market ?? '').toUpperCase();
   const symbol = String(row?.symbol ?? row?.ticker ?? '').toUpperCase();
-  if (market === 'INDIA_EQUITY' || /\\.(NS|BO)$/.test(symbol)) return 'INDIA_EQUITY';
+  if (market === 'INDIA_EQUITY' || /\.(NS|BO)$/.test(symbol)) return 'INDIA_EQUITY';
   if (market.startsWith('GLOBAL_')) return market;
   return market || 'UNKNOWN';
 }
