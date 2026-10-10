@@ -7,6 +7,10 @@ on:
       - "public/index.html"
       - "public/one-click-analysis.js"
       - "public/deep-learning-os.js"
+      - "public/tradingview-paper-bridge.js"
+      - "public/paper-engine.js"
+      - "public/paper-lab.js"
+      - "tests/tradingview-paper-bridge.test.mjs"
       - "server/**"
   workflow_dispatch:
   schedule:
@@ -50,24 +54,30 @@ jobs:
           fetch_200 "$BASE_URL/" /tmp/finpilot-home.html
           fetch_200 "$BASE_URL/api/health" /tmp/finpilot-health.json
           fetch_200 "$BASE_URL/api/core-status" /tmp/finpilot-core.json
+          fetch_200 "$BASE_URL/api/agent-memory" /tmp/finpilot-memory.json
 
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const home = fs.readFileSync('/tmp/finpilot-home.html', 'utf8');
           const health = JSON.parse(fs.readFileSync('/tmp/finpilot-health.json', 'utf8'));
           const core = JSON.parse(fs.readFileSync('/tmp/finpilot-core.json', 'utf8'));
+          const memory = JSON.parse(fs.readFileSync('/tmp/finpilot-memory.json', 'utf8'));
 
           const failures = [];
           if (!home.includes('one-click-analysis.js')) failures.push('homepage does not reference one-click analysis');
           if (!home.includes('deep-learning-os.js')) failures.push('homepage does not reference deep-learning OS');
+          if (!home.includes('tradingview-paper-bridge.js')) failures.push('homepage does not reference the TradingView paper bridge');
+          if (!home.includes('paper-engine.js')) failures.push('homepage does not reference the paper engine');
           if (health.ok !== true || health.status !== 'OPERATIONAL') failures.push('health endpoint is not operational');
           if (health.frontendSyntax?.ok !== true) failures.push('frontend syntax health check failed');
           if (core.ok !== true) failures.push('core status endpoint returned ok=false');
+          if (memory.ok !== true || !String(memory.trust || '').includes('unverified telemetry')) failures.push('agent memory endpoint is missing the unverified telemetry trust boundary');
 
           console.log(JSON.stringify({
             homepage: 'HTTP 200',
             health: { ok: health.ok, status: health.status, version: health.version, frontendSyntax: health.frontendSyntax },
             core: { ok: core.ok, version: core.version, serverExecutedAgentRuns: core.serverExecutedAgentRuns, clientReportedAgentRuns: core.clientReportedAgentRuns, agentMemoryPersistent: core.agentMemoryPersistent },
+            agentMemory: { ok: memory.ok, totalAgents: memory.totalAgents, persistence: memory.persistence, trust: memory.trust },
             failures
           }, null, 2));
 
@@ -82,7 +92,11 @@ jobs:
           set -euo pipefail
           curl --fail --silent --show-error --max-time 25 "$BASE_URL/one-click-analysis.js?smoke=$(date +%s)" -o /tmp/finpilot-one-click.js
           curl --fail --silent --show-error --max-time 25 "$BASE_URL/deep-learning-os.js?smoke=$(date +%s)" -o /tmp/finpilot-deep-learning.js
+          curl --fail --silent --show-error --max-time 25 "$BASE_URL/tradingview-paper-bridge.js?smoke=$(date +%s)" -o /tmp/finpilot-tradingview-bridge.js
           grep -q "syncClientAgentTelemetry" /tmp/finpilot-one-click.js
           grep -q "SPECIALIST_FLEET_INCOMPLETE" /tmp/finpilot-one-click.js
           grep -q "forecastTrainingReport" /tmp/finpilot-deep-learning.js
-          echo "Production agent assets served the expected orchestration and forecast-training contracts."
+          grep -q "function analysisSymbol" /tmp/finpilot-tradingview-bridge.js
+          grep -q "SIMULATION ONLY" /tmp/finpilot-tradingview-bridge.js
+          grep -q "does not send live prices" /tmp/finpilot-tradingview-bridge.js
+          echo "Production agent assets and TradingView-to-paper bridge served their expected safety contracts."
