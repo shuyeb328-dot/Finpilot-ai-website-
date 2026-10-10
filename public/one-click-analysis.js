@@ -687,6 +687,7 @@
       horizonDays,
       modelVersion:'finpilot-one-click-baseline-v2',
       ticker:snapshot?.instrument?.ticker||candidate?.ticker||null,
+      exchange:snapshot?.instrument?.exchange||null,
       market:snapshot?.instrument?.market||'UNKNOWN',
       currency:snapshot?.instrument?.currency||'UNKNOWN',
       marketSnapshotId:snapshot?.snapshotId||null,

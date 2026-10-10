@@ -14,6 +14,24 @@ const positive=n=>{const v=finite(n);return v!==null&&v>0?v:null;};
 const timeMs=n=>{if(n===null||n===undefined||String(n).trim()==='')return null;const v=Date.parse(n);return Number.isFinite(v)?v:null;};
 const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
 function normalizeTicker(v){return String(v||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/\s+/g,'');}
+function exchangeIdentity(ticker,exchange){
+  const symbol=String(ticker||'').trim().toUpperCase();
+  if(/\.NS$/.test(symbol))return 'NSE';
+  if(/\.BO$/.test(symbol))return 'BSE';
+  const value=String(exchange||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,' ');
+  if(/\b(?:NSE|NSEI|NSE INDIA|NATIONAL STOCK EXCHANGE)\b/.test(value))return 'NSE';
+  if(/\b(?:BSE|BSE INDIA|BOMBAY STOCK EXCHANGE)\b/.test(value))return 'BSE';
+  if(/\b(?:NMS|NGM|NCM|NASDAQ|NASDAQ GLOBAL SELECT MARKET)\b/.test(value))return 'NASDAQ';
+  if(/\b(?:NYQ|NYSE|NEW YORK STOCK EXCHANGE)\b/.test(value))return 'NYSE';
+  if(/\b(?:PCX|NYSE ARCA|NYSEARCA)\b/.test(value))return 'NYSE_ARCA';
+  if(/\b(?:ASE|AMEX|NYSE AMERICAN)\b/.test(value))return 'AMEX';
+  if(/\b(?:LSE|LONDON STOCK EXCHANGE)\b/.test(value))return 'LSE';
+  if(/\bBINANCE\b/.test(value))return 'BINANCE';
+  return null;
+}
+function hasExplicitListingIdentity(ticker,exchange){
+  return Boolean(/\.(?:NS|BO)$/i.test(String(ticker||''))||exchangeIdentity(ticker,exchange));
+}
 function normalizeProbabilities(raw){
   if(!raw||typeof raw!=='object')return null;
   const up=finite(raw.up),down=finite(raw.down),hold=finite(raw.hold);
@@ -38,7 +56,8 @@ function verifiedSnapshot(snapshot,nowMs=Date.now()){
     if(age > maxAge)reasons.push('CURRENT_QUOTE_STALE');
   }
   if(timing.fresh!==true)reasons.push('SNAPSHOT_FRESHNESS_FLAG_FALSE');
-  return {ok:reasons.length===0,reasons,ticker:normalizeTicker(instrument.ticker||instrument.symbol),price:positive(quote.price),sourceAsOf:asOfMs===null?null:new Date(asOfMs).toISOString(),ageMs:asOfMs===null?null:nowMs-asOfMs,provider:String(snapshot.provenance?.provider||'UNKNOWN'),snapshotId:String(snapshot.snapshotId||'')};
+  const instrumentTicker=instrument.ticker||instrument.symbol;
+  return {ok:reasons.length===0,reasons,ticker:normalizeTicker(instrumentTicker),exchange:exchangeIdentity(instrumentTicker,instrument.exchange),explicitListingIdentity:hasExplicitListingIdentity(instrumentTicker,instrument.exchange),price:positive(quote.price),sourceAsOf:asOfMs===null?null:new Date(asOfMs).toISOString(),ageMs:asOfMs===null?null:nowMs-asOfMs,provider:String(snapshot.provenance?.provider||'UNKNOWN'),snapshotId:String(snapshot.snapshotId||'')};
 }
 function scoreForecast(probabilities,outcome){
   const p=normalizeProbabilities(probabilities);
@@ -87,6 +106,16 @@ function resolveMatured(ledger,snapshot,options={}){
     if(!forecast||forecast.forecastStatus!=='PENDING_OUTCOME'||forecast.forecastEligible!==true)continue;
     const forecastTicker=normalizeTicker(forecast.ticker);
     if(!forecastTicker||forecastTicker!==current.ticker){result.skipped++;continue;}
+    const forecastExchange=exchangeIdentity(forecast.ticker,forecast.exchange);
+    const forecastHasExplicitIdentity=hasExplicitListingIdentity(forecast.ticker,forecast.exchange);
+    const currentHasExplicitIdentity=current.explicitListingIdentity;
+    // Same company is not the same tradable listing: NSE and BSE prices cannot cross-settle.
+    if((forecastExchange&&current.exchange&&forecastExchange!==current.exchange)
+      ||((forecastHasExplicitIdentity||currentHasExplicitIdentity)&&forecastExchange!==current.exchange)){
+      result.skipped++;
+      result.skippedReasons.push('EXCHANGE_IDENTITY_MISMATCH');
+      continue;
+    }
     const dueMs=timeMs(forecast.dueAt),sourceMs=timeMs(forecast.quoteAsOf);
     if(dueMs===null||sourceMs===null||current.price===null||!(sourceMs<=dueMs&&Date.parse(current.sourceAsOf)>=dueMs)){
       if(dueMs===null||sourceMs===null){forecast.evaluationStatus='BLOCKED_INVALID_FORECAST_TIMING';forecast.evaluationReason='FORECAST_TIMESTAMP_MISSING';}

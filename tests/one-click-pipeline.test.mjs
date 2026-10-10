@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-14/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-15/, 'rebuilt one-click module must use a new asset version');
 assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
@@ -256,7 +256,7 @@ assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/,
 assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
 assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
 assert.match(pageText, /deep-learning-os\.js\?v=20261010-6/, 'the page must cache-bust the specialist module version');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-14/, 'the page must reference the latest analysis module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-15/, 'the page must reference the latest analysis module version');
 
 
 assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
@@ -291,3 +291,4 @@ assert.match(moduleText, /Mean log loss ↓/, 'the result panel must show log lo
 assert.match(moduleText, /Probabilities calibrated:<\/b> NO\./, 'raw estimates must never be called calibrated');
 assert.match(moduleText, /probabilitySource:'FINPILOT_SCENARIO_HEURISTIC'/, 'forecast records must identify heuristic probability provenance');
 assert.match(moduleText, /forecastStatus:eligible\?'PENDING_OUTCOME':!snapshotEligible\?'BLOCKED_UNVERIFIED_DATA':'BLOCKED_INVALID_PROBABILITY_VECTOR'/, 'invalid probability vectors must be blocked');
+assert.match(moduleText,/exchange:snapshot\?\.instrument\?\.exchange\|\|null/,'forecast records must retain exchange identity for outcome settlement');
