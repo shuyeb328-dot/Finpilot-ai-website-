@@ -153,7 +153,7 @@ try{
   assert.match(ranked.results[0].title,/earnings/i,'query-relevant finance result should beat generic high-agreement result');
   const genericResult=ranked.results.find(x=>/Microsoft Singapore/i.test(x.title));
   assert.ok(genericResult,'fixture should include generic high-agreement result');
-  assert.equal(genericResult.engineAgreementCount,5,'generic page fixture should retain its five-engine agreement');
+  assert.equal(genericResult.engineAgreementCount,3,'generic page fixture should retain its three matching-engine agreement');
   assert.ok(ranked.results[0].relevanceScore>genericResult.relevanceScore,'relevance score should place earnings result above generic result');
   assert.equal(ranked.results[0].engineAgreementCount,2,'earnings fixture has lower agreement, proving relevance ranks first');
   const staleResult=ranked.results.find(x=>x.url==='https://example.com/msft-earnings-stale');
