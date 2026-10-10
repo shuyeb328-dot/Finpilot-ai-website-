@@ -6,7 +6,6 @@ const SOURCE_CATALOG = [
   {id:'yahoo',name:'Yahoo Finance',assetClasses:['INDIAN_EQUITY','INDIAN_INDEX','GLOBAL_EQUITY','GLOBAL_INDEX','ETF','CRYPTO'],dataTypes:['instrument_lookup','quotes','ohlcv','fundamentals'],tier:'AGGREGATOR',url:'https://finance.yahoo.com/',liveCapability:'DELAYED_OR_ENDPOINT_DEPENDENT',notes:'Fallback/lookup source; timestamp and delay must be checked.'},
   {id:'coinbase',name:'Coinbase Exchange',assetClasses:['CRYPTO'],dataTypes:['quotes','ohlcv','order_book'],tier:'EXCHANGE',url:'https://www.coinbase.com/',liveCapability:'PROVIDER_TIMESTAMP_DEPENDENT',notes:'Use only for supported pairs; preserve quote currency.'},
   {id:'kraken',name:'Kraken',assetClasses:['CRYPTO'],dataTypes:['quotes','ohlcv','order_book'],tier:'EXCHANGE',url:'https://www.kraken.com/',liveCapability:'PROVIDER_TIMESTAMP_DEPENDENT',notes:'Use only for supported pairs; map pair aliases explicitly.'},
-  {id:'binance',name:'Binance',assetClasses:['CRYPTO'],dataTypes:['quotes','ohlcv','order_book','derivatives'],tier:'EXCHANGE',url:'https://www.binance.com/',liveCapability:'PROVIDER_TIMESTAMP_DEPENDENT',notes:'Crypto-only provider in FinPilot routing; never universal market authority.'},
   {id:'google-news',name:'Google News RSS',assetClasses:['ALL'],dataTypes:['news','discovery'],tier:'DISCOVERY',url:'https://news.google.com/',liveCapability:'HEADLINES_ONLY',notes:'Discovery and evidence only; never a quote authority.'},
   {id:'web-search',name:'Configured web search providers',assetClasses:['ALL'],dataTypes:['discovery','news','documents'],tier:'DISCOVERY',url:null,liveCapability:'HEADLINES_OR_DOCUMENTS',notes:'Use currently configured provider; do not assume Google API is available.'},
   {id:'tej-eod',name:'TejHQ EOD',assetClasses:['INDIAN_EQUITY'],dataTypes:['historical_ohlcv'],tier:'AGGREGATOR',url:'https://api.tejhq.dev/',liveCapability:'END_OF_DAY',notes:'Historical/EOD fallback only; never label as live.'}
@@ -14,7 +13,7 @@ const SOURCE_CATALOG = [
 const SOURCE_IDS = {
   INDIAN_EQUITY:['nse','bse','issuer','yahoo','tej-eod','web-search'], INDIAN_INDEX:['nse','bse','yahoo','web-search'],
   GLOBAL_EQUITY:['issuer','sec','yahoo','web-search'], GLOBAL_INDEX:['yahoo','web-search'],
-  CRYPTO:['coinbase','kraken','binance','yahoo','web-search'], OPTIONS:['nse','bse','web-search'],
+  CRYPTO:['kraken','coinbase','yahoo','web-search'], OPTIONS:['nse','bse','web-search'],
   FUTURES:['nse','bse','web-search'], FOREX:['yahoo','web-search'], COMMODITY:['yahoo','web-search'],
   REAL_ESTATE:['web-search'], FINANCIAL_RESEARCH:['issuer','sec','nse','bse','web-search','google-news'],
   GENERAL_FINANCE:['web-search','google-news']
@@ -91,7 +90,7 @@ export function planFinancialTask(input={}){
  const sources=(SOURCE_IDS[assetClass]||SOURCE_IDS.GENERAL_FINANCE).map(id=>SOURCE_CATALOG.find(x=>x.id===id)).filter(Boolean);
  const instrument=inferInstrument(query),needsQuote=['TRADE_SCENARIO','MARKET_DATA_ANALYSIS','FORECAST','DERIVATIVES_ANALYSIS'].includes(taskType);
  const requiredData=needsQuote?(assetClass==='OPTIONS'||assetClass==='FUTURES'?['instrument_identity','contract_specification','fresh_underlying_quote','fresh_contract_quote','provider_timestamp','currency','liquidity']:['instrument_identity','fresh_quote','provider_timestamp','currency','market_status']):taskType==='NEWS_OR_FUNDAMENTAL_RESEARCH'?['issuer_or_regulator_document','publication_date','source_url']:['query_relevant_sources','source_url','publication_date_when_available'];
- return {schemaVersion:1,query,taskType,assetClass,instrument,sourcePlan:sources.map((x,i)=>({...x,priority:i+1})),discoveryQuery:query,needsQuote,requiredData,rules:['Search results discover sources; they are not structured quotes.','Never replace an explicitly requested instrument with a different one.','Binance is a crypto-only source, never the sole source for equities or general finance.','Preserve source timestamp, retrieval timestamp, currency, exchange and provider provenance.','Mark delayed or historical observations accurately; never label local observation time as provider quote time.','If sources disagree materially or required data is missing, report the conflict and block market-dependent forecasts.'],forecastPolicy:needsQuote?'REQUIRE_VALIDATED_MARKET_DATA':'RESEARCH_ONLY',liveStatus:'NOT_FETCHED',disclaimer:'Routing plan only; no quote is fetched or certified live.'};
+ return {schemaVersion:1,query,taskType,assetClass,instrument,sourcePlan:sources.map((x,i)=>({...x,priority:i+1})),discoveryQuery:query,needsQuote,requiredData,rules:['Search results discover sources; they are not structured quotes.','Never replace an explicitly requested instrument with a different one.','Crypto market routing uses public Kraken and Coinbase endpoints; Binance integration is disabled.','Preserve source timestamp, retrieval timestamp, currency, exchange and provider provenance.','Mark delayed or historical observations accurately; never label local observation time as provider quote time.','If sources disagree materially or required data is missing, report the conflict and block market-dependent forecasts.'],forecastPolicy:needsQuote?'REQUIRE_VALIDATED_MARKET_DATA':'RESEARCH_ONLY',liveStatus:'NOT_FETCHED',disclaimer:'Routing plan only; no quote is fetched or certified live.'};
 }
 export function buildSupplementalDiscovery(input={}) {
  const plan = input && input.schemaVersion === 1 && input.assetClass
@@ -104,7 +103,7 @@ export function buildSupplementalDiscovery(input={}) {
   INDIAN_INDEX:'NSE BSE official index exchange market update',
   GLOBAL_EQUITY:'issuer investor relations SEC filings earnings results',
   GLOBAL_INDEX:'official exchange index methodology market update',
-  CRYPTO:'crypto exchange market update Coinbase Kraken Binance',
+  CRYPTO:'crypto exchange market update Kraken Coinbase',
   OPTIONS:'NSE option chain expiry contract specifications lot size',
   FUTURES:'NSE futures contract expiry lot size official exchange',
   FOREX:'official central bank reference rate exchange update',
