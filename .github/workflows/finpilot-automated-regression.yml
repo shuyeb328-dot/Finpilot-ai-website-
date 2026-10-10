@@ -1,0 +1,42 @@
+name: FinPilot automated regression
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+  pull_request:
+    paths:
+      - 'public/**'
+      - 'server/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'package.json'
+      - '.github/workflows/finpilot-automated-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finpilot-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run FinPilot test suite
+        run: npm run check
+      - name: Verify deployed site and key integrations
+        if: github.event_name != 'pull_request'
+        env:
+          FINPILOT_BASE_URL: https://finpilot-ai-8wn6.onrender.com
+        run: node scripts/live-regression-smoke.mjs
