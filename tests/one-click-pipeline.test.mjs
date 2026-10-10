@@ -121,7 +121,7 @@ assert.match(pageText, /Publication date not verified/, 'manual import must not 
 assert.match(pageText, /if\(!manual\)\{state\.lastEvidenceSync=.*syncCoreBrainEvidence\(d\);\}/, 'only fetched web search results should update local freshness and sync to Core Brain; manual imports must remain separate');
 assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
 assert.match(pageText, /function searchEngineLabel\(value\)/, 'search results must have human-readable engine names');
-assert.match(serverText, /async function bingWebHtml\(q,count\)/, 'search backend must include a keyless, bounded general-web search source');
+assert.match(serverText, /import \{searchWeb\} from '\.\/search-provider\.mjs';/, 'server gateway must call the dedicated search-provider module for multi-source research');
 assert.match(pageText, /'yahoo-html':'Yahoo Search'/, 'Yahoo must be identified as an independent free search source');
 assert.match(pageText, /'brave-html':'Brave Search'/, 'Brave must be identified as a direct free search alternative');
 assert.match(pageText, /'bing-html':'Bing Web'/, 'Bing Web must be identified separately from Bing News RSS');
