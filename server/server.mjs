@@ -27,6 +27,7 @@ import {createProviderResponseCache} from './provider-response-cache.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
+const TRADINGVIEW_ALERT_BRIDGE=createTradingViewAlertBridge({secret:process.env.TRADINGVIEW_WEBHOOK_SECRET||''});
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000,connectionTimeoutMillis:1800});return MARKET_POOL;}
 async function ensureMarketSchema(){const pool=await marketStore();if(!pool||MARKET_SCHEMA_READY)return !!pool;await pool.query('CREATE TABLE IF NOT EXISTS market_ticks (id BIGSERIAL PRIMARY KEY,ticker TEXT NOT NULL,symbol TEXT,price DOUBLE PRECISION,change_pct DOUBLE PRECISION,volume DOUBLE PRECISION,high DOUBLE PRECISION,low DOUBLE PRECISION,source TEXT,source_verified BOOLEAN NOT NULL DEFAULT FALSE,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');await pool.query('ALTER TABLE market_ticks ADD COLUMN IF NOT EXISTS source_verified BOOLEAN NOT NULL DEFAULT FALSE');await pool.query('CREATE INDEX IF NOT EXISTS market_ticks_ticker_time_idx ON market_ticks(ticker,observed_at DESC)');MARKET_SCHEMA_READY=true;return true;}
@@ -2233,6 +2234,9 @@ const server=http.createServer(async(req,res)=>{
   if(Number.isFinite(contentLength)&&contentLength>MAX_REQUEST_BODY_BYTES){req.resume();return send(res,413,{ok:false,error:'REQUEST_BODY_TOO_LARGE',requestId:rid});}
   const u=new URL(req.url,'http://'+(req.headers.host||'localhost'));
 
+  if(req.method==='GET'&&u.pathname==='/api/tradingview/status')return send(res,200,{ok:true,...TRADINGVIEW_ALERT_BRIDGE.status(),webhookPath:'/api/tradingview/webhook',alertsPath:'/api/tradingview/alerts'});
+  if(req.method==='GET'&&u.pathname==='/api/tradingview/alerts')return send(res,200,{ok:true,alerts:TRADINGVIEW_ALERT_BRIDGE.list(u.searchParams.get('limit')||8),...TRADINGVIEW_ALERT_BRIDGE.status()});
+  if(req.method==='POST'&&u.pathname==='/api/tradingview/webhook'){await body(req);const result=TRADINGVIEW_ALERT_BRIDGE.receive(req._parsedBody||{});const {status:statusCode,...payload}=result;return send(res,statusCode||200,payload);}
   if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
