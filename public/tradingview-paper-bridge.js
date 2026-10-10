@@ -26,6 +26,7 @@
     const colon=s.indexOf(':');if(colon<0)return s;
     const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
     if(venue==='BINANCE')return ticker; // Preserve the quote asset: BTCUSDT is not BTC.
+    if(ticker.endsWith('!'))return s; // Continuous futures require their venue-qualified identity.
     if(venue==='NSE')return ticker+'.NS';
     if(venue==='BSE')return ticker+'.BO';
     return ticker;
@@ -41,6 +42,7 @@
     const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
     if(venue==='NSE')return ticker+'.NS';
     if(venue==='BSE')return ticker+'.BO';
+    if(ticker.endsWith('!'))return s; // Never strip venue from continuous futures symbols.
     return ticker;
   }
   function mount(){
