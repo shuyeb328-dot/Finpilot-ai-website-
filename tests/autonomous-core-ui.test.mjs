@@ -10,6 +10,13 @@ assert.match(ui,/Resolved \/ helpful/,'operator outcome feedback must be availab
 assert.match(ui,/No real-money execution/,'panel must clearly state the execution limitation');
 assert.match(ui,/t=tone/,'status classes must resolve through the defined tone mapper');
 assert.match(ui,/Browser Evolution OS:/,'Evolution UI must show measured browser-side status metrics');
+assert.match(html,/autonomous-core-os\.js\?v=20261010-aios-1/,'main page must load the unified AI OS panel bundle');
+assert.match(ui,/fpac-planes/,'single control panel must render grouped operating planes');
+assert.match(ui,/trainingFabric:window\.FinPilotTrainingFabric/,'Training Fabric status must be surfaced in central UI');
+assert.match(ui,/forecast-learning/,'forecast learning must be present in unified OS status');
+assert.match(ui,/Browser Training Fabric:/,'browser-local training must be explicitly described without claiming model weight training');
+assert.match(ui,/FinPilot AI OS/,'shared control panel must be presented as the central AI OS');
+
 assert.match(ui,/Browser Quantum Core:/,'Quantum UI must show observed agent and run counts');
 assert.match(ui,/Foundation benchmark:/,'Foundation status must include the benchmark evidence');
 assert.doesNotMatch(ui,/t=statusTone/,'undefined status mapper must not be referenced');
