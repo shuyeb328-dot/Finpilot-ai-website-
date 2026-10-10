@@ -213,10 +213,60 @@ function canonicalSearchUrl(value){
 function normalizedTitle(value){
  return cleanText(value).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 }
+
+function resolveYahooSearchUrl(value){
+ const raw=String(value||'').trim();
+ try{
+  const url=new URL(raw,'https://search.yahoo.com');
+  if(!/(^|\.)yahoo\.com$/i.test(url.hostname))return url.href;
+  const direct=url.searchParams.get('RU')||url.searchParams.get('ru')||url.searchParams.get('url');
+  if(direct){
+   try{
+    const target=new URL(decodeURIComponent(direct));
+    if(/^https?:$/.test(target.protocol)&&!target.username&&!target.password)return target.href;
+   }catch{}
+  }
+  const wrapped=raw.match(/\/RU=([^/]+)(?:\/RK=|\/RS=|\/RG=|$)/i);
+  if(wrapped){
+   const target=new URL(decodeURIComponent(wrapped[1].replace(/&amp;/gi,'&')));
+   if(/^https?:$/.test(target.protocol)&&!target.username&&!target.password)return target.href;
+  }
+  return url.href;
+ }catch{return raw}
+}
+async function yahooHtml(q,count){
+ const u='https://search.yahoo.com/search?p='+encodeURIComponent(q);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok)throw providerError('Yahoo Search returned HTTP '+r.status,r.status);
+  const html=await r.text();
+  const anchors=[...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  const titleAnchors=anchors.filter(([,attrs])=>/(?:^|\s)(?:ac-algo|title|algo-link|result-link)(?:\s|$)/i.test(htmlAttribute(attrs,'class')));
+  if(!titleAnchors.length&&/captcha|automated queries|unusual traffic/i.test(html))throw providerError('Yahoo Search returned an automated-access challenge');
+  const items=[];
+  for(const [,attrs,body] of titleAnchors){
+   if(items.length>=count)break;
+   const url=resolveYahooSearchUrl(htmlAttribute(attrs,'href'));
+   const title=cleanText(body);
+   if(!/^https?:\/\//i.test(url)||!title)continue;
+   let host='Yahoo Search';
+   try{host=new URL(url).hostname.replace(/^www\./i,'')}catch{}
+   if(/(^|\.)yahoo\.com$/i.test(host))continue;
+   items.push({title,url,snippet:'',source:host,publishedAt:null});
+  }
+  return normalize(items,'yahoo-html');
+ }catch(e){
+  if(e.name==='AbortError')throw providerError('Yahoo Search timed out');
+  throw e;
+ }finally{clearTimeout(timer)}
+}
+
 function freeSearchLinks(q){
  const x=encodeURIComponent(q);
  return [
   {provider:'DuckDuckGo',url:'https://duckduckgo.com/?q='+x},
+  {provider:'Yahoo Search',url:'https://search.yahoo.com/search?p='+x},
   {provider:'Bing News',url:'https://www.bing.com/news/search?q='+x},
   {provider:'Google News',url:'https://news.google.com/search?q='+x}
  ];
@@ -224,6 +274,7 @@ function freeSearchLinks(q){
 async function searchFreeMultiSource(q,count){
  const tasks=[
   {provider:'duckduckgo-html',run:()=>duckduckgoHtml(q,count)},
+  {provider:'yahoo-html',run:()=>yahooHtml(q,count)},
   {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
   {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
  ];
