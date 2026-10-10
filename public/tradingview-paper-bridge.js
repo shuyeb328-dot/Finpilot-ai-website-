@@ -24,11 +24,12 @@
   }
   function paperSymbol(value){
     const s=normalizeSymbol(value);if(!s)return '';
-    return s.split(':').pop().replace(/\\.(NS|BO)$/,'');
+    return s.split(':').pop().replace(/\.(NS|BO)$/,'');
   }
   function mount(){
     const host=document.getElementById('paperlab');
-    if(!host||host.dataset.fpTvBridgeMounted==='1')return;
+    if(!host)return;
+    if(host.querySelector('#fpTradingViewBridge')){host.dataset.fpTvBridgeMounted='1';return;}
     host.dataset.fpTvBridgeMounted='1';
     const section=document.createElement('section');
     section.id='fpTradingViewBridge';section.className='card';section.style.cssText='margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)';
@@ -49,6 +50,22 @@
       if(typeof window.runFullStockAnalysis==='function')window.runFullStockAnalysis(raw);
       else if(typeof window.finpilotLaunch==='function')window.finpilotLaunch(raw);
       else {const search=document.querySelector('[data-view="search"]');search?.click();window.setTimeout(()=>window.doSearch?.(raw),100);}
+    });
+    section.querySelector('#fpTvPaper').addEventListener('click',()=>{
+      const raw=paperSymbol(symbol());
+      if(!raw){frame.textContent='Enter a valid symbol before selecting it in the paper ticket.';return;}
+      const ticket=document.getElementById('paperSymbol');
+      if(!ticket){frame.textContent='The Paper Arena order ticket is not ready yet. Wait for the paper desk to finish loading, then try again.';return;}
+      ticket.value=raw;
+      ticket.dispatchEvent(new Event('input',{bubbles:true}));
+      ticket.dispatchEvent(new Event('change',{bubbles:true}));
+      const status=document.getElementById('paperMarketStatus');
+      if(status)status.textContent='Checking verified market data for '+raw+'…';
+      // Refreshing a quote is read-only with respect to orders; no order is submitted here.
+      if(typeof window.refreshPaper==='function'){
+        try{Promise.resolve(window.refreshPaper()).catch(()=>{const current=document.getElementById('paperMarketStatus');if(current)current.textContent='Quote verification failed. No order was submitted.';});}
+        catch{if(status)status.textContent='Quote verification failed. No order was submitted.';}
+      }else if(status)status.textContent='Symbol selected. Tap Refresh market to verify its quote. No order was submitted.';
     });
     market.addEventListener('change',()=>{if(input.value.trim())loadChart()});
     input.addEventListener('keydown',e=>{if(e.key==='Enter')loadChart()});
