@@ -43,15 +43,76 @@
     if(venue==='BSE')return ticker+'.BO';
     return ticker;
   }
+  let alertInboxTimer=null;
+  let alertInboxRefreshFn=null;
   function mount(){
     const host=document.getElementById('paperlab');
     if(!host)return;
-    if(host.querySelector('#fpTradingViewBridge')){host.dataset.fpTvBridgeMounted='1';return;}
+    if(host.querySelector('#fpTradingViewBridge')){host.dataset.fpTvBridgeMounted='1';if(alertInboxRefreshFn)alertInboxRefreshFn();return;}
     host.dataset.fpTvBridgeMounted='1';
     const section=document.createElement('section');
     section.id='fpTradingViewBridge';section.className='card';section.style.cssText='margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)';
-    section.innerHTML='<div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap"><div><div class="eyebrow">Market chart companion</div><h3 style="margin:5px 0">TradingView + Paper Arena</h3><p class="muted" style="margin:0;line-height:1.5">Inspect a chart, then send the symbol to FinPilot analysis. Paper orders still require a verified FinPilot quote and risk checks.</p></div><span class="pill">SIMULATION ONLY</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0"><input id="fpTvSymbol" aria-label="Chart symbol" value="NASDAQ:AAPL" maxlength="24" placeholder="e.g. NASDAQ:AAPL or BINANCE:BTCUSDT" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><select id="fpTvMarket" aria-label="Market type" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><option value="AUTO">Auto / US</option><option value="INDIA">India (NSE)</option><option value="CRYPTO">Crypto (Binance)</option><option value="US">US equities</option></select><button id="fpTvLoad" class="btn primary" type="button">Load chart</button><button id="fpTvAnalyze" class="btn" type="button">Analyze in FinPilot</button><button id="fpTvPaper" class="btn good" type="button">Open in Paper Arena</button><a id="fpTvOpen" class="btn" target="_blank" rel="noopener noreferrer">Open TradingView ↗</a></div><div id="fpTvFrame" style="min-height:340px;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center"><div class="muted" style="padding:24px;text-align:center">Choose a symbol and tap <b>Load chart</b>. The embedded chart may be unavailable in some in-app browsers.</div></div><div class="notice" style="margin-top:12px"><b>Connection boundary:</b> TradingView&#39;s embedded chart is visual only. It does not send live prices, alerts, account data, or orders to FinPilot. FinPilot paper execution uses its own market-data verification and risk gates; no real broker orders are sent.</div>';
+    section.innerHTML='<div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap"><div><div class="eyebrow">Market chart companion</div><h3 style="margin:5px 0">TradingView + Paper Arena</h3><p class="muted" style="margin:0;line-height:1.5">Inspect a chart, then send the symbol to FinPilot analysis. Paper orders still require a verified FinPilot quote and risk checks.</p></div><span class="pill">SIMULATION ONLY</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0"><input id="fpTvSymbol" aria-label="Chart symbol" value="NASDAQ:AAPL" maxlength="24" placeholder="e.g. NASDAQ:AAPL or BINANCE:BTCUSDT" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><select id="fpTvMarket" aria-label="Market type" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><option value="AUTO">Auto / US</option><option value="INDIA">India (NSE)</option><option value="CRYPTO">Crypto (Binance)</option><option value="US">US equities</option></select><button id="fpTvLoad" class="btn primary" type="button">Load chart</button><button id="fpTvAnalyze" class="btn" type="button">Analyze in FinPilot</button><button id="fpTvPaper" class="btn good" type="button">Open in Paper Arena</button><a id="fpTvOpen" class="btn" target="_blank" rel="noopener noreferrer">Open TradingView ↗</a></div><div id="fpTvFrame" style="min-height:340px;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center"><div class="muted" style="padding:24px;text-align:center">Choose a symbol and tap <b>Load chart</b>. The embedded chart may be unavailable in some in-app browsers.</div></div><div class="notice" style="margin-top:12px"><b>Connection boundary:</b> TradingView&#39;s embedded chart is visual only. It does not send live prices, alerts, account data, or orders to FinPilot. FinPilot paper execution uses its own market-data verification and risk gates; no real broker orders are sent.</div><div id="fpTvAlertInbox" class="card" style="margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><h4 style="margin:0">TradingView Alert Inbox</h4><span id="fpTvAlertStatus" class="pill">Checking setup…</span></div><p class="muted" style="margin:8px 0">Receive TradingView alert messages into FinPilot for review. Alerts are signals only; FinPilot never submits an order from a webhook.</p><div id="fpTvWebhookHint" class="notice" style="margin:8px 0" aria-live="polite">Checking secure webhook configuration…</div><div style="margin:8px 0"><div class="muted" style="margin-bottom:5px">Webhook URL</div><code id="fpTvWebhookUrl" style="overflow-wrap:anywhere">/api/tradingview/webhook</code></div><label for="fpTvAlertTemplate" class="muted" style="display:block;margin:10px 0 5px">TradingView alert message template (replace the secret placeholder)</label><textarea id="fpTvAlertTemplate" rows="7" readonly spellcheck="false" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text);font:12px ui-monospace,monospace;resize:vertical"></textarea><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button id="fpTvCopyAlertTemplate" class="btn" type="button">Copy alert template</button><button id="fpTvRefreshAlerts" class="btn" type="button">Refresh alerts</button></div><div style="margin-top:12px"><div class="muted" style="margin-bottom:7px">Recent incoming alerts</div><div id="fpTvAlertList" aria-live="polite"><div class="muted">No alert inbox loaded yet.</div></div></div><p class="muted" style="font-size:12px;margin:10px 0 0">Any price included in an alert is informational only. Paper orders still require a separate fresh, matching, provider-verified FinPilot quote and risk checks. Real-money execution is disabled.</p></div>';
     const input=section.querySelector('#fpTvSymbol'),market=section.querySelector('#fpTvMarket'),frame=section.querySelector('#fpTvFrame'),open=section.querySelector('#fpTvOpen');
+    const alertStatus=section.querySelector('#fpTvAlertStatus'),alertHint=section.querySelector('#fpTvWebhookHint'),alertList=section.querySelector('#fpTvAlertList'),webhookUrlEl=section.querySelector('#fpTvWebhookUrl'),alertTemplateEl=section.querySelector('#fpTvAlertTemplate');
+    const alertTemplate=JSON.stringify({secret:'REPLACE_WITH_TRADINGVIEW_WEBHOOK_SECRET',alert_id:'{{ticker}}-{{interval}}-{{timenow}}',ticker:'{{ticker}}',action:'BUY',timeframe:'{{interval}}',time:'{{timenow}}',price:'{{close}}'},null,2);
+    if(alertTemplateEl)alertTemplateEl.value=alertTemplate;
+    if(webhookUrlEl)webhookUrlEl.textContent=(window.location?.origin||'')+'/api/tradingview/webhook';
+    async function refreshAlertInbox(){
+      if(typeof fetch!=='function'||!alertStatus||!alertHint||!alertList)return;
+      try{
+        const responses=await Promise.all([
+          fetch('/api/tradingview/status',{cache:'no-store',credentials:'same-origin'}),
+          fetch('/api/tradingview/alerts?limit=8',{cache:'no-store',credentials:'same-origin'})
+        ]);
+        if(responses.some(r=>!r.ok))throw new Error('Alert status request failed');
+        const setup=await responses[0].json(),payload=await responses[1].json();
+        alertStatus.textContent=setup.acceptingWebhooks?'RECEIVER READY':setup.configurationState==='INVALID_SECRET_LENGTH'?'SECRET TOO SHORT':'SETUP REQUIRED';
+        alertStatus.className='pill '+(setup.acceptingWebhooks?'low':'med');
+        if(!setup.acceptingWebhooks){
+          alertHint.innerHTML='<b>Webhook is safely disabled.</b><p style="margin:6px 0 0">In Render, add <code>TRADINGVIEW_WEBHOOK_SECRET</code> with a private random value of at least 32 characters, then use that same value in the TradingView alert message instead of the placeholder. Do not post the secret publicly. Save the variable and redeploy before testing.</p>';
+        }else{
+          alertHint.innerHTML='<b>Webhook receiver is ready.</b><p style="margin:6px 0 0">In TradingView, set the Webhook URL to the address above and paste the JSON template into the alert message after replacing the secret placeholder. Incoming alerts are saved for review only.</p>';
+        }
+        const rows=Array.isArray(payload.alerts)?payload.alerts:[];
+        if(!setup.acceptingWebhooks){
+          alertList.innerHTML='<div class="muted">No alerts can be received until the webhook secret is configured on Render.</div>';
+          return;
+        }
+        if(!rows.length){
+          alertList.innerHTML='<div class="muted">No TradingView alerts received yet. Send a test alert after setup.</div>';
+          return;
+        }
+        alertList.innerHTML=rows.map((a,i)=>'<div class="card" style="padding:10px;margin:7px 0;border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>'+esc(a.symbol)+'</b><span class="pill">'+esc(a.action)+'</span></div><div class="muted" style="margin:5px 0">'+esc(a.timeframe||'UNKNOWN')+' · '+esc(a.receivedAt||'')+' · Review required</div><div class="muted">Reported alert price: '+(Number.isFinite(Number(a.reportedPrice))&&Number(a.reportedPrice)>0?esc(a.reportedPrice):'not supplied')+' (unverified)</div><button class="btn" type="button" data-fp-tv-review="'+i+'" style="margin-top:8px">Review in Paper Arena</button></div>').join('');
+        const reviewButtons=alertList.querySelectorAll('[data-fp-tv-review]');
+        reviewButtons.forEach(button=>button.addEventListener('click',()=>{
+          const alert=rows[Number(button.getAttribute('data-fp-tv-review'))];if(!alert)return;
+          const raw=paperSymbol(alert.symbol);if(!raw)return;
+          const ticket=document.getElementById('paperSymbol');
+          if(!ticket){alertHint.textContent='Paper Arena ticket is not ready. The alert was not executed.';return;}
+          ticket.value=raw;ticket.dispatchEvent(new Event('input',{bubbles:true}));ticket.dispatchEvent(new Event('change',{bubbles:true}));
+          const status=document.getElementById('paperMarketStatus');
+          if(status)status.textContent='Checking verified market data for '+raw+'… No order submitted.';
+          if(typeof window.refreshPaper==='function')Promise.resolve(window.refreshPaper()).catch(()=>{if(status)status.textContent='Quote verification failed. No order was submitted.';});
+          alertHint.textContent='Signal selected for manual review. FinPilot must verify a fresh quote and risk gates. No order was submitted.';
+        }));
+      }catch{
+        alertStatus.textContent='STATUS UNAVAILABLE';alertStatus.className='pill med';
+        alertHint.textContent='The alert inbox cannot reach its status endpoint right now. Existing chart and paper controls remain available; no order was submitted.';
+      }
+    }
+    alertInboxRefreshFn=refreshAlertInbox;
+    section.querySelector('#fpTvRefreshAlerts').addEventListener('click',refreshAlertInbox);
+    section.querySelector('#fpTvCopyAlertTemplate').addEventListener('click',async()=>{
+      if(!alertTemplateEl)return;
+      try{
+        if(typeof navigator!=='undefined'&&navigator.clipboard?.writeText){await navigator.clipboard.writeText(alertTemplate);if(alertHint)alertHint.textContent='Template copied. Replace the secret placeholder before enabling the TradingView alert.';}
+        else{alertTemplateEl.focus();alertTemplateEl.select();if(alertHint)alertHint.textContent='Template selected. Copy it and replace the secret placeholder before enabling the TradingView alert.';}
+      }catch{alertTemplateEl.focus();alertTemplateEl.select();if(alertHint)alertHint.textContent='Template selected. Copy it manually and replace the secret placeholder.';}
+    });
+    refreshAlertInbox();
+    if(alertInboxTimer===null&&typeof fetch==='function')alertInboxTimer=setInterval(()=>{if(alertInboxRefreshFn)alertInboxRefreshFn();},30000);
+
     function symbol(){return tvSymbol(input.value,market.value)}
     function loadChart(){
       const s=symbol();if(!s){frame.textContent='Enter a valid symbol.';return}
