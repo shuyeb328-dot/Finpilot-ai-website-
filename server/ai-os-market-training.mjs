@@ -283,6 +283,7 @@ function normalizedOutcomeRow(row) {
   id:String(rowValue(row,'id')||''),
   ticker:String(rowValue(row,'ticker')||'').toUpperCase(),
   modelName:String(rowValue(row,'modelName','model_name')||MODEL),
+  horizonMinutes:Number(rowValue(row,'horizonMinutes','horizon_minutes'))||0,
   outcome,pUp,pDown,pHold,referenceAt,settledAt
  };
 }
@@ -290,16 +291,21 @@ function scoreProbabilityVector(probabilities,outcome) {
  const p=probabilities.map(x=>Number(x)/100);
  const brier=OUTCOME_CLASSES.reduce((sum,label,i)=>sum+(p[i]-(outcome===label?1:0))**2,0);
  const logLoss=-Math.log(Math.max(1e-6,p[OUTCOME_CLASSES.indexOf(outcome)]));
+ const maxProbability=Math.max(...p);
+ const topClassTie=p.filter(value=>Math.abs(value-maxProbability)<1e-10).length>1;
  const predicted=OUTCOME_CLASSES.reduce((best,label,i)=>p[i]>p[OUTCOME_CLASSES.indexOf(best)]?label:best,OUTCOME_CLASSES[0]);
- return {brier,logLoss,correct:predicted===outcome,predicted};
+ return {brier,logLoss,correct:predicted===outcome,predicted,topClassTie};
 }
 function aggregateBenchmarkScores(rows) {
- if(!rows.length)return {count:0,meanBrier:null,meanLogLoss:null,topClassAccuracyPct:null};
+ if(!rows.length)return {count:0,meanBrier:null,meanLogLoss:null,topClassAccuracyPct:null,topClassAccuracyScoredCount:0,topClassAccuracyTiedCount:0};
+ const untied=rows.filter(x=>x.topClassTie!==true);
  return {
   count:rows.length,
   meanBrier:Number((rows.reduce((n,x)=>n+x.brier,0)/rows.length).toFixed(6)),
   meanLogLoss:Number((rows.reduce((n,x)=>n+x.logLoss,0)/rows.length).toFixed(6)),
-  topClassAccuracyPct:Number((rows.filter(x=>x.correct).length/rows.length*100).toFixed(2))
+  topClassAccuracyPct:untied.length?Number((untied.filter(x=>x.correct).length/untied.length*100).toFixed(2)):null,
+  topClassAccuracyScoredCount:untied.length,
+  topClassAccuracyTiedCount:rows.length-untied.length
  };
 }
 
@@ -330,7 +336,7 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
   uniformScores.push(uniform);
   classCounts[row.outcome]++;
 
-  const prior=unique.filter(other=>other.id!==row.id&&other.settledAt<row.referenceAt);
+  const prior=unique.filter(other=>other.id!==row.id&&other.ticker===row.ticker&&other.horizonMinutes===row.horizonMinutes&&row.horizonMinutes>0&&other.settledAt<row.referenceAt);
   if(prior.length>=minimumPriorOutcomes) {
    const counts={UP:1,DOWN:1,HOLD:1};
    for(const earlier of prior)counts[earlier.outcome]++;
@@ -346,9 +352,20 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
  const logLossSkillPct=model.meanLogLoss===null?null:Number(((uniform.meanLogLoss-model.meanLogLoss)/uniform.meanLogLoss*100).toFixed(2));
  const modelUnderperformsUniform=model.count>0&&model.meanBrier!==null&&model.meanLogLoss!==null&&
   (model.meanBrier>uniform.meanBrier||model.meanLogLoss>uniform.meanLogLoss);
+ const observedClasses=OUTCOME_CLASSES.filter(label=>classCounts[label]>0);
+ const classCoverageCount=observedClasses.length;
+ const classCoveragePct=Math.round(classCoverageCount/OUTCOME_CLASSES.length*100);
+ const dominantClass=Object.entries(classCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+ const dominantClassPct=model.count?Number((Math.max(...Object.values(classCounts))/model.count*100).toFixed(2)):null;
+ const classDiversityStatus=model.count===0?'NO_RESOLVED_OUTCOMES':classCoverageCount===1?'ONE_CLASS_ONLY':classCoverageCount===2?'TWO_OF_THREE_CLASSES':'ALL_THREE_CLASSES';
+ const classDiversityWarning=classCoverageCount<3
+  ?'Only '+classCoverageCount+' of 3 outcome classes are represented ('+observedClasses.join(', ')+'); score-based model selection can be misleading until outcomes cover different market directions.'
+  :dominantClassPct>=90
+   ?'Outcome distribution is highly imbalanced: '+dominantClass+' represents '+dominantClassPct+'% of resolved forecasts.'
+   :null;
  // Compare the current model to the rolling prior on exactly the same eligible forecast rows.
  const priorEligibleRows=unique.filter(row=>{
-  const prior=unique.filter(other=>other.id!==row.id&&other.settledAt<row.referenceAt);
+  const prior=unique.filter(other=>other.id!==row.id&&other.ticker===row.ticker&&other.horizonMinutes===row.horizonMinutes&&row.horizonMinutes>0&&other.settledAt<row.referenceAt);
   return prior.length>=minimumPriorOutcomes;
  });
  const sameSetModel=aggregateBenchmarkScores(priorEligibleRows.map(row=>scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome)));
@@ -361,10 +378,17 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
  };
  let modelSelectionStatus='INSUFFICIENT_OUTCOMES_FOR_MODEL_SELECTION';
  let reason='At least '+minimumForModelSelection+' verified resolved forecasts are required before model-selection review.';
+ if(classDiversityWarning)reason=classDiversityWarning+' '+reason;
  if(model.count>=minimumForModelSelection) {
-  if(modelUnderperformsUniform) {
+  if(classCoverageCount<2) {
+   modelSelectionStatus='INSUFFICIENT_CLASS_DIVERSITY';
+   reason='Only '+classCoverageCount+' outcome class is represented in the verified sample; do not tune or promote a directional forecasting model.';
+  } else if(modelUnderperformsUniform) {
    modelSelectionStatus='UNDERPERFORMS_UNIFORM_BASELINE';
    reason='Current probabilities underperform a uniform baseline on Brier score or log loss; do not promote this model.';
+  } else if(classCoverageCount<3) {
+   modelSelectionStatus='PARTIAL_CLASS_COVERAGE';
+   reason='Not all outcome classes are represented; expand the sample and review class coverage before model selection.';
   } else if(rollingSkills.sampleCount<minimumForModelSelection) {
    modelSelectionStatus='NEEDS_MORE_CHRONOLOGICAL_HOLDOUTS';
    reason='Uniform baseline comparison is available, but the rolling-prior holdout sample is still too small for model selection.';
@@ -380,8 +404,9 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
   version:'FORECAST-BASELINE-BENCHMARK-1.0.0',
   evaluatedForecasts:model.count,
   classCounts,
+  classCoverage:{observed:classCoverageCount,total:OUTCOME_CLASSES.length,coveragePct:classCoveragePct,classes:observedClasses,dominantClass,dominantClassPct,status:classDiversityStatus,warning:classDiversityWarning},
   currentModel:model,
-  uniformBaseline:{...uniform,description:'Equal 33.33% probability for UP, DOWN and HOLD.'},
+  uniformBaseline:{...uniform,topClassAccuracyPct:null,topClassAccuracyNote:'Equal probabilities create a three-way tie, so top-class accuracy is not meaningful for this baseline.',description:'Equal 33.33% probability for UP, DOWN and HOLD.'},
   currentVsUniform:{brierSkillPct,logLossSkillPct,underperforms:modelUnderperformsUniform},
   rollingPriorBaseline:rollingPrior,
   currentVsRollingPrior:rollingSkills,
