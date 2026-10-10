@@ -28,6 +28,7 @@ import {createTradingViewAlertInbox} from './tradingview-alert-inbox.mjs';
 import {listManagedAgents,createManagedAgent,getManagedAgentRegistrySnapshot} from './ai-os-operating-layer.mjs';
 import {initializeAIOSMarketTrainingDirector,runAIOSMarketTrainingCycle,getAIOSMarketTrainingStatus} from './ai-os-market-training.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
+import {runEvaluationSuite,getEvaluationStatus,getEvaluationHistory,gradeDecisionOutput} from './agent-evaluation-lab.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
@@ -1639,65 +1640,94 @@ function optionScore(o, spot){
   return Math.max(0,Math.min(100,Math.round(score)));
 }
 async function optionChainScan(req,res,u){
- const t=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const side=(u.searchParams.get('side')||'BOTH').toUpperCase(); const limit=Math.min(30,Math.max(6,Number(u.searchParams.get('limit')||18)));
+ const ticker=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
+ const payload={
+  ok:true,ticker,available:false,live:false,verified:false,executionEligible:false,
+  provider:'No verified options-chain provider configured',contracts:[],top:[],
+  decision:{
+   probability:{bullish:null,bearish:null,neutral:100},
+   side:'WAIT / NO VERIFIED OPTIONS CHAIN',confidence:0,
+   ceoDecision:'CEO: WAIT — no verified contract-level options evidence is available.',
+   cfoDecision:'CFO: REJECT — do not allocate leveraged capital without verified contract quotes.',
+   method:'No contract-specific probability is generated when expiry, strike, bid/ask, volume and open-interest data are unavailable.'
+  },
+  compliance:{execution:false,leverageWarning:true,humanApprovalRequired:true},
+  warning:'Spot data, when available, is not an options chain. FinPilot will not fabricate contract prices, expiry dates or open interest.'
+ };
  try{
-   const symbol=CRYPTO_ASSETS[t]; if(!symbol) throw new Error('Unsupported crypto option underlying.');
-   const spot=Number((await fetchJson(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)).price);
-   const info=await fetchJson('https://eapi.binance.com/eapi/v1/exchangeInfo');
-   const rows=Array.isArray(info.optionSymbols)?info.optionSymbols.filter(x=>String(x.underlying||'').startsWith(t+'-') && x.expiryDate>Date.now() && (x.status===1 || String(x.status).toUpperCase()==='TRADING')):[];
-   if(!rows.length) throw new Error('No active option contracts returned by provider.');
-   const nearestExpiry=Math.min(...rows.map(x=>x.expiryDate));
-   const near=rows.filter(x=>x.expiryDate===nearestExpiry && (side==='BOTH'||String(x.side||'').toUpperCase()===side));
-   const selected=near.sort((a,b)=>Math.abs(Number(a.strikePrice)-spot)-Math.abs(Number(b.strikePrice)-spot)).slice(0,limit);
-   const tickers=await Promise.all(selected.map(async x=>{try{return {...x,...(await fetchJson(`https://eapi.binance.com/eapi/v1/ticker?symbol=${encodeURIComponent(x.symbol)}`))}}catch{return x}}));
-   const contracts=tickers.map(x=>({symbol:x.symbol,side:x.side,expiry:x.expiryDate,strike:Number(x.strikePrice),bidPrice:x.bidPrice==null?null:Number(x.bidPrice),askPrice:x.askPrice==null?null:Number(x.askPrice),markPrice:x.markPrice==null?null:Number(x.markPrice),lastPrice:x.lastPrice==null?null:Number(x.lastPrice),volume:x.volume==null?null:Number(x.volume),openInterest:x.openInterest==null?null:Number(x.openInterest),score:optionScore(x,spot)}));
-   const calls=contracts.filter(x=>String(x.side).toUpperCase()==='CALL').sort((a,b)=>b.score-a.score); const puts=contracts.filter(x=>String(x.side).toUpperCase()==='PUT').sort((a,b)=>b.score-a.score);
-   const top=[...calls.slice(0,3),...puts.slice(0,3)].sort((a,b)=>b.score-a.score);
-   const callAvg=calls.length?calls.reduce((a,x)=>a+x.score,0)/calls.length:0, putAvg=puts.length?puts.reduce((a,x)=>a+x.score,0)/puts.length:0;
-   const bull=Math.round(Math.max(0,Math.min(100,50+(callAvg-putAvg)*0.55))); const bear=100-bull; const confidence=Math.round(Math.min(94,55+Math.abs(callAvg-putAvg)*0.55));
-   const sideDecision=confidence<65?'WAIT / LOW EDGE':bull>=58?'CALL / LONG BIAS':bear>=58?'PUT / SHORT BIAS':'WAIT / BALANCED';
-   const ceo=sideDecision.startsWith('WAIT')?'CEO: WAIT — edge is insufficient for a leveraged decision.':`CEO: ${sideDecision} — use the highest-scoring liquid contract only after confirmation.`;
-   const cfo=sideDecision.startsWith('WAIT')||confidence<70?'CFO: REJECT — do not allocate leveraged capital without stronger edge and live contract evidence.':`CFO: CONDITIONAL — cap risk, verify liquidity/spread, and require explicit approval.`;
-   return send(res,200,{ok:true,live:true,provider:'Public crypto options provider unavailable',ticker:t,spot,expiry:new Date(nearestExpiry).toISOString(),contracts,top,decision:{probability:{bullish:bull,bearish:bear,neutral:Math.max(0,100-Math.max(bull,bear))},side:sideDecision,confidence,ceoDecision:ceo,cfoDecision:cfo,method:'Scenario score from moneyness, bid/ask spread, volume and open-interest evidence; not probability of profit.'},compliance:{execution:false,leverageWarning:true,humanApprovalRequired:true},source:'No live derivatives provider connected'});
- }catch(e){return send(res,200,{ok:true,live:false,ticker:t,contracts:[],decision:{probability:{bullish:null,bearish:null,neutral:100},side:'WAIT / NO LIVE CHAIN',confidence:0,ceoDecision:'CEO: WAIT — live option-chain evidence unavailable.',cfoDecision:'CFO: REJECT — no leveraged capital allocation without live chain evidence.',method:'No contract-specific probabilities are fabricated.'},error:e.message,compliance:{execution:false,leverageWarning:true,humanApprovalRequired:true}})}
-}
-
-async function derivativesReport(req,res,u){
- const t=(u.searchParams.get('ticker')||'BTC').toUpperCase();
- const instrument=(u.searchParams.get('instrument')||'FUTURE').toUpperCase();
- const riskBudget=Number(u.searchParams.get('riskBudget')||1);
- try{
-   const base=await liveCrypto(t,'1h',true);
-   let derivatives={instrument,live:false,provider:'Public derivatives provider unavailable',contract:null,markPrice:null,fundingRate:null,openInterest:null,optionChainAvailable:false};
-   if(instrument==='FUTURE'){
-     const symbol=CRYPTO_ASSETS[t]||t+'USDT';
-     const [mark,oi]=await Promise.all([
-       fetchJson(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`),
-       fetchJson(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`)
-     ]);
-     derivatives={...derivatives,live:true,markPrice:Number(mark.markPrice),fundingRate:Number(mark.lastFundingRate),nextFundingTime:mark.nextFundingTime,openInterest:Number(oi.openInterest)};
-   } else if(instrument==='OPTION'){
-     const info=await fetchJson('https://eapi.binance.com/eapi/v1/exchangeInfo');
-     const symbols=Array.isArray(info.optionSymbols)?info.optionSymbols.filter(x=>String(x.underlying||'').startsWith(t+'-')):[];
-     const active=symbols.filter(x=>x.expiryDate>Date.now()&&x.status===1);
-     const expiry=active.sort((a,b)=>a.expiryDate-b.expiryDate)[0];
-     if(!expiry) throw new Error(`No active ${t} option contracts returned by provider.`);
-     let quote=null; try{quote=await fetchJson(`https://eapi.binance.com/eapi/v1/ticker?symbol=${encodeURIComponent(expiry.symbol)}`)}catch{}
-     derivatives={...derivatives,live:true,optionChainAvailable:true,contract:expiry.symbol,expiry:new Date(expiry.expiryDate).toISOString(),strike:Number(expiry.strikePrice),optionType:expiry.side,markPrice:quote?.markPrice?Number(quote.markPrice):null,lastPrice:quote?.lastPrice?Number(quote.lastPrice):null};
-   } else throw new Error('Instrument must be FUTURE or OPTION.');
-   const decision=derivativeDecision(base,instrument,riskBudget);
-   return send(res,200,{ok:true,ticker:t,underlying:base,derivatives,decision,compliance:{mode:'Financial information & decision support',personalizedAdvice:false,execution:false,leverageWarning:true,suitabilityRequired:true,explicitApprovalRequired:true},evidence:[...base.sources,{name:'Derivatives data unavailable',use:`${instrument} market structure`,freshness:'No live derivatives provider connected',url:'https://www.nseindia.com/'}]});
- }catch(e){
-   return send(res,200,{ok:true,ticker:t,derivatives:{instrument,live:false,provider:'Binance derivatives public API',error:e.message},decision:{probability:{bullish:null,bearish:null,neutral:100},side:'WAIT / NO LIVE DATA',ceoDecision:'WAIT — live derivatives evidence unavailable',cfoDecision:'REJECT — do not allocate capital without live contract data',confidence:0,approvalRequired:true,modelNote:'FinPilot refuses to fabricate option/futures prices, funding, open interest or probabilities when the live provider is unavailable.'},compliance:{mode:'Financial information & decision support',personalizedAdvice:false,execution:false,leverageWarning:true,suitabilityRequired:true,explicitApprovalRequired:true}});
+  const base=await liveCrypto(ticker,'1h',true);
+  return send(res,200,{...payload,underlying:{price:base.price,provider:base.provider,asOf:base.asOf,dataFreshness:base.dataFreshness,sourceTimestampType:base.sourceTimestampType}});
+ }catch(error){
+  return send(res,200,{...payload,error:String(error?.message||'UNDERLYING_DATA_UNAVAILABLE')});
  }
 }
 
+async function derivativesReport(req,res,u){
+ const ticker=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
+ const instrument=(u.searchParams.get('instrument')||'FUTURE').trim().toUpperCase();
+ const riskBudget=Math.max(0,Math.min(100,Number(u.searchParams.get('riskBudget')||1)));
+ if(!['FUTURE','OPTION'].includes(instrument))return send(res,400,{ok:false,error:'INSTRUMENT_MUST_BE_FUTURE_OR_OPTION'});
+ const payload={
+  ok:true,ticker,instrument,
+  derivatives:{
+   instrument,live:false,available:false,verified:false,executionEligible:false,
+   provider:'No verified derivatives provider configured',contract:null,markPrice:null,
+   fundingRate:null,openInterest:null,optionChainAvailable:false
+  },
+  decision:{
+   probability:{bullish:null,bearish:null,neutral:100},
+   side:'WAIT / NO VERIFIED DERIVATIVES DATA',confidence:0,
+   ceoDecision:'CEO: WAIT — contract-level evidence is unavailable.',
+   cfoDecision:'CFO: REJECT — do not allocate leveraged capital without verified contract data.',
+   approvalRequired:true, riskBudget,
+   modelNote:'FinPilot does not fabricate option/futures prices, expiry, funding, open interest or probabilities. Underlying spot data alone is insufficient.'
+  },
+  compliance:{mode:'Financial information & decision support',personalizedAdvice:false,execution:false,leverageWarning:true,suitabilityRequired:true,explicitApprovalRequired:true},
+  evidence:[{name:'Derivatives provider status',use:'Contract-specific quotes and market structure',freshness:'Unavailable; no verified derivatives provider configured',url:'https://www.nseindia.com/'}],
+  warning:'Derivatives market data is unavailable. This endpoint is intentionally analysis-only and fail-closed.'
+ };
+ try{
+  const base=await liveCrypto(ticker,'1h',true);
+  return send(res,200,{...payload,underlying:{ticker:base.ticker,price:base.price,provider:base.provider,asOf:base.asOf,dataFreshness:base.dataFreshness,sourceTimestampType:base.sourceTimestampType,sources:base.sources||[]}});
+ }catch(error){
+  return send(res,200,{...payload,error:String(error?.message||'UNDERLYING_DATA_UNAVAILABLE')});
+ }
+}
 
 function normCdf(x){const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;const sign=x<0?-1:1;const z=Math.abs(x)/Math.sqrt(2);const t=1/(1+p*z);const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-z*z);return 0.5*(1+sign*y)}
 function bsPrice(S,K,T,r,sigma,type='CALL'){if(!(S>0&&K>0&&T>0&&sigma>0))return null;const d1=(Math.log(S/K)+(r+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);return type==='CALL'?S*normCdf(d1)-K*Math.exp(-r*T)*normCdf(d2):K*Math.exp(-r*T)*normCdf(-d2)-S*normCdf(-d1)}
 function greeks(S,K,T,r,sigma,type='CALL'){if(!(S>0&&K>0&&T>0&&sigma>0))return {};const d1=(Math.log(S/K)+(r+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='CALL'?normCdf(d1):normCdf(d1)-1;const gamma=pdf/(S*sigma*Math.sqrt(T));const theta=type==='CALL'?(-(S*pdf*sigma)/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*normCdf(d2)):(-(S*pdf*sigma)/(2*Math.sqrt(T))+r*K*Math.exp(-r*T)*normCdf(-d2));const vega=S*pdf*Math.sqrt(T);return {delta,gamma,theta,vega}}
 async function optionsMath(req,res,u){const S=Number(u.searchParams.get('spot')||0),K=Number(u.searchParams.get('strike')||0),T=Number(u.searchParams.get('days')||30)/365,r=Number(u.searchParams.get('rate')||0.06),iv=Number(u.searchParams.get('iv')||0.6),type=(u.searchParams.get('type')||'CALL').toUpperCase();if(!(S&&K&&T&&iv))return send(res,400,{ok:false,error:'spot, strike, days and iv are required'});const price=bsPrice(S,K,T,r,iv,type),g=greeks(S,K,T,r,iv,type);return send(res,200,{ok:true,engine:'options-math-v3600',inputs:{spot:S,strike:K,days:T*365,rate:r,iv,type},theoreticalPrice:price,greeks:g,warning:'Model output is theoretical, not a probability of profit and not a trading recommendation.'})}
-async function chainAnalytics(req,res,u){const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();try{const spot=Number((await fetchJson(`https://api.binance.com/api/v3/ticker/price?symbol=${CRYPTO_ASSETS[ticker]||'BTCUSDT'}`)).price);const days=Number(u.searchParams.get('days')||7);const iv=Number(u.searchParams.get('iv')||0.65);const strikes=[-0.08,-0.05,-0.03,0,0.03,0.05,0.08].map(x=>Math.round(spot*(1+x)/100)*100);const rows=strikes.flatMap(K=>['CALL','PUT'].map(type=>{const m=greeks(spot,K,days/365,.06,iv,type);const theo=bsPrice(spot,K,days/365,.06,iv,type);const moneyness=((spot-K)/spot)*100;return {ticker,spot,strike:K,type,days,iv,theoreticalPrice:theo,moneyness,delta:m.delta,gamma:m.gamma,theta:m.theta,vega:m.vega,score:Math.round(Math.max(0,100-Math.abs(moneyness)*3-Math.max(0,Math.abs(m.delta)-.8)*60))}}));return send(res,200,{ok:true,live:true,provider:'FinPilot theoretical options model',ticker,spot,rows,generatedAt:new Date().toISOString(),warning:'Synthetic strikes and theoretical prices are not a live executable option chain. Use a licensed/authorized options-chain feed for contract selection.'})}catch(e){return send(res,200,{ok:true,live:false,provider:'Options math fallback',ticker,error:e.message,rows:[],generatedAt:new Date().toISOString()})}}
+async function chainAnalytics(req,res,u){
+ const ticker=(u.searchParams.get('ticker')||'BTC').trim().toUpperCase();
+ const days=Number(u.searchParams.get('days')||7);
+ const iv=Number(u.searchParams.get('iv')||0.65);
+ if(!Number.isFinite(days)||days<1||days>3650||!Number.isFinite(iv)||iv<=0||iv>5){
+  return send(res,400,{ok:false,error:'DAYS_OR_IV_OUT_OF_RANGE',allowed:{days:[1,3650],ivExclusiveMin:0,ivMax:5}});
+ }
+ try{
+  const base=await liveCrypto(ticker,'1h',true);
+  const spot=Number(base.price);
+  if(!Number.isFinite(spot)||spot<=0)throw new Error('INVALID_VERIFIED_UNDERLYING_PRICE');
+  const strikes=[-0.08,-0.05,-0.03,0,0.03,0.05,0.08].map(x=>Number((spot*(1+x)).toFixed(8)));
+  const rows=strikes.flatMap(strike=>['CALL','PUT'].map(type=>{
+   const metrics=greeks(spot,strike,days/365,0.06,iv,type);
+   const theoreticalPrice=bsPrice(spot,strike,days/365,0.06,iv,type);
+   const moneyness=((spot-strike)/spot)*100;
+   return {ticker,spot,strike,type,days,iv,theoreticalPrice,moneyness,delta:metrics.delta,gamma:metrics.gamma,theta:metrics.theta,vega:metrics.vega,score:Math.round(Math.max(0,100-Math.abs(moneyness)*3-Math.max(0,Math.abs(metrics.delta)-0.8)*60))};
+  }));
+  return send(res,200,{
+   ok:true,available:true,live:false,verified:false,executionEligible:false,
+   provider:'FinPilot theoretical options model',ticker,spot,spotProvider:base.provider,
+   spotAsOf:base.asOf,spotSourceTimestampType:base.sourceTimestampType,
+   spotDataFreshness:base.dataFreshness,rows,generatedAt:new Date().toISOString(),
+   source:'SYNTHETIC_THEORETICAL_SCENARIOS_NOT_LIVE_CHAIN',
+   warning:'These are mathematical scenarios around an underlying spot quote, not exchange-listed contracts or a live option chain. No expiry/strike availability, bid/ask, liquidity or probability of profit is implied. Execution remains blocked.'
+  });
+ }catch(error){
+  return send(res,200,{ok:true,available:false,live:false,verified:false,executionEligible:false,provider:'FinPilot theoretical options model unavailable',ticker,rows:[],error:String(error?.message||'UNDERLYING_DATA_UNAVAILABLE'),generatedAt:new Date().toISOString(),warning:'No synthetic scenario was generated because the underlying spot quote was unavailable.'});
+ }
+}
 function roundTableDecision(req,res,u){const bull=Number(u.searchParams.get('bull')||0),bear=Number(u.searchParams.get('bear')||0),risk=Number(u.searchParams.get('risk')||50),confidence=Number(u.searchParams.get('confidence')||0);const votes={bullAgent:bull>=55?'LONG':'WAIT',bearAgent:bear>=55?'SHORT':'WAIT',riskAgent:risk>=65?'REJECT':'ALLOW',cfo:risk>=55?'CAPITAL PROTECT':'CAPITAL AVAILABLE'};let ceo='WAIT';if(confidence>=70&&bull>=65&&risk<45)ceo='LONG BIAS';else if(confidence>=70&&bear>=65&&risk<45)ceo='SHORT BIAS';return send(res,200,{ok:true,engine:'round-table-v3800',votes,ceoDecision:ceo,reason:ceo==='WAIT'?'Evidence is not strong enough to overcome uncertainty or risk.':'Consensus threshold met with risk controls.',humanApprovalRequired:true})}
 function riskGuard(req,res,u){const leverage=Number(u.searchParams.get('leverage')||1),riskPct=Number(u.searchParams.get('riskPct')||1),liquidity=Number(u.searchParams.get('liquidity')||100),confidence=Number(u.searchParams.get('confidence')||0);const flags=[];if(leverage>3)flags.push('HIGH_LEVERAGE');if(riskPct>2)flags.push('RISK_BUDGET_EXCEEDED');if(liquidity<60)flags.push('LOW_LIQUIDITY');if(confidence<65)flags.push('LOW_CONFIDENCE');const blocked=flags.length>0;return send(res,200,{ok:true,engine:'derivatives-risk-v3900',blocked,flags,limits:{maxSuggestedLeverage:3,maxRiskPct:2,minLiquidityScore:60,minConfidence:65},approval:blocked?'CFO REJECT':'CFO REVIEW',note:'Risk guard is a control layer; it does not predict returns.'})}
 async function investmentPlan(req,res,u){
@@ -1943,14 +1973,7 @@ function autoOptimize(req,res){
  securityEvent('AUTO_OPTIMIZE','Bounded performance tuning applied; safety/compliance controls unchanged.');
  return send(res,200,{ok:true,mode:'BOUNDED_AUTONOMY',before,after,changes:['refresh cadence','agent concurrency','cache TTL'],protected:['execution guard','CFO veto','compliance policy','security headers','credentials'],time:AUTO.lastOptimization});
 }
-function marketStream(req,res,u){
- const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const symbol=CRYPTO_ASSETS[ticker]||'BTCUSDT';
- res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'8.6'});
- let closed=false, timer; req.on('close',()=>{closed=true;clearInterval(timer);});
- const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'public crypto market adapter',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
- push(); timer=setInterval(push,AUTO.marketRefreshMs);
-}
-
+function marketStream(req,res,u){return marketDataStream(req,res,u);}
 
 // FinPilot 5.2 → 7.0 Autonomous Command OS
 const EVENT_BUS={seq:0,events:[],subscriptions:new Map(),coalesced:0,routed:0,wakeups:0,dropped:0};
@@ -2269,6 +2292,10 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/mode'){await body(req);return osControlPlaneMode(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/security-check'){await body(req);return osControlPlaneSecurityCheck(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/shadow-evaluate'){await body(req);return osControlPlaneShadowEvaluate(req,res);}
+  if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/status')return send(res,200,getEvaluationStatus());
+  if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/history'){const h=await getEvaluationHistory(u.searchParams.get('limit')||10);return send(res,200,h);}
+  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/run'){const r=await runEvaluationSuite();return send(res,r.failed===0?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/grade'){await body(req);const r=gradeDecisionOutput(req._parsedBody||{});return send(res,r.ok?200:422,r);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}

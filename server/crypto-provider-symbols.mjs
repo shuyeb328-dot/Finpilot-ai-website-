@@ -16,7 +16,7 @@ function parseBaseQuote(value) {
 
 /**
  * Resolve fallback exchange product IDs from the same quote currency as the
- * configured Binance symbol. This prevents mixing a BTC/USDT price with a
+ * requested base/quote symbol. This prevents mixing a BTC/USDT price with a
  * BTC/USD fallback for the same requested instrument.
  */
 export function cryptoProviderSymbols(requestedSymbol, preferredSymbol) {

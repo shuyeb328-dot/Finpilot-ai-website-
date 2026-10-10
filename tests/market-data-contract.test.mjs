@@ -35,7 +35,12 @@ assert.match(server, /snapshot\.quality\.forecastEligible=false/, 'market snapsh
 assert.match(server, /createMarketStreamHub/, 'server should use the shared SSE polling hub');
 assert.match(server, /createProviderResponseCache/, 'market routes should share a bounded provider-response cache');
 assert.match(server, /PROVIDER_RESPONSE_CACHE\.get\(url/, 'both provider JSON adapters should deduplicate identical URLs');
-assert.match(server, /Number\(x\.closeTime\)>0\?new Date\(Number\(x\.closeTime\)\)\.toISOString\(\)/, 'Binance timestamps should be sourced from provider closeTime');
+assert.match(server, /BINANCE_CONNECTOR_DISABLED/, 'the disabled Binance connector must fail closed without making a request');
+assert.doesNotMatch(server, /https:\/\/(?:api|eapi|fapi)\.binance\.com\//, 'server market adapters must not call Binance endpoints');
+assert.match(server, /_sourceAsOf:providerTradeValid\?tradeTime:null/, 'Coinbase crypto quotes should retain the exchange trade timestamp');
+assert.match(server, /function marketStream\(req,res,u\)\{return marketDataStream\(req,res,u\);\}/, 'the legacy stream path should reuse the verified shared market-data stream');
+assert.match(server, /NO VERIFIED OPTIONS CHAIN/, 'options-chain route must fail closed without verified contract-level data');
+assert.match(server, /SYNTHETIC_THEORETICAL_SCENARIOS_NOT_LIVE_CHAIN/, 'theoretical option scenarios must not be labelled as a live chain');
 assert.match(server, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto market reports should distinguish provider timestamps from observation timestamps');
 
 assert.match(server, /MARKET_STREAM_HUB\.subscribe/, 'each SSE connection should subscribe to a shared channel');
