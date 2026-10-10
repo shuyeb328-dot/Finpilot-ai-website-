@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {planFinancialTask,buildSupplementalDiscovery,getSourceCatalog} from '../server/task-intelligence.mjs';
+import {planFinancialTask,buildSupplementalDiscovery,filterFinancialSearchResults,getSourceCatalog} from '../server/task-intelligence.mjs';
 const indian=planFinancialTask('Analyse IRFC for intraday trading with ₹1,000');
 assert.equal(indian.assetClass,'INDIAN_EQUITY'); assert.equal(indian.taskType,'TRADE_SCENARIO'); assert.equal(indian.needsQuote,true);
 assert.ok(indian.sourcePlan.some(x=>x.id==='nse')); assert.ok(indian.sourcePlan.some(x=>x.id==='bse')); assert.ok(!indian.sourcePlan.some(x=>x.id==='binance')); assert.ok(indian.requiredData.includes('provider_timestamp'));
