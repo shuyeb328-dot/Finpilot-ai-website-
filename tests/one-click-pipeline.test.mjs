@@ -308,6 +308,10 @@ assert.match(decisionCore,/DETERMINISTIC_EVIDENCE_RULES/,'the debate mode must n
 assert.match(decisionCore,/hardVetoes:blockingGates\.map/,'hard blockers must be preserved for auditing');
 assert.match(decisionCore,/rounds:\[/,'the result must include multiple ordered debate stages');
 assert.match(pageText,/Auditable Debate Ledger/,'Round Table must visibly show per-role debate records');
+assert.match(pageText,/decision-core\.js\?v=20261010-roundtable-1/,'browser must load the new debate core without stale cached JavaScript');
+assert.match(pageText,/8 ROLE ASSESSMENTS/,'Round Table role counter must match the eight recorded positions');
+assert.match(pageText,/d\.debate\.evidenceReferences\.map/,'Round Table must expose attached source URLs');
+
 assert.match(pageText,/debate:core\.debate/,'Round Table must persist the full debate trace in its decision record');
 assert.match(pageText,/Final reconciliation/,'Round Table must expose the final gate-aware reconciliation');
 assert.match(pageText,/d\.debate\.initialPositions\.map/,'the interface must render the role assessment cards from the debate record');
