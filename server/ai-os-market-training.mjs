@@ -259,6 +259,152 @@ export async function runAIOSMarketTrainingCycle(options={}){
  }finally{state.running=false;}
 }
 
+const OUTCOME_CLASSES = ['UP','DOWN','HOLD'];
+const UNIFORM_BRIER = 2/3;
+const UNIFORM_LOG_LOSS = Math.log(3);
+
+function rowValue(row, ...keys) {
+ for (const key of keys) if (row?.[key] !== undefined && row?.[key] !== null) return row[key];
+ return undefined;
+}
+function normalizedOutcomeRow(row) {
+ const outcome=String(rowValue(row,'outcome')||'').toUpperCase();
+ const pUp=Number(rowValue(row,'pUp','p_up'));
+ const pDown=Number(rowValue(row,'pDown','p_down'));
+ const pHold=Number(rowValue(row,'pHold','p_hold'));
+ const sum=pUp+pDown+pHold;
+ if(!OUTCOME_CLASSES.includes(outcome)||![pUp,pDown,pHold].every(Number.isFinite)||
+    [pUp,pDown,pHold].some(x=>x<0||x>100)||Math.abs(sum-100)>0.05)return null;
+ const referenceAt=Date.parse(String(rowValue(row,'referenceAsOf','reference_as_of','createdAt','created_at')||''));
+ const settledAt=Date.parse(String(rowValue(row,'settledAt','settled_at')||''));
+ if(!Number.isFinite(referenceAt)||!Number.isFinite(settledAt)||settledAt<referenceAt)return null;
+ return {
+  id:String(rowValue(row,'id')||''),
+  ticker:String(rowValue(row,'ticker')||'').toUpperCase(),
+  modelName:String(rowValue(row,'modelName','model_name')||MODEL),
+  outcome,pUp,pDown,pHold,referenceAt,settledAt
+ };
+}
+function scoreProbabilityVector(probabilities,outcome) {
+ const p=probabilities.map(x=>Number(x)/100);
+ const brier=OUTCOME_CLASSES.reduce((sum,label,i)=>sum+(p[i]-(outcome===label?1:0))**2,0);
+ const logLoss=-Math.log(Math.max(1e-6,p[OUTCOME_CLASSES.indexOf(outcome)]));
+ const predicted=OUTCOME_CLASSES.reduce((best,label,i)=>p[i]>p[OUTCOME_CLASSES.indexOf(best)]?label:best,OUTCOME_CLASSES[0]);
+ return {brier,logLoss,correct:predicted===outcome,predicted};
+}
+function aggregateBenchmarkScores(rows) {
+ if(!rows.length)return {count:0,meanBrier:null,meanLogLoss:null,topClassAccuracyPct:null};
+ return {
+  count:rows.length,
+  meanBrier:Number((rows.reduce((n,x)=>n+x.brier,0)/rows.length).toFixed(6)),
+  meanLogLoss:Number((rows.reduce((n,x)=>n+x.logLoss,0)/rows.length).toFixed(6)),
+  topClassAccuracyPct:Number((rows.filter(x=>x.correct).length/rows.length*100).toFixed(2))
+ };
+}
+
+/**
+ * Evaluates the deterministic forecast probabilities against a uniform baseline and a
+ * chronology-safe, Laplace-smoothed prior built only from forecasts settled before each
+ * prediction's reference timestamp. This is an evaluation report, not a training step.
+ */
+export function evaluateForecastBenchmarks(inputRows=[], options={}) {
+ const minimumPriorOutcomes=Math.max(3,Math.floor(Number(options.minimumPriorOutcomes)||5));
+ const minimumForModelSelection=Math.max(30,Math.floor(Number(options.minimumForModelSelection)||100));
+ const rows=(Array.isArray(inputRows)?inputRows:[])
+  .map(normalizedOutcomeRow).filter(Boolean)
+  .sort((a,b)=>a.referenceAt-b.referenceAt||a.settledAt-b.settledAt);
+ const seen=new Set();
+ const unique=rows.filter(row=>{
+  const key=row.id||[row.ticker,row.referenceAt,row.pUp,row.pDown,row.pHold,row.outcome].join('|');
+  if(seen.has(key))return false;seen.add(key);return true;
+ });
+ const modelScores=[];
+ const uniformScores=[];
+ const priorScores=[];
+ const classCounts={UP:0,DOWN:0,HOLD:0};
+ const priorSampleCounts=[];
+ for(const row of unique) {
+  const model=scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome);
+  const uniform=scoreProbabilityVector([100/3,100/3,100/3],row.outcome);
+  modelScores.push(model);
+  uniformScores.push(uniform);
+  classCounts[row.outcome]++;
+
+  const prior=unique.filter(other=>other.id!==row.id&&other.settledAt<row.referenceAt);
+  if(prior.length>=minimumPriorOutcomes) {
+   const counts={UP:1,DOWN:1,HOLD:1};
+   for(const earlier of prior)counts[earlier.outcome]++;
+   const total=prior.length+3;
+   const probabilities=OUTCOME_CLASSES.map(label=>counts[label]/total*100);
+   priorScores.push(scoreProbabilityVector(probabilities,row.outcome));
+   priorSampleCounts.push(prior.length);
+  }
+ }
+ const model=aggregateBenchmarkScores(modelScores);
+ const uniform=aggregateBenchmarkScores(uniformScores);
+ const rollingPrior=aggregateBenchmarkScores(priorScores);
+ const brierSkillPct=model.meanBrier===null?null:Number(((uniform.meanBrier-model.meanBrier)/uniform.meanBrier*100).toFixed(2));
+ const logLossSkillPct=model.meanLogLoss===null?null:Number(((uniform.meanLogLoss-model.meanLogLoss)/uniform.meanLogLoss*100).toFixed(2));
+ const modelUnderperformsUniform=model.count>0&&model.meanBrier!==null&&model.meanLogLoss!==null&&
+  (model.meanBrier>uniform.meanBrier||model.meanLogLoss>uniform.meanLogLoss);
+ const rollingComparison=model.count>=minimumPriorOutcomes&&rollingPrior.count>0
+  ?{
+    model:{...aggregateBenchmarkScores(unique.filter(row=>unique.some(other=>other.id!==row.id&&other.settledAt<row.referenceAt&&unique.filter(c=>c.settledAt<row.referenceAt).length>=minimumPriorOutcomes).map(row=>scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome)))},
+    baseline:rollingPrior,
+    evaluatedForecasts:rollingPrior.count,
+    betterOnBrier:rollingPrior.meanBrier!==null&&aggregateBenchmarkScores(priorScores).meanBrier!==null,
+    note:'Comparison set is chronological and excludes outcomes that had not settled by each forecast reference timestamp.'
+   }
+  :{model:null,baseline:rollingPrior,evaluatedForecasts:rollingPrior.count,betterOnBrier:null,note:'Not enough previously settled outcomes for a rolling-prior comparison.'};
+ // Model-vs-prior comparison is computed on exactly the same eligible forecast rows.
+ const priorEligibleRows=unique.filter(row=>{
+  const prior=unique.filter(other=>other.id!==row.id&&other.settledAt<row.referenceAt);
+  return prior.length>=minimumPriorOutcomes;
+ });
+ const sameSetModel=aggregateBenchmarkScores(priorEligibleRows.map(row=>scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome)));
+ const rollingSkills={
+  model:sameSetModel,
+  baseline:rollingPrior,
+  brierSkillPct:sameSetModel.meanBrier===null||rollingPrior.meanBrier===null||rollingPrior.meanBrier===0?null:Number(((rollingPrior.meanBrier-sameSetModel.meanBrier)/rollingPrior.meanBrier*100).toFixed(2)),
+  logLossSkillPct:sameSetModel.meanLogLoss===null||rollingPrior.meanLogLoss===null||rollingPrior.meanLogLoss===0?null:Number(((rollingPrior.meanLogLoss-sameSetModel.meanLogLoss)/rollingPrior.meanLogLoss*100).toFixed(2)),
+  sampleCount:Math.min(sameSetModel.count,rollingPrior.count)
+ };
+ let modelSelectionStatus='INSUFFICIENT_OUTCOMES_FOR_MODEL_SELECTION';
+ let reason='At least '+minimumForModelSelection+' verified resolved forecasts are required before model-selection review.';
+ if(model.count>=minimumForModelSelection) {
+  if(modelUnderperformsUniform) {
+   modelSelectionStatus='UNDERPERFORMS_UNIFORM_BASELINE';
+   reason='Current probabilities underperform a uniform baseline on Brier score or log loss; do not promote this model.';
+  } else if(rollingSkills.sampleCount<minimumForModelSelection) {
+   modelSelectionStatus='NEEDS_MORE_CHRONOLOGICAL_HOLDOUTS';
+   reason='Uniform baseline comparison is available, but the rolling-prior holdout sample is still too small for model selection.';
+  } else if((rollingSkills.brierSkillPct??-Infinity)>0&&(rollingSkills.logLossSkillPct??-Infinity)>0) {
+   modelSelectionStatus='OUTPERFORMS_NAIVE_BASELINES_NEEDS_REVIEW';
+   reason='Candidate beats both baselines in this evaluation, but still requires a frozen holdout, calibration review and human approval.';
+  } else {
+   modelSelectionStatus='NOT_BETTER_THAN_ROLLING_PRIOR';
+   reason='Candidate does not beat the chronology-safe rolling-prior baseline on both proper scoring rules.';
+  }
+ }
+ return {
+  version:'FORECAST-BASELINE-BENCHMARK-1.0.0',
+  evaluatedForecasts:model.count,
+  classCounts,
+  currentModel:model,
+  uniformBaseline:{...uniform,description:'Equal 33.33% probability for UP, DOWN and HOLD.'},
+  currentVsUniform:{brierSkillPct,logLossSkillPct,underperforms:modelUnderperformsUniform},
+  rollingPriorBaseline:rollingPrior,
+  currentVsRollingPrior:rollingSkills,
+  rollingPriorMinPreviousSettledOutcomes:minimumPriorOutcomes,
+  modelSelectionStatus,reason,
+  minimumOutcomesForModelSelection:minimumForModelSelection,
+  probabilitiesCalibrated:false,
+  promotionEligible:false,
+  automaticPromotion:false,
+  note:'Benchmarks diagnose forecast quality only. No weights, probabilities, or model versions are changed automatically.'
+ };
+}
+
 export async function getAIOSMarketTrainingStatus(){
  await initializeStorage();
  let totals;
@@ -268,6 +414,20 @@ export async function getAIOSMarketTrainingStatus(){
    :{total:state.forecasts.length,pending:state.forecasts.filter(x=>x.status==='PENDING_OUTCOME').length,resolved:state.forecasts.filter(x=>x.status==='RESOLVED').length,mean_brier:average(state.forecasts.filter(x=>x.status==='RESOLVED'),'brierScore'),mean_log_loss:average(state.forecasts.filter(x=>x.status==='RESOLVED'),'logLoss'),correct:state.forecasts.filter(x=>x.status==='RESOLVED'&&x.correctTopClass).length};
  }catch(error){markStorageError(error);totals={total:state.forecasts.length,pending:state.forecasts.filter(x=>x.status==='PENDING_OUTCOME').length,resolved:state.forecasts.filter(x=>x.status==='RESOLVED').length,mean_brier:null,mean_log_loss:null,correct:0};}
  const resolved=Number(totals.resolved||0);
+ let benchmarkRows=[],benchmarkLoadError=null;
+ try {
+  benchmarkRows=state.pool&&state.schemaReady&&state.persistence==='POSTGRES'
+   ?(await state.pool.query(`SELECT id,ticker,model_name AS "modelName",reference_as_of AS "referenceAsOf",horizon_minutes AS "horizonMinutes",p_up AS "pUp",p_down AS "pDown",p_hold AS "pHold",outcome,actual_return_pct AS "actualReturnPct",brier_score AS "brierScore",log_loss AS "logLoss",predicted_outcome AS "predictedOutcome",settled_at AS "settledAt",created_at AS "createdAt" FROM finpilot_ai_os_market_forecasts WHERE status='RESOLVED' ORDER BY reference_as_of DESC LIMIT 1000`)).rows.reverse()
+   :state.forecasts.filter(x=>x.status==='RESOLVED').slice(-1000);
+ } catch(error) {
+  benchmarkLoadError=safeText(error?.message||'Forecast benchmark records unavailable',180);
+ }
+ const benchmark=evaluateForecastBenchmarks(benchmarkRows);
+ if(benchmarkLoadError) {
+  benchmark.modelSelectionStatus='BENCHMARK_DATA_UNAVAILABLE';
+  benchmark.reason='Forecast benchmark records could not be loaded: '+benchmarkLoadError;
+  benchmark.promotionEligible=false;
+ }
  return {
   ok:true,version:VERSION,model:MODEL,enabled:state.enabled,requestedEnabled:state.requestedEnabled,running:state.running,
   intervalMs:state.intervalMs,watchlist:[...state.watchlist],persistence:state.persistence,persistent:state.persistent,
@@ -278,6 +438,7 @@ export async function getAIOSMarketTrainingStatus(){
   meanBrierScore:finiteOrNull(totals.mean_brier),meanLogLoss:finiteOrNull(totals.mean_log_loss),
   topClassAccuracyPct:resolved?Number((Number(totals.correct||0)/resolved*100).toFixed(2)):null,
   calibrationStatus:resolved<100?'INSUFFICIENT_RESOLVED_OUTCOMES':'READY_FOR_HELD_OUT_REVIEW',
+  benchmark,calibrationStatus:resolved<100?'INSUFFICIENT_RESOLVED_OUTCOMES':benchmark.modelSelectionStatus,
   probabilitiesCalibrated:false,foundationModelTraining:false,realMoneyExecution:false,automaticPromotion:false,
   nextRunAt:state.enabled&&state.lastCompletedAt?new Date(Date.parse(state.lastCompletedAt)+state.intervalMs).toISOString():state.enabled?new Date(Date.now()+state.intervalMs).toISOString():null,
   requiresAlwaysOnWorkerFor24x7:true,scheduleMode:state.enabled?'IN_PROCESS_INTERVAL_REQUIRES_ALWAYS_ON_HOST':'IN_PROCESS_INTERVAL_DISABLED_EXTERNAL_TRIGGER_SUPPORTED',
