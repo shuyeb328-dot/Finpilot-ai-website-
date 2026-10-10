@@ -88,7 +88,7 @@ const first=host.querySelector('#fpTradingViewBridge');
 assert.ok(first,'mount should insert the TradingView bridge into the Paper Arena');
 assert.match(first._innerHTML,/fpTvAlertInbox/,'bridge should include a secure alert inbox');
 assert.match(first._innerHTML,/"token":"PASTE_RENDER_SHARED_SECRET"/,'bridge should provide a non-secret alert JSON template');
-assert.match(first._innerHTML,/\\{\\{ticker\\}\\}/,'template should use TradingView ticker placeholder');
+assert.match(first._innerHTML,/\{\{ticker\}\}/,'template should use TradingView ticker placeholder');
 const inboxToken=first.querySelector('#fpTvAlertToken');
 inboxToken.value='test-shared-secret-not-stored';
 first.querySelector('#fpTvAlertLoad').fire('click');
