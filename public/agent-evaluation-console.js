@@ -98,6 +98,9 @@
     const model=benchmark.currentModel||{};
     const uniform=benchmark.uniformBaseline||{};
     const rolling=benchmark.rollingPriorBaseline||{};
+    const classCoverage=benchmark.classCoverage||{};
+    const classCounts=benchmark.classCounts||{};
+    const classCountLabel=['UP','DOWN','HOLD'].map(label=>label+': '+Number(classCounts[label]||0)).join(' · ');
     const metric=value=>value===null||value===undefined||!Number.isFinite(Number(value))?'Not measured':Number(value).toFixed(4);
     const benchBox=node('div','fpEvalBench');
     benchBox.append(node('h4','','Forecast quality vs baselines'));
@@ -112,16 +115,22 @@
       node('span','', 'Model log loss: '+metric(model.meanLogLoss)),
       node('span','', 'Uniform log loss: '+metric(uniform.meanLogLoss)),
       node('span','', 'Brier skill vs uniform: '+(benchmark.currentVsUniform?.brierSkillPct==null?'Not measured':benchmark.currentVsUniform.brierSkillPct+'%')),
-      node('span','', 'Rolling-prior tests: '+(rolling.count??0))
+      node('span','', 'Rolling-prior tests: '+(rolling.count??0)),
+      node('span','', 'Classes observed: '+(classCoverage.observed??0)+' / '+(classCoverage.total??3)),
+      node('span','', 'Outcome mix: '+classCountLabel),
+      node('span','', 'Uniform top-class accuracy: '+(uniform.topClassAccuracyPct==null?'Not applicable (three-way tie)':uniform.topClassAccuracyPct+'%'))
     );
     benchBox.append(benchFacts,node('p',benchmark.currentVsUniform?.underperforms?'fpEvalBad':'fpEvalMuted',
       benchmark.currentVsUniform?.underperforms
        ? 'Warning: current probabilities underperform the uniform baseline on Brier score or log loss. Do not promote this model.'
        : (benchmark.reason||'Benchmark comparison is not conclusive yet.')
     ));
+    if(classCoverage.warning)benchBox.append(node('p','fpEvalBad',
+      classCoverage.warning+' Model selection remains blocked until there are enough resolved examples from different market directions.'
+    ));
     benchBox.append(node('p','fpEvalMuted',
       'Rolling-prior Brier: '+metric(rolling.meanBrier)+' · log loss: '+metric(rolling.meanLogLoss)+
-      '. Forecasts are calibrated only after separate calibration and frozen holdout review; automatic promotion remains disabled.'
+      '. Rolling priors use only outcomes from the same asset and forecast horizon that settled before the forecast timestamp. Forecasts are calibrated only after separate calibration and frozen holdout review; automatic promotion remains disabled.'
     ));
     host.append(grid,counts,benchBox,safety);
     const runButton=panel.querySelector('[data-action="market-cycle"]');
