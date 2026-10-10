@@ -12,11 +12,23 @@
     const s=normalizeSymbol(value);if(!s)return '';
     const m=String(market||'AUTO').toUpperCase();
     if(s.includes(':'))return s;
-    if(m==='CRYPTO'||(/USDT$/.test(s)))return 'BINANCE:'+(s.endsWith('USDT')?s:s+'USDT');
-    if(m==='INDIA'||m==='NSE')return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
+    // Respect explicit listing suffixes; .BO is BSE and .NS is NSE.
+    if(/\.BO$/.test(s))return 'BSE:'+s.replace(/\.BO$/,'');
+    if(/\.NS$/.test(s))return 'NSE:'+s.replace(/\.NS$/,'');
+    if(m==='CRYPTO'||/USDT$/.test(s))return 'BINANCE:'+(s.endsWith('USDT')?s:s+'USDT');
+    if(m==='INDIA'||m==='NSE')return 'NSE:'+s;
+    if(m==='BSE')return 'BSE:'+s;
     if(m==='US')return 'NASDAQ:'+s;
-    if(/\.(NS|BO)$/.test(s))return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
     return 'NASDAQ:'+s;
+  }
+  function analysisSymbol(value,market){
+    const s=tvSymbol(value,market);if(!s)return '';
+    const colon=s.indexOf(':');if(colon<0)return s;
+    const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
+    if(venue==='BINANCE')return ticker; // Preserve the quote asset: BTCUSDT is not BTC.
+    if(venue==='NSE')return ticker+'.NS';
+    if(venue==='BSE')return ticker+'.BO';
+    return ticker;
   }
   function widgetUrl(symbol){
     const s=tvSymbol(symbol,'AUTO');
@@ -24,7 +36,12 @@
   }
   function paperSymbol(value){
     const s=normalizeSymbol(value);if(!s)return '';
-    return s.split(':').pop().replace(/\.(NS|BO)$/,'');
+    const colon=s.indexOf(':');
+    if(colon<0)return s; // Keep explicit .NS/.BO listing suffixes supplied by the user.
+    const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
+    if(venue==='NSE')return ticker+'.NS';
+    if(venue==='BSE')return ticker+'.BO';
+    return ticker;
   }
   function mount(){
     const host=document.getElementById('paperlab');
@@ -44,7 +61,8 @@
     section.querySelector('#fpTvLoad').addEventListener('click',loadChart);
     section.querySelector('#fpTvAnalyze').addEventListener('click',()=>{
       const s=symbol();if(!s)return;
-      const raw=s.split(':').pop().replace(/USDT$/,'').replace(/\.(NS|BO)$/,'');
+      const raw=analysisSymbol(s,market.value);
+      if(!raw)return;
       const q=document.getElementById('globalSearch')||document.getElementById('searchQuery');
       if(q){q.value=raw;q.dispatchEvent(new Event('input',{bubbles:true}));}
       if(typeof window.runFullStockAnalysis==='function')window.runFullStockAnalysis(raw);
@@ -78,6 +96,6 @@
     observer.observe(document.body,{childList:true,subtree:true});
     let tries=0;const timer=setInterval(()=>{tryMount();if(document.getElementById('fpTradingViewBridge')||++tries>120)clearInterval(timer)},500);
   }
-  window.FinPilotTradingViewBridge={normalizeSymbol,tvSymbol,widgetUrl,paperSymbol,mount};
+  window.FinPilotTradingViewBridge={normalizeSymbol,tvSymbol,analysisSymbol,widgetUrl,paperSymbol,mount};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
