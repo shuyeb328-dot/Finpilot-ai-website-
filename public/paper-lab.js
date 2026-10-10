@@ -52,7 +52,19 @@ function paperOrderQuantity(agent,market,pct=.1){
 }
 function paperMarketMeta(m){
  const v=m?.verification||{};
- return {verified:m?.executionEligible!==false&&m?.live!==false&&v.available!==false,available:m?.live!==false,executionEligible:m?.executionEligible!==false,providerCount:Number(v.providerCount||m?.providerCount||2),sourceAsOf:m?.asOf||m?.sourceAsOf||undefined,receivedAt:m?.receivedAt||new Date().toISOString(),asOf:m?.asOf||undefined,seq:m?.streamSeq??undefined,status:m?.streamStatus||undefined,bid:Number(m?.orderBook?.bid||0)||undefined,ask:Number(m?.orderBook?.ask||0)||undefined};
+ const sourceAsOf=m?.sourceAsOf||m?.asOf||m?.tick?.sourceAsOf||m?.tick?.asOf;
+ const sourceMs=sourceAsOf?Date.parse(sourceAsOf):NaN;
+ const ageMs=Number.isFinite(sourceMs)?Date.now()-sourceMs:NaN;
+ const verified=Boolean(m?.verified===true&&m?.live===true&&m?.executionEligible===true
+   &&m?.sourceTimestampType==='PROVIDER_TIMESTAMP'&&Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=30000
+   &&v.status==='VERIFIED'&&v.available===true&&v.priceAgreement===true&&v.primaryProviderTimestampValid===true
+   &&Number(m?.price)>0);
+ return {verified,available:verified,executionEligible:verified,
+   sourceTimestampType:m?.sourceTimestampType||'UNKNOWN_TIMESTAMP',provider:m?.provider||'',
+   providerCount:Number(v.providerCount||m?.providerCount||0),sourceAsOf:sourceAsOf||undefined,
+   receivedAt:m?.receivedAt,asOf:sourceAsOf||undefined,seq:m?.streamSeq??undefined,
+   status:m?.streamStatus||undefined,bid:Number(m?.orderBook?.bid||0)||undefined,
+   ask:Number(m?.orderBook?.ask||0)||undefined};
 }
 function paperSubmitSide(side,overrides={}){
  const p=syncPaperAgents(),m=p.lastMarket||paperMarket(),a=p.agents.find(x=>x.id===document.getElementById('paperAgent')?.value);
