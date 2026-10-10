@@ -19,6 +19,7 @@ import {fetchNasdaqEod} from './nasdaq-eod.mjs';
 import {getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,getAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus} from './autonomous-core.mjs';
 import {init as initAutonomousLearning, status as autonomousLearningStatus, queue as autonomousLearningQueue, cycleNow as autonomousLearningCycle, enable as autonomousLearningEnable, runLiveAgentComparison} from './autonomous-learning.mjs';
 import {GLOBAL_INDEXES,GLOBAL_STOCK_TEST_SET,normalizeGlobalSymbol,GLOBAL_INDEX_FALLBACKS} from './global-market-registry.mjs';
+import {cryptoProviderSymbols} from './crypto-provider-symbols.mjs';
 import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
@@ -544,7 +545,9 @@ async function liveCrypto(t, interval='1h', multi=true){
  const key=t.toUpperCase(), symbol=CRYPTO_ASSETS[key];
  if(!symbol) throw new Error('Crypto symbol not connected. Supported: BTC, ETH, SOL, BNB, XRP.');
  // Normalize quote-suffix aliases once so all providers use the same underlying asset.
- const baseAsset=key.replace(/USDT$/,'');
+ const providerSymbols=cryptoProviderSymbols(key,symbol);
+ if(!providerSymbols)throw new Error('CRYPTO_PAIR_UNSUPPORTED: quote currency cannot be resolved safely');
+ const baseAsset=providerSymbols.base;
  const tf=TIMEFRAMES[interval]||'1h';
  const intervals=multi?['15m','1h','4h'].filter(x=>x!==tf).concat(tf):[tf];
  const unique=[...new Set(intervals)];
@@ -555,7 +558,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    ...unique.map(x=>fetchJson(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${x}&limit=220`))
   ]);
  }catch(binanceError){
-  const krakenPair=baseAsset==='BTC'?'XBTUSD':baseAsset+'USD';
+  const krakenPair=providerSymbols.krakenPair;
   const map={'15m':15,'1h':60,'4h':240,'1d':1440};
   try{
    const kTicker=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(krakenPair),'kraken');
@@ -569,7 +572,7 @@ async function liveCrypto(t, interval='1h', multi=true){
    }));
    provider='Kraken public market data fallback';
   }catch(krakenError){
-   const coinPair=baseAsset+'-USD';
+   const coinPair=providerSymbols.coinbaseProduct;
    const cmap={'15m':900,'1h':3600,'4h':21600,'1d':86400};
    try{
     const ct=await directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/ticker','coinbase');
@@ -1191,9 +1194,11 @@ async function marketDataOS(req,res,u){
  };
  if(CRYPTO_ASSETS[raw]){
   const symbol=CRYPTO_ASSETS[raw];
+  const providerSymbols=cryptoProviderSymbols(raw,symbol);
+  if(!providerSymbols)return send(res,400,{ok:false,error:'CRYPTO_PAIR_UNSUPPORTED',ticker:raw});
   await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');const asOf=Number(x.closeTime)>0?new Date(Number(x.closeTime)).toISOString():x?._finpilotCache?.observedAt||null;return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf,timestampType:Number(x.closeTime)>0?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
-  await addAttempt('Kraken public',async()=>{const pair=raw==='BTC'?'XBTUSD':raw+'USD';const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
-  await addAttempt('Coinbase public',async()=>{const pair=raw==='BTC'?'BTC-USD':raw+'-USD';const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Kraken public',async()=>{const pair=providerSymbols.krakenPair;const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Coinbase public',async()=>{const pair=providerSymbols.coinbaseProduct;const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
  }else{
   const quoteCountBeforePrimary=quotes.length;
   const liveQuoteOk=await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'UNKNOWN_TIMESTAMP',live:Boolean(r.live),executionEligible:r.executionEligible!==false,executionEligibilityReason:r.executionEligibilityReason||null,exchange:r.exchange};});
