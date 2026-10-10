@@ -9,7 +9,7 @@ const API='/api/os-control-plane';
 const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const tone=s=>({HEALTHY:'good',READY:'good',ACTIVE:'good',SAFE_GATED:'good',IDLE:'neutral',PARTIAL:'warn',DEGRADED:'bad',UNKNOWN:'neutral',REVIEW_REQUIRED:'bad'}[s]||'neutral');
 const nice=s=>String(s||'UNKNOWN').replace(/_/g,' ');
-let opened=false,lastData=null,lastCycle=null,busy=false,refreshTimer=null,client=null;
+let opened=false,lastData=null,lastCycle=null,busy=false,refreshTimer=null,client=null,managedRegistryData=null;
 function clientSignals(){return {
  foundation:window.FinPilotFoundation?.getReport?.()||null,
  evolution:window.FinPilotEvolution?.snapshot?.()||null,
@@ -41,6 +41,7 @@ function styles(){
  '.fpac-os-name{font-weight:750;font-size:12px}.fpac-os-sub{color:#9bb0c9;font-size:10px;margin-top:3px;overflow-wrap:anywhere}',
  '.fpac-badge{border-radius:999px;font-size:9px;font-weight:800;letter-spacing:.04em;padding:4px 6px;white-space:nowrap;background:#172b40;color:#a8bad0}.fpac-badge.good{background:#103b34;color:#6fe2bb}.fpac-badge.warn{background:#443417;color:#ffd27b}.fpac-badge.bad{background:#451d2a;color:#ff9ca9}',
  '.fpac-details{display:none;border-top:1px solid #1b3047;padding:9px 11px;color:#aebed2;font-size:10px}.fpac-os.expanded .fpac-details{display:block}',
+ '.fpac-agent-form{display:grid;gap:8px;border:1px solid #21354e;background:#091929;padding:11px;border-radius:10px}.fpac-agent-form input,.fpac-agent-form textarea,.fpac-agent-form select{width:100%;min-width:0;border:1px solid #294564;border-radius:7px;background:#061321;color:#e3efff;padding:9px;font:12px system-ui}.fpac-agent-form label{display:grid;gap:4px;color:#9bb0c9;font-size:10px}.fpac-agent-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.fpac-agent-item{border:1px solid #20354d;border-radius:9px;padding:9px;background:#091929;margin-top:7px}.fpac-agent-title{font-size:12px;font-weight:750}.fpac-agent-meta{font-size:10px;color:#9bb0c9;margin-top:3px;overflow-wrap:anywhere}.fpac-agent-scope{font-size:10px;color:#6eddbb;margin-top:5px;overflow-wrap:anywhere}.fpac-agent-form .fpac-btn{justify-self:start}@media(max-width:420px){.fpac-agent-grid{grid-template-columns:1fr}}',
  '.fpac-plan{border:1px solid #25415e;background:#0c1c30;border-radius:10px;padding:11px}.fpac-plan h4{font-size:12px;margin:0 0 5px}.fpac-plan p{margin:4px 0;color:#9fb2ca;font-size:10px}.fpac-meta{color:#6eddbb;font-size:9px;font-weight:800;text-transform:uppercase}',
  '.fpac-empty{border:1px dashed #314862;border-radius:9px;padding:11px;color:#9db0c9;font-size:11px}.fpac-notice{padding:9px;border:1px solid #41536a;border-radius:8px;color:#c6d4e8;background:#0e1d2f;font-size:10px;overflow-wrap:anywhere}',
  '.fpac-footer{border-top:1px solid #203047;padding:10px 13px;color:#7e95b2;font-size:10px}',
@@ -53,7 +54,7 @@ function ensureDOM(){
  styles();if(document.getElementById('fp-autonomous-panel'))return;
  const shade=document.createElement('div');shade.id='fp-autonomous-shade';shade.addEventListener('click',close);
  const panel=document.createElement('aside');panel.id='fp-autonomous-panel';panel.setAttribute('aria-label','Autonomous OS Control Center');
- panel.innerHTML='<div class="fpac-head"><div class="fpac-row"><div class="fpac-icon">⌘</div><div class="fpac-grow"><div class="fpac-title">FinPilot AI OS <span style="color:#6eddbb;font-size:9px">v1.1</span></div><div class="fpac-sub">One registry · shared operating layer · governed learning</div></div><button class="fpac-btn" id="fpac-close" aria-label="Close panel">✕</button></div><div class="fpac-stats" id="fpac-stats"><div class="fpac-stat"><b>—</b><span>REGISTERED OS</span></div><div class="fpac-stat"><b>—</b><span>DEGRADED</span></div><div class="fpac-stat"><b>—</b><span>LEARNED CASES</span></div></div><div class="fpac-row" style="margin-top:11px"><button class="fpac-btn primary" id="fpac-refresh">Refresh health</button><button class="fpac-btn" id="fpac-cycle">Run core cycle</button><button class="fpac-btn" id="fpac-mode">Enable safe mode</button></div></div><div class="fpac-content"><div id="fpac-alert" class="fpac-notice">Loading measured status…</div><div class="fpac-section">Operating planes · unified registry</div><div id="fpac-planes" class="fpac-planes"><div class="fpac-empty">Loading operating planes…</div></div><div class="fpac-section">All registered OS modules</div><div id="fpac-os-list" class="fpac-empty">Checking registered OS modules…</div><div class="fpac-section">Autonomous action plan</div><div id="fpac-plan"><div class="fpac-empty">Run a cycle to build a prioritized, read-only plan.</div></div><div class="fpac-section">AI Security OS · policy probe</div><div class="fpac-plan"><h4>Test the security guard</h4><p>Runs a policy-only test for a prohibited autonomous action. It does not attempt a trade, deploy, or change any setting.</p><button class="fpac-btn danger" id="fpac-security-probe">Probe protected action</button><div id="fpac-security-result" style="margin-top:8px"></div></div><div class="fpac-section">Self-learning record</div><div id="fpac-learning" class="fpac-empty">Outcome feedback adjusts bounded task-priority weights; it cannot rewrite code or weaken safety policy.</div></div><div class="fpac-footer">Safe by default · No real-money execution · No autonomous production code changes</div>';
+ panel.innerHTML='<div class="fpac-head"><div class="fpac-row"><div class="fpac-icon">⌘</div><div class="fpac-grow"><div class="fpac-title">FinPilot AI OS <span style="color:#6eddbb;font-size:9px">v1.1</span></div><div class="fpac-sub">One registry · shared operating layer · governed learning</div></div><button class="fpac-btn" id="fpac-close" aria-label="Close panel">✕</button></div><div class="fpac-stats" id="fpac-stats"><div class="fpac-stat"><b>—</b><span>REGISTERED OS</span></div><div class="fpac-stat"><b>—</b><span>DEGRADED</span></div><div class="fpac-stat"><b>—</b><span>LEARNED CASES</span></div></div><div class="fpac-row" style="margin-top:11px"><button class="fpac-btn primary" id="fpac-refresh">Refresh health</button><button class="fpac-btn" id="fpac-cycle">Run core cycle</button><button class="fpac-btn" id="fpac-mode">Enable safe mode</button></div></div><div class="fpac-content"><div id="fpac-alert" class="fpac-notice">Loading measured status…</div><div class="fpac-section">Operating planes · unified registry</div><div id="fpac-planes" class="fpac-planes"><div class="fpac-empty">Loading operating planes…</div></div><div class="fpac-section">Central Agent Factory · server registry</div><form id="fpac-agent-form" class="fpac-agent-form"><div class="fpac-agent-grid"><label>Agent name<input name="name" id="fpac-agent-name" required minlength="2" maxlength="60" placeholder="Market Regime Scout"></label><label>Run interval (minutes)<input name="interval" id="fpac-agent-interval" type="number" min="1" max="1440" value="15" required></label></div><label>Role / expertise<input name="role" id="fpac-agent-role" required maxlength="120" placeholder="Research public market evidence"></label><label>Objective<textarea name="objective" id="fpac-agent-objective" maxlength="600" rows="2" placeholder="Compare independent timestamped sources, identify contradictions and state uncertainty"></textarea></label><div class="fpac-meta">Creates a governed agent definition only. No arbitrary code, credential access, live trading, or automatic execution is granted.</div><button class="fpac-btn primary" id="fpac-agent-submit" type="submit">Register specialist</button></form><div id="fpac-managed-agents" class="fpac-empty">Loading central agent registry…</div><div class="fpac-section">All registered OS modules</div><div id="fpac-os-list" class="fpac-empty">Checking registered OS modules…</div><div class="fpac-section">Autonomous action plan</div><div id="fpac-plan"><div class="fpac-empty">Run a cycle to build a prioritized, read-only plan.</div></div><div class="fpac-section">AI Security OS · policy probe</div><div class="fpac-plan"><h4>Test the security guard</h4><p>Runs a policy-only test for a prohibited autonomous action. It does not attempt a trade, deploy, or change any setting.</p><button class="fpac-btn danger" id="fpac-security-probe">Probe protected action</button><div id="fpac-security-result" style="margin-top:8px"></div></div><div class="fpac-section">Self-learning record</div><div id="fpac-learning" class="fpac-empty">Outcome feedback adjusts bounded task-priority weights; it cannot rewrite code or weaken safety policy.</div></div><div class="fpac-footer">Safe by default · No real-money execution · No autonomous production code changes</div>';
  const launcher=document.createElement('button');launcher.id='fp-autonomous-launch';launcher.textContent='◈ OS Control';launcher.setAttribute('aria-controls','fp-autonomous-panel');launcher.setAttribute('aria-expanded','false');launcher.addEventListener('click',toggle);
  document.body.append(shade,panel,launcher);
  panel.querySelector('#fpac-close').addEventListener('click',close);
@@ -61,6 +62,7 @@ function ensureDOM(){
  panel.querySelector('#fpac-cycle').addEventListener('click',runCycle);
  panel.querySelector('#fpac-mode').addEventListener('click',toggleMode);
  panel.querySelector('#fpac-security-probe').addEventListener('click',securityProbe);
+ panel.querySelector('#fpac-agent-form').addEventListener('submit',createManagedAgentFromOS);
 }
 async function api(url,options){
  options=options||{};
@@ -68,6 +70,31 @@ async function api(url,options){
  const data=await r.json().catch(()=>({ok:false,error:'INVALID_JSON_RESPONSE'}));
  if(!r.ok||data.ok===false)throw new Error(data.error||('HTTP_'+r.status));
  return data;
+}
+function renderManagedAgents(data,error){
+ const host=document.getElementById('fpac-managed-agents');if(!host)return;
+ if(error){host.innerHTML='<div class="fpac-empty">Central Agent Factory is unavailable: '+esc(error)+'. Agents are not registered locally as a fallback.</div>';return}
+ if(!data){host.innerHTML='<div class="fpac-empty">Loading central agent registry…</div>';return}
+ const agents=Array.isArray(data.agents)?data.agents:[];
+ const summary='<div class="fpac-meta">'+agents.length+'/'+Number(data.maxAgents||100)+' definitions · '+esc(nice(data.persistence||'UNKNOWN'))+' · '+(data.persistent?'restart-safe storage':'may reset on server restart')+'</div>';
+ host.innerHTML=summary+(agents.length?agents.map(agent=>'<div class="fpac-agent-item"><div class="fpac-agent-title">'+esc(agent.icon||'🤖')+' '+esc(agent.name)+'</div><div class="fpac-agent-meta">'+esc(agent.domain||'CUSTOM')+' · '+esc(agent.status||'REGISTERED')+' · '+esc(agent.executionMode||'USER_TRIGGERED_ONLY')+'</div><div class="fpac-agent-meta">'+esc(agent.role||agent.mission||'No role supplied')+'</div><div class="fpac-agent-scope">Data scopes: '+esc((agent.permissions||[]).join(', ')||'No optional scopes')+'</div></div>').join(''):'<div class="fpac-empty">No managed agent definitions registered yet.</div>');
+}
+async function createManagedAgentFromOS(event){
+ event.preventDefault();if(busy)return;
+ const form=document.getElementById('fpac-agent-form'),button=document.getElementById('fpac-agent-submit');
+ const name=document.getElementById('fpac-agent-name')?.value?.trim(),role=document.getElementById('fpac-agent-role')?.value?.trim();
+ const objective=document.getElementById('fpac-agent-objective')?.value?.trim(),interval=Number(document.getElementById('fpac-agent-interval')?.value||15);
+ if(!name||!role||!Number.isInteger(interval)||interval<1||interval>1440){toast('Enter a valid agent name, role and interval from 1 to 1440 minutes');return}
+ if(button)button.disabled=true;
+ try{
+  await api('/api/ai-os/agents',{method:'POST',body:JSON.stringify({name,role,objective,interval})});
+  managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData);
+  form.reset();const iv=document.getElementById('fpac-agent-interval');if(iv)iv.value='15';
+  await refresh();toast(managedRegistryData.persistent?'Agent registered in the shared AI OS registry':'Agent registered, but the registry is process-memory only and may reset on restart');
+ }catch(error){
+  renderManagedAgents(null,error?.message||String(error));
+  toast('Central agent registration failed; no local-only agent was created');
+ }finally{if(button)button.disabled=false}
 }
 function open(){
  ensureDOM();opened=true;document.getElementById('fp-autonomous-panel').classList.add('open');document.getElementById('fp-autonomous-shade').classList.add('open');document.getElementById('fp-autonomous-launch').setAttribute('aria-expanded','true');refresh();
@@ -123,14 +150,18 @@ function renderPlan(cycle){
 }
 async function refresh(showToast){
  if(busy)return;busy=true;const btn=document.getElementById('fpac-refresh');if(btn)btn.disabled=true;
- try{const d=await api(API);render(d);if(showToast)toast('OS health refreshed')}
+ try{
+  const d=await api(API);render(d);
+  try{managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData)}catch(registryError){renderManagedAgents(null,registryError?.message||String(registryError))}
+  if(showToast)toast('AI OS health and central agent registry refreshed')
+ }
  catch(e){const a=document.getElementById('fpac-alert');if(a)a.textContent='Control plane unavailable: '+e.message}
  finally{busy=false;if(btn)btn.disabled=false}
 }
 function toast(m){if(typeof window.FinPilotBridge?.toast==='function')window.FinPilotBridge.toast(m);else console.info('[FinPilot Core OS]',m)}
 async function runCycle(){
  const btn=document.getElementById('fpac-cycle');if(busy)return;busy=true;if(btn)btn.disabled=true;
- try{const d=await api(API+'/cycle',{method:'POST',body:JSON.stringify({requestedFrom:'os-control-panel'})});lastCycle=d;renderPlan(d);const r=await api(API);render(r);renderPlan(d);toast('Core cycle finished · '+d.tasks.length+' plans · no external actions executed')}
+ try{const d=await api(API+'/cycle',{method:'POST',body:JSON.stringify({requestedFrom:'os-control-panel'})});lastCycle=d;renderPlan(d);const r=await api(API);render(r);renderPlan(d);try{managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData)}catch(registryError){renderManagedAgents(null,registryError?.message||String(registryError))}toast('AI OS cycle finished · '+d.tasks.length+' plans · no external actions executed')}
  catch(e){document.getElementById('fpac-plan').innerHTML='<div class="fpac-empty">Cycle stopped safely: '+esc(e.message)+'</div>'}
  finally{busy=false;if(btn)btn.disabled=false}
 }
