@@ -127,7 +127,7 @@ async function googleNewsRss(q,count){
   const blocks=xml.match(/<item>[\s\S]*?<\/item>/gi)||[];
   for(const block of blocks.slice(0,count)){
    const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\s\\S]*?)<\\/'+tag+'>','i'));return m?m[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim():''};
-   const title=cleanText(val('title')),link=val('link'),snippet=cleanText(val('description')),publishedAt=val('pubDate'),source=cleanText(val('source'))||'Google News';
+   const title=cleanText(val('title')),link=cleanText(val('link')),snippet=cleanText(val('description')),publishedAt=val('pubDate'),source=cleanText(val('source'))||'Google News';
    if(/^https?:\/\//i.test(link))items.push({title,url:link,snippet,source,publishedAt});
   }
   return normalize(items,'google-news-rss');
