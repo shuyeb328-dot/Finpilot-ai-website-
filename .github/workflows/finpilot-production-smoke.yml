@@ -1,0 +1,88 @@
+name: FinPilot production smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/finpilot-production-smoke.yml"
+      - "public/index.html"
+      - "public/one-click-analysis.js"
+      - "public/deep-learning-os.js"
+      - "server/**"
+  workflow_dispatch:
+  schedule:
+    - cron: "17,47 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finpilot-production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check public homepage and API readiness
+        shell: bash
+        env:
+          BASE_URL: https://finpilot-ai-8wn6.onrender.com
+        run: |
+          set -euo pipefail
+
+          fetch_200() {
+            local url="$1"
+            local output="$2"
+            local status="000"
+            for attempt in 1 2 3; do
+              status="$(curl --silent --show-error --max-time 25 --output "$output" --write-out '%{http_code}' "$url" || true)"
+              if [[ "$status" == "200" ]]; then
+                return 0
+              fi
+              echo "Attempt $attempt returned HTTP $status for $url"
+              sleep 20
+            done
+            echo "Endpoint failed after retries: $url (HTTP $status)"
+            return 1
+          }
+
+          fetch_200 "$BASE_URL/" /tmp/finpilot-home.html
+          fetch_200 "$BASE_URL/api/health" /tmp/finpilot-health.json
+          fetch_200 "$BASE_URL/api/core-status" /tmp/finpilot-core.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const home = fs.readFileSync('/tmp/finpilot-home.html', 'utf8');
+          const health = JSON.parse(fs.readFileSync('/tmp/finpilot-health.json', 'utf8'));
+          const core = JSON.parse(fs.readFileSync('/tmp/finpilot-core.json', 'utf8'));
+
+          const failures = [];
+          if (!home.includes('one-click-analysis.js')) failures.push('homepage does not reference one-click analysis');
+          if (!home.includes('deep-learning-os.js')) failures.push('homepage does not reference deep-learning OS');
+          if (health.ok !== true || health.status !== 'OPERATIONAL') failures.push('health endpoint is not operational');
+          if (health.frontendSyntax?.ok !== true) failures.push('frontend syntax health check failed');
+          if (core.ok !== true) failures.push('core status endpoint returned ok=false');
+
+          console.log(JSON.stringify({
+            homepage: 'HTTP 200',
+            health: { ok: health.ok, status: health.status, version: health.version, frontendSyntax: health.frontendSyntax },
+            core: { ok: core.ok, version: core.version, serverExecutedAgentRuns: core.serverExecutedAgentRuns, clientReportedAgentRuns: core.clientReportedAgentRuns, agentMemoryPersistent: core.agentMemoryPersistent },
+            failures
+          }, null, 2));
+
+          if (failures.length) process.exit(1);
+          NODE
+
+      - name: Check production agent assets
+        shell: bash
+        env:
+          BASE_URL: https://finpilot-ai-8wn6.onrender.com
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 25 "$BASE_URL/one-click-analysis.js?smoke=$(date +%s)" -o /tmp/finpilot-one-click.js
+          curl --fail --silent --show-error --max-time 25 "$BASE_URL/deep-learning-os.js?smoke=$(date +%s)" -o /tmp/finpilot-deep-learning.js
+          grep -q "syncClientAgentTelemetry" /tmp/finpilot-one-click.js
+          grep -q "SPECIALIST_FLEET_INCOMPLETE" /tmp/finpilot-one-click.js
+          grep -q "forecastTrainingReport" /tmp/finpilot-deep-learning.js
+          echo "Production agent assets served the expected orchestration and forecast-training contracts."
