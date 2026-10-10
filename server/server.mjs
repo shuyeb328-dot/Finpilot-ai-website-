@@ -308,7 +308,7 @@ function decodeResearchHtml(s){
  return String(s||'')
  .replace(/&#x([0-9a-f]+);?/gi,(_,v)=>{const n=parseInt(v,16);return n>0&&n<=0x10ffff?String.fromCodePoint(n):' '})
  .replace(/&#([0-9]+);?/g,(_,v)=>{const n=Number(v);return n>0&&n<=0x10ffff?String.fromCodePoint(n):' '})
- .replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&apos;/gi,"'").replace(/&#39;/g,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>')
+ .replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&apos;/gi,"'").replace(/'/g,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>')
  .replace(/&(?:copy|reg|trade|mdash|ndash|hellip);/gi,m=>({'&copy;':'©','&reg;':'®','&trade;':'™','&mdash;':'—','&ndash;':'–','&hellip;':'…'}[m.toLowerCase()]||' '));
 }
 function extractResearchPage(html,baseUrl,contentType){
@@ -694,6 +694,116 @@ const INDIA_EQUITIES={
 };
 const YAHOO_RESOLVE_CACHE=new Map();
 const YAHOO_INSTRUMENT_SEARCH_CACHE=new Map();
+const COMMON_US_EQUITY_SYMBOLS = new Set([
+ 'AAPL','MSFT','NVDA','TSLA','AMZN','GOOGL','GOOG','META','AMD','INTC','ORCL','CRM','NFLX',
+ 'AVGO','ADBE','JPM','V','MA','KO','PEP','COST','WMT','DIS','UBER','SHOP','PLTR','LLY','XOM',
+ 'BAC','GS','MCD','TMO','QCOM','CSCO','PFE','BA','NKE','IBM','BRK.B'
+]);
+function normalizeInstrumentDirectoryText(value){
+ return String(value||'').toUpperCase()
+  .replace(/\b(?:INCORPORATED|CORPORATION|CORP|INC|LIMITED|LTD|PLC|COMPANY|CO|STOCK|SHARES?|SHARE PRICE)\b/g,' ')
+  .replace(/[^A-Z0-9.]+/g,' ').replace(/\s+/g,' ').trim();
+}
+const INSTRUMENT_NAME_ALIASES=new Map([
+ ['APPLE','AAPL'],['APPLE COMPUTER','AAPL'],['MICROSOFT','MSFT'],['TESLA','TSLA'],
+ ['NVIDIA','NVDA'],['AMAZON','AMZN'],['AMAZON.COM','AMZN'],['GOOGLE','GOOGL'],
+ ['ALPHABET','GOOGL'],['FACEBOOK','META'],['META PLATFORMS','META'],['ADOBE','ADBE'],
+ ['BERKSHIRE HATHAWAY','BRK-B'],['BRK.B','BRK-B'],['RELIANCE INDUSTRIES','RELIANCE'],
+ ['INDIAN RAILWAY FINANCE CORPORATION','IRFC'],['TATA CONSULTANCY SERVICES','TCS'],
+ ['INFOSYS','INFY'],['SBC EXPORTS','SBC']
+]);
+const INSTRUMENT_DISPLAY_NAMES={
+ AAPL:'Apple Inc.',MSFT:'Microsoft Corporation',TSLA:'Tesla, Inc.',NVDA:'NVIDIA Corporation',
+ AMZN:'Amazon.com, Inc.',GOOGL:'Alphabet Inc.',GOOG:'Alphabet Inc.',META:'Meta Platforms, Inc.',
+ ADBE:'Adobe Inc.','BRK-B':'Berkshire Hathaway Inc.',AMD:'Advanced Micro Devices, Inc.',
+ INTC:'Intel Corporation',ORCL:'Oracle Corporation',CRM:'Salesforce, Inc.',NFLX:'Netflix, Inc.',
+ AVGO:'Broadcom Inc.',JPM:'JPMorgan Chase & Co.',V:'Visa Inc.',MA:'Mastercard Incorporated',
+ KO:'The Coca-Cola Company',PEP:'PepsiCo, Inc.',COST:'Costco Wholesale Corporation',
+ WMT:'Walmart Inc.',DIS:'The Walt Disney Company',UBER:'Uber Technologies, Inc.',
+ SHOP:'Shopify Inc.',PLTR:'Palantir Technologies Inc.',LLY:'Eli Lilly and Company',
+ XOM:'Exxon Mobil Corporation',BAC:'Bank of America Corporation',GS:'Goldman Sachs Group, Inc.',
+ MCD:'McDonald’s Corporation',QCOM:'Qualcomm Incorporated',CSCO:'Cisco Systems, Inc.',
+ PFE:'Pfizer Inc.',BA:'The Boeing Company',NKE:'NIKE, Inc.',IBM:'International Business Machines Corporation',
+ SBC:'SBC Exports Ltd.',IRFC:'Indian Railway Finance Corporation Ltd.',RELIANCE:'Reliance Industries Ltd.',
+ TCS:'Tata Consultancy Services Ltd.',INFY:'Infosys Ltd.',GAIL:'GAIL (India) Ltd.',
+ HINDZINC:'Hindustan Zinc Ltd.',ITC:'ITC Ltd.',TATAPOWER:'Tata Power Company Ltd.',
+ TATASTEEL:'Tata Steel Ltd.',SUNPHARMA:'Sun Pharmaceutical Industries Ltd.',
+ TRENT:'Trent Ltd.',TECHM:'Tech Mahindra Ltd.',HCLTECH:'HCL Technologies Ltd.',
+ INDIGO:'InterGlobe Aviation Ltd.',JUBLFOOD:'Jubilant FoodWorks Ltd.',PAYTM:'One 97 Communications Ltd.',
+ SBIN:'State Bank of India',HDFCBANK:'HDFC Bank Ltd.',ICICIBANK:'ICICI Bank Ltd.',
+ BHARTIARTL:'Bharti Airtel Ltd.',LT:'Larsen & Toubro Ltd.',ADANIPORTS:'Adani Ports and SEZ Ltd.',
+ BAJFINANCE:'Bajaj Finance Ltd.',HINDALCO:'Hindalco Industries Ltd.',WIPRO:'Wipro Ltd.',
+ MARUTI:'Maruti Suzuki India Ltd.',AXISBANK:'Axis Bank Ltd.',KOTAKBANK:'Kotak Mahindra Bank Ltd.'
+};
+function localInstrumentDirectory(query,count=10){
+ const raw=normalizeInstrumentDirectoryText(query);
+ if(!raw)return [];
+ const alias=INSTRUMENT_NAME_ALIASES.get(raw)||null;
+ const rows=new Map();
+ const venueFromSymbol=symbol=>{
+  const x=String(symbol||'').toUpperCase();
+  if(/\.NS$/.test(x))return ['NSE','NSE India'];
+  if(/\.BO$/.test(x))return ['BSE','BSE India'];
+  if(/\.L$/.test(x))return ['LSE','London Stock Exchange'];
+  if(/\.TO$/.test(x))return ['TSX','Toronto Stock Exchange'];
+  if(/\.AX$/.test(x))return ['ASX','Australian Securities Exchange'];
+  if(/\.DE$/.test(x))return ['XETRA','Xetra'];
+  if(/\.PA$|\.AS$/.test(x))return ['EURONEXT','Euronext'];
+  if(/\.HK$/.test(x))return ['HKG','Hong Kong Stock Exchange'];
+  if(/\.T$/.test(x))return ['TSE','Tokyo Stock Exchange'];
+  if(/\.SW$/.test(x))return ['SIX','SIX Swiss Exchange'];
+  if(/\.SI$/.test(x))return ['SGX','Singapore Exchange'];
+  if(/\.SA$/.test(x))return ['B3','B3 Brazil'];
+  if(/\.JK$/.test(x))return ['IDX','Indonesia Stock Exchange'];
+  if(/\.KL$/.test(x))return ['BURSA','Bursa Malaysia'];
+  if(/\.BK$/.test(x))return ['SET','Stock Exchange of Thailand'];
+  if(/\.NZ$/.test(x))return ['NZX','New Zealand Exchange'];
+  if(/\.SR$/.test(x))return ['TADAWUL','Saudi Exchange'];
+  if(/\.TA$/.test(x))return ['TASE','Tel Aviv Stock Exchange'];
+  if(/\.KS$|\.KQ$/.test(x))return ['KRX','Korea Exchange'];
+  if(/\.TW$/.test(x))return ['TWSE','Taiwan Stock Exchange'];
+  if(/\.SS$/.test(x))return ['SSE','Shanghai Stock Exchange'];
+  if(/\.SZ$/.test(x))return ['SZSE','Shenzhen Stock Exchange'];
+  return ['','Venue not confirmed'];
+ };
+ const add=(symbol,name,exchange='',exchangeDisplay='Venue not confirmed',quoteType='EQUITY')=>{
+  const key=String(symbol||'').toUpperCase();
+  if(!key||rows.has(key))return;
+  const base=key.replace(/\.(?:NS|BO)$/,'');
+  rows.set(key,{symbol:key,shortName:name||key,longName:name||key,exchange,exchangeDisplay,quoteType,typeDisplay:quoteType==='INDEX'?'Index':quoteType==='ETF'?'ETF':'Equity',score:0,_base:base});
+ };
+ for(const [base,symbol] of Object.entries(INDIA_EQUITIES)){
+  const [exchange,display]=venueFromSymbol(symbol);
+  add(base,INSTRUMENT_DISPLAY_NAMES[base]||base,exchange,display);
+ }
+ for(const [country,symbol] of GLOBAL_STOCK_TEST_SET){
+  const [exchange,display]=venueFromSymbol(symbol);
+  const bare=String(symbol).replace(/\.[A-Z]+$/,'');
+  add(symbol,INSTRUMENT_DISPLAY_NAMES[bare]||INSTRUMENT_DISPLAY_NAMES[symbol]||bare,exchange,display||country);
+ }
+ for(const symbol of COMMON_US_EQUITY_SYMBOLS){
+  const [exchange,display]=venueFromSymbol(symbol);
+  add(symbol,INSTRUMENT_DISPLAY_NAMES[symbol]||symbol,exchange,display||'US listing · exact venue not verified');
+ }
+ for(const index of GLOBAL_INDEXES){
+  add(index.symbol,index.name,index.exchange||'',index.exchange||'Index provider not verified','INDEX');
+ }
+ const scored=[];
+ for(const item of rows.values()){
+  const symbol=item.symbol.toUpperCase(),base=item._base;
+  const name=normalizeInstrumentDirectoryText(item.longName);
+  let score=-1;
+  if(alias&&(symbol===alias||base===alias||symbol===alias.replace(/-$/,'.B')))score=100000;
+  else if(raw===symbol)score=90000;
+  else if(raw===base)score=85000;
+  else if(raw===name)score=70000;
+  else if(raw.length>=3&&name.includes(raw))score=30000+raw.length;
+  else if(raw.length>=3&&raw.includes(name)&&name.length>=4)score=10000+name.length;
+  if(score>=0)scored.push({...item,score});
+ }
+ return scored.sort((a,b)=>b.score-a.score).slice(0,Math.max(1,Math.min(10,Number(count)||10))).map(({_base,...rest})=>rest);
+}
+
 async function instrumentSearch(req,res,u){
  const query=String(u.searchParams.get('q')||'').trim().replace(/\s+/g,' ');
  const count=Math.max(1,Math.min(10,Number(u.searchParams.get('count')||10)));
@@ -728,22 +838,29 @@ async function instrumentSearch(req,res,u){
   if(results.length){
     YAHOO_INSTRUMENT_SEARCH_CACHE.set(key,{at:Date.now(),results});
     while(YAHOO_INSTRUMENT_SEARCH_CACHE.size>200)YAHOO_INSTRUMENT_SEARCH_CACHE.delete(YAHOO_INSTRUMENT_SEARCH_CACHE.keys().next().value);
+    return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results});
   }
-  return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results});
+  const localResults=localInstrumentDirectory(query,count);
+  if(localResults.length)return send(res,200,{ok:true,query,provider:'FinPilot local instrument directory',cached:false,fallback:true,warning:'Directory fallback only; source venue may be unverified and no price is implied.',results:localResults});
+  return send(res,200,{ok:true,query,provider:'Yahoo Finance instrument directory',cached:false,results:[]});
  }catch(e){
+  const localResults=localInstrumentDirectory(query,count);
+  if(localResults.length)return send(res,200,{ok:true,query,provider:'FinPilot local instrument directory',cached:false,fallback:true,upstreamError:e?.name==='AbortError'?'INSTRUMENT_DIRECTORY_TIMEOUT':String(e?.message||'INSTRUMENT_DIRECTORY_UNAVAILABLE'),warning:'Directory fallback only; source venue may be unverified and no price is implied.',results:localResults});
   const reason=e?.name==='AbortError'?'INSTRUMENT_DIRECTORY_TIMEOUT':String(e?.message||'INSTRUMENT_DIRECTORY_UNAVAILABLE');
   return send(res,200,{ok:false,query,provider:'Yahoo Finance instrument directory',cached:false,results:[],error:reason});
  }finally{clearTimeout(timer);}
 }
-const COMMON_US_EQUITY_SYMBOLS = new Set([
- 'AAPL','MSFT','NVDA','TSLA','AMZN','GOOGL','GOOG','META','AMD','INTC','ORCL','CRM','NFLX',
- 'AVGO','ADBE','JPM','V','MA','KO','PEP','COST','WMT','DIS','UBER','SHOP','PLTR','LLY','XOM',
- 'BAC','GS','MCD','TMO','QCOM','CSCO','PFE','BA','NKE','IBM','BRK.B'
-]);
+
 async function resolveYahooSymbol(input){
  const raw=String(input||'').trim().toUpperCase();
  const directIndia=INDIA_INDICES[raw]||INDIA_EQUITIES[raw];
  if(directIndia)return directIndia;
+ const alias=INSTRUMENT_NAME_ALIASES.get(normalizeInstrumentDirectoryText(raw));
+ if(alias){
+  const aliasIndia=INDIA_INDICES[alias]||INDIA_EQUITIES[alias];
+  if(aliasIndia)return aliasIndia;
+  return alias;
+ }
  const explicitIndex=/^\^[A-Z0-9_.-]+$/.test(raw);
  const suffixMatch=raw.match(/\.([A-Z0-9]{1,5})$/);
  const knownSuffix=new Set(['NS','BO','L','TO','AX','DE','PA','HK','T','SW','AS','MI','SA','JK','KL','BK','SI','NZ','JO','SR','TA','KS','KQ','TW','SS','SZ','MX']);
@@ -1037,7 +1154,7 @@ async function fetchYahooWorldIndexPage(){
   const r=await fetch('https://finance.yahoo.com/markets/world-indices/',{headers:{'Accept':'text/html,application/xhtml+xml','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36'},signal:controller.signal});
   if(!r.ok)throw new Error('Yahoo world indices HTTP '+r.status);
   const html=await r.text(),out=new Map();
-  const clean=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g,' ').trim();
+  const clean=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/'/g,"'").replace(/&quot;/g,'"').replace(/\s+/g,' ').trim();
   for(const row of html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi)||[]){
    const cells=[...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>clean(m[1]));
    if(cells.length>=3&&/^\^?[A-Z0-9][A-Z0-9_.=-]*$/.test(cells[0])){const priceCell=cells.slice(2).find(v=>/^-?\d[\d,]*(?:\.\d+)?/.test(v));const m=priceCell?.match(/^-?[\d,]+(?:\.\d+)?/);const price=m?Number(m[0].replace(/,/g,'')):NaN;if(Number.isFinite(price)&&price>0)out.set(cells[0],{symbol:cells[0],name:cells[1],price,changePct:0,live:false,provider:'Yahoo Finance World Indices page · delayed/unofficial',asOf:new Date().toISOString(),dataFreshness:'world-indices page / may be delayed'});}
