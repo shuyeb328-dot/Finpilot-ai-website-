@@ -786,7 +786,7 @@ function refreshCurrentSearch(){
  doSearch(q,true);
 }
 function searchEngineLabel(value){
- const labels={'duckduckgo-html':'DuckDuckGo','bing-news-rss':'Bing News','google-news-rss':'Google News','google-search-bridge':'Google Search','google':'Google Custom Search','brave':'Brave Search','exa':'Exa','serpapi':'SerpAPI','tavily':'Tavily'};
+ const labels={'duckduckgo-html':'DuckDuckGo','yahoo-html':'Yahoo Search','bing-news-rss':'Bing News','google-news-rss':'Google News','google-search-bridge':'Google Search','google':'Google Custom Search','brave':'Brave Search','exa':'Exa','serpapi':'SerpAPI','tavily':'Tavily'};
  return labels[String(value||'').toLowerCase()]||String(value||'Search source').replace(/[-_]+/g,' ');
 }
 async function doSearch(q,forceRefresh=false){
@@ -812,7 +812,7 @@ async function doSearch(q,forceRefresh=false){
   const activeEngines=Array.isArray(d.providers)?d.providers:(d.provider?[d.provider]:[]);
   const attemptedEngines=Array.isArray(d.attemptedProviders)?d.attemptedProviders:[];
   const failedEngines=Array.isArray(d.providerErrors)?d.providerErrors:[];
-  const engineCoverageText=attemptedEngines.length?activeEngines.length+'/'+attemptedEngines.length+' free search engines responded'+(failedEngines.length?' · unavailable: '+failedEngines.map(x=>searchEngineLabel(x.provider)).join(', '):' · all attempted engines responded'):'Search source: '+searchEngineLabel(provider);
+  const engineCoverageText=attemptedEngines.length?activeEngines.length+'/'+attemptedEngines.length+' free search sources returned results'+(failedEngines.length?' · unavailable: '+failedEngines.map(x=>searchEngineLabel(x.provider)).join(', '):(activeEngines.length<attemptedEngines.length?' · some sources returned no usable results':' · all sources returned results')):'Search source: '+searchEngineLabel(provider);
   const externalSearchLinks=(Array.isArray(d.externalUrls)?d.externalUrls:[]).map(item=>{try{const u=new URL(String(item?.url||''));if(u.protocol!=='https:')return '';return '<a class="btn" href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">Open '+esc(item.provider||'search source')+' ↗</a>'}catch{return ''}}).filter(Boolean).join('');
   let marketMatch=null;
   if(!window.__fpAnalysisRunning&&/^[A-Za-z]{1,6}(?:[.-][A-Za-z]{1,4})?$/.test(q)){
