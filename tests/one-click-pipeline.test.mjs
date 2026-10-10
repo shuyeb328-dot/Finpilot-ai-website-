@@ -293,3 +293,13 @@ assert.match(moduleText, /Probabilities calibrated:<\/b> NO\./, 'raw estimates m
 assert.match(moduleText, /probabilitySource:'FINPILOT_SCENARIO_HEURISTIC'/, 'forecast records must identify heuristic probability provenance');
 assert.match(moduleText, /forecastStatus:eligible\?'PENDING_OUTCOME':!snapshotEligible\?'BLOCKED_UNVERIFIED_DATA':'BLOCKED_INVALID_PROBABILITY_VECTOR'/, 'invalid probability vectors must be blocked');
 assert.match(moduleText,/exchange:snapshot\?\.instrument\?\.exchange\|\|null/,'forecast records must retain exchange identity for outcome settlement');
+
+
+// Round Table must fail closed for market-sensitive recommendations without verified data.
+const decisionCore = fs.readFileSync(new URL('../public/decision-core.js', import.meta.url), 'utf8');
+assert.match(decisionCore,/Market-sensitive decisions must be backed by a fresh, matching provider-timestamped quote/);
+assert.match(decisionCore,/PROVIDER_TIMESTAMP/,'local observation time must not count as a provider timestamp');
+assert.match(decisionCore,/INSUFFICIENT_INDEPENDENT_SOURCES/,'market recommendations must require independent source corroboration');
+assert.match(decisionCore,/decisionGates,marketEvidence/,'the decision core must return explainable decision gates and market evidence status');
+assert.match(pageText,/Decision Safety Gates/,'Round Table must visibly show pass/review/block gate results');
+assert.match(pageText,/decisionGates:core\.decisionGates/,'Round Table must preserve gate outputs in the decision record');
