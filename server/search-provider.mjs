@@ -322,7 +322,7 @@ async function braveHtml(q,count){
  const u='https://search.brave.com/search?q='+encodeURIComponent(q)+'&source=web';
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
  try{
-  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml'});
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml'}});
   if(!r.ok)throw providerError('Brave Search returned HTTP '+r.status,r.status);
   const html=await r.text();
   if(/verify you are human|captcha|automated traffic|unusual traffic/i.test(html))throw providerError('Brave Search returned an automated-access challenge');
