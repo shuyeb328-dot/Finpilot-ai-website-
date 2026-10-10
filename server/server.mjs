@@ -1196,9 +1196,13 @@ async function marketDataOS(req,res,u){
    const observedAt=x?.observedAt||x?._finpilotCache?.observedAt||new Date().toISOString();
    const sourceTimestamp=x?.asOf||null;
    const timestampType=x?.timestampType||(sourceTimestamp?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP');
-   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:sourceTimestamp,timestampType});
-   if(ok)quotes.push({...x,provider:name,observedAt,asOf:sourceTimestamp,timestampType,latencyMs:Date.now()-t});
-   return ok;
+   const timestampMs=sourceTimestamp?Date.parse(sourceTimestamp):NaN;
+   const sourceAgeMs=Number.isFinite(timestampMs)&&timestampMs<=Date.now()+5000?Math.max(0,Date.now()-timestampMs):null;
+   const staleProviderTimestamp=ok&&timestampType==='PROVIDER_TIMESTAMP'&&(sourceAgeMs===null||sourceAgeMs>EXECUTION_FRESHNESS_MS);
+   const includedInVerification=ok&&!staleProviderTimestamp;
+   attempts.push({provider:name,ok,latencyMs:Date.now()-t,error:ok?null:'INVALID_PRICE',live:x?.live!==false,asOf:sourceTimestamp,timestampType,sourceAgeMs,includedInVerification,excludedReason:staleProviderTimestamp?'STALE_PROVIDER_TIMESTAMP':null});
+   if(includedInVerification)quotes.push({...x,provider:name,observedAt,asOf:sourceTimestamp,timestampType,latencyMs:Date.now()-t});
+   return includedInVerification;
   }catch(e){attempts.push({provider:name,ok:false,latencyMs:Date.now()-t,error:String(e?.message||e)});return false;}
  };
  if(CRYPTO_ASSETS[raw]){
@@ -1207,6 +1211,20 @@ async function marketDataOS(req,res,u){
   if(!providerSymbols)return send(res,400,{ok:false,error:'CRYPTO_PAIR_UNSUPPORTED',ticker:raw});
   await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');const asOf=Number(x.closeTime)>0?new Date(Number(x.closeTime)).toISOString():x?._finpilotCache?.observedAt||null;return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf,timestampType:Number(x.closeTime)>0?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Kraken public',async()=>{const pair=providerSymbols.krakenPair;const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Gate.io public',async()=>{
+  const pair=providerSymbols.base+'_'+providerSymbols.quote;
+  const endpoint='https://api.gateio.ws/api/v4/spot/trades?currency_pair='+encodeURIComponent(pair)+'&limit=1';
+  const rows=await directProviderJson(endpoint,'gateio-os');
+  const trade=Array.isArray(rows)?rows[0]:null;
+  const tradePair=String(trade?.currency_pair||'').toUpperCase();
+  const tradePrice=Number(trade?.price);
+  const tradeTimeMs=Number(trade?.create_time_ms);
+  const tradeTimeSec=Number(trade?.create_time);
+  const tradeTime=tradeTimeMs>0?new Date(tradeTimeMs).toISOString():tradeTimeSec>0?new Date(tradeTimeSec*1000).toISOString():null;
+  const valid=tradePair===pair&&Number.isFinite(tradePrice)&&tradePrice>0&&tradeTime&&Number.isFinite(Date.parse(tradeTime))&&Date.parse(tradeTime)<=Date.now()+5000;
+  if(!valid)throw new Error('GATE_TRADE_INVALID_OR_PAIR_MISMATCH');
+  return {price:tradePrice,changePct:0,volume:null,high:null,low:null,asOf:tradeTime,timestampType:'PROVIDER_TIMESTAMP',live:true};
+ });
   await addAttempt('Coinbase public',async()=>{
   const url='https://api.exchange.coinbase.com/products/'+providerSymbols.coinbaseProduct;
   const [stats,trades]=await Promise.all([
@@ -1244,7 +1262,8 @@ async function marketDataOS(req,res,u){
  const prices=quotes.map(x=>x.price);
  const min=Math.min(...prices),max=Math.max(...prices),median=[...prices].sort((a,b)=>a-b)[Math.floor(prices.length/2)];
  const spreadPct=median?((max-min)/median)*100:100;
- const priceAgreement=prices.length===1||spreadPct<=0.75;
+ const enoughProviders=quotes.length>=2;
+ const priceAgreement=enoughProviders&&spreadPct<=0.75;
  const now=Date.now();
  const timestampState=quotes.map(x=>{
   const sourceValue=x.asOf||x.observedAt||null;
@@ -1261,13 +1280,14 @@ async function marketDataOS(req,res,u){
  const timestampsFresh=timestampState.every(x=>x.fresh);
  const sourceReady=Boolean(winner.live!==false&&winner.executionEligible!==false&&primaryTimestampValid&&timestampState[winnerIndex]?.fresh&&timestampsFresh&&quotes.every(x=>x.live!==false&&x.executionEligible!==false));
  const verified=Boolean(priceAgreement&&sourceReady);
- const status=verified?'VERIFIED':!priceAgreement?'CONFLICTING':winner.executionEligible===false?'UNTRUSTED_SOURCE':!primaryTimestampValid?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':winner.live===false?'NON_LIVE_SOURCE':'UNVERIFIED_SOURCE';
+ const status=verified?'VERIFIED':!enoughProviders?'INSUFFICIENT_SOURCES':!priceAgreement?'CONFLICTING':winner.executionEligible===false?'UNTRUSTED_SOURCE':!primaryTimestampValid?'UNVERIFIED_TIMESTAMP':!timestampsFresh?'STALE_SOURCE':winner.live===false?'NON_LIVE_SOURCE':'UNVERIFIED_SOURCE';
  const selectedAsOf=winner.asOf||(winner.timestampType==='OBSERVATION_TIMESTAMP'?winner.observedAt:null);
  const selectedTimestampType=winner.timestampType||'UNKNOWN_TIMESTAMP';
  const sourceAgeMs=selectedAsOf&&Number.isFinite(Date.parse(selectedAsOf))?Math.max(0,Date.now()-Date.parse(selectedAsOf)):null;
  const executionReady=Boolean(verified&&winner.live!==false&&sourceAgeMs!==null&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&selectedTimestampType==='PROVIDER_TIMESTAMP');
  const verificationReasons=[];
- if(!priceAgreement)verificationReasons.push('PROVIDER_PRICE_SPREAD_EXCEEDS_0_75_PERCENT');
+ if(!enoughProviders)verificationReasons.push('INSUFFICIENT_PROVIDER_CROSS_CHECK');
+ if(enoughProviders&&!priceAgreement)verificationReasons.push('PROVIDER_PRICE_SPREAD_EXCEEDS_0_75_PERCENT');
  if(!primaryTimestampValid)verificationReasons.push('SELECTED_PRIMARY_SOURCE_LACKS_PROVIDER_TIMESTAMP');
  if(!timestampsFresh)verificationReasons.push('ONE_OR_MORE_PROVIDER_OBSERVATIONS_ARE_STALE_OR_INVALID');
  if(quotes.some(x=>x.live===false))verificationReasons.push('ONE_OR_MORE_PROVIDERS_MARKED_NON_LIVE');

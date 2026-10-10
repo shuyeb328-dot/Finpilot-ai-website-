@@ -60,7 +60,7 @@ assert.match(serverText, /function gateMarketReport\(report,ticker,interval/, 's
 assert.match(serverText, /sourceTimestampType==='PROVIDER_TIMESTAMP'/, 'crypto execution eligibility must require a provider-sourced quote timestamp');
 assert.match(serverText, /hasProviderTimestamp&&sourceAgeMs<=EXECUTION_FRESHNESS_MS&&sourceRange==='5d\/1h'/, 'equity execution eligibility must require a fresh provider timestamp, not a locally generated timestamp');
 assert.match(serverText, /executionDecision:eligible\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'market snapshots must expose the same gated paper-eligibility decision');
-assert.match(serverText, /status=verified\?'VERIFIED':!priceAgreement\?'CONFLICTING':winner\.executionEligible===false\?'UNTRUSTED_SOURCE':!primaryTimestampValid\?'UNVERIFIED_TIMESTAMP'/, 'Market Data OS must distinguish untrusted providers from timestamp failures and fail closed');
+assert.match(serverText, /status=verified\?'VERIFIED':!enoughProviders\?'INSUFFICIENT_SOURCES':!priceAgreement\?'CONFLICTING':winner\.executionEligible===false\?'UNTRUSTED_SOURCE':!primaryTimestampValid\?'UNVERIFIED_TIMESTAMP'/, 'Market Data OS must distinguish insufficient sources, untrusted providers, and timestamp failures and fail closed');
 assert.match(serverText, /report\?\.executionEligibilityReason==='UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY'\?'UNTRUSTED_SOURCE'/, 'stock-report execution gate must preserve the upstream untrusted-source status');
 assert.match(serverText, /executionEligible:executionReady,executionDecision:executionReady\?'ALLOW_PAPER_ONLY':'HOLD_FOR_VERIFICATION'/, 'Market Data OS top-level eligibility must match its decision');
 assert.match(serverText, /executionEligible:Boolean\(verified&&!stale&&ageMs<=EXECUTION_FRESHNESS_MS&&d\?\.marketDataOS\?\.decision==='ALLOW_ANALYSIS_AND_PAPER'\)/, 'market stream must block stale quotes from execution eligibility even when upstream once approved them');
@@ -81,6 +81,11 @@ assert.match(serverText, /const krakenPair=providerSymbols\.krakenPair/, 'Kraken
 assert.match(serverText, /const coinPair=providerSymbols\.coinbaseProduct/, 'Coinbase fallback must keep the configured quote currency rather than always using USD');
 assert.match(serverText, /const pair=providerSymbols\.krakenPair/, 'market-data verification must use the same quote-matched Kraken pair');
 assert.match(serverText, /const url='https:\/\/api\.exchange\.coinbase\.com\/products\/'\+providerSymbols\.coinbaseProduct/, 'market-data verification must use the same quote-matched Coinbase product');
+assert.match(serverText, /api\.gateio\.ws\/api\/v4\/spot\/trades\?currency_pair=/, 'market-data verification must add a free exact-pair Gate.io recent-trade source');
+assert.match(serverText, /timestampType:'PROVIDER_TIMESTAMP',live:true/, 'Gate.io recent trades must carry provider timestamp provenance');
+assert.match(serverText, /staleProviderTimestamp=ok&&timestampType==='PROVIDER_TIMESTAMP'/, 'stale provider-timestamped results must be excluded from the cross-check set');
+assert.match(serverText, /const enoughProviders=quotes\.length>=2/, 'price agreement must require at least two valid provider observations');
+assert.match(serverText, /INSUFFICIENT_PROVIDER_CROSS_CHECK/, 'one-source responses must fail closed with an explicit cross-check reason');
 assert.match(serverText, /coinBaseUrl\+\'\/trades\?limit=1\'/, 'live crypto fallback must use a recent trade event for provider-timestamp provenance');
 assert.match(serverText, /url\+\'\/trades\?limit=1\'/, 'market-data verification must timestamp Coinbase prices from the recent-trades endpoint');
 assert.match(serverText, /providerTradeValid\?tradeTime:null/, 'a fallback trade price must not be tagged with provider time unless a valid trade timestamp exists');
