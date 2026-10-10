@@ -20,10 +20,10 @@ assert.equal(score.correctTopClass,true);
 assert.equal(api.scoreForecast({up:null,down:null,hold:null},'UP'),null);
 
 const baseNow=Date.parse('2026-10-09T06:00:00.000Z');
-function snapshot({ticker='TCS',price=110,ageMs=30000,quality=true}={}){
+function snapshot({ticker='TCS',price=110,ageMs=30000,quality=true,exchange='NSE'}={}){
   return {
     schemaVersion:1,snapshotId:'ms_test_snapshot',
-    instrument:{ticker,symbol:ticker,symbolMatches:true},
+    instrument:{ticker,symbol:ticker,symbolMatches:true,exchange,market:'INDIA'},
     quote:{price},
     timing:{sourceAsOf:new Date(baseNow-ageMs).toISOString(),capturedAt:new Date(baseNow).toISOString(),ageMs,maxAgeMs:120000,fresh:ageMs<=120000},
     provenance:{provider:'Example Verified Provider'},
@@ -31,7 +31,8 @@ function snapshot({ticker='TCS',price=110,ageMs=30000,quality=true}={}){
   };
 }
 function forecast({id='f1',ticker='TCS',dueAt='2026-10-08T00:00:00.000Z',eligible=true,probabilities={up:60,down:20,hold:20}}={}){
-  return {forecastId:id,ticker,forecastEligible:eligible,forecastStatus:eligible?'PENDING_OUTCOME':'BLOCKED_UNVERIFIED_DATA',
+  const exchange=/\.BO$/i.test(ticker)?'BSE':/\.NS$/i.test(ticker)?'NSE':'NSE';
+  return {forecastId:id,ticker,exchange,market:'INDIA',forecastEligible:eligible,forecastStatus:eligible?'PENDING_OUTCOME':'BLOCKED_UNVERIFIED_DATA',
     createdAt:'2026-10-01T00:00:00.000Z',dueAt,quoteAsOf:'2026-10-01T00:00:00.000Z',referencePrice:100,
     probabilities,probabilitiesCalibrated:false,outcomeThresholdPct:0.5};
 }
@@ -55,6 +56,17 @@ assert.equal(ledger[3].forecastStatus,'BLOCKED_UNVERIFIED_DATA','blocked forecas
 assert.equal(result.summary.resolved,1);
 assert.equal(result.summary.probabilitiesCalibrated,false);
 assert.equal(result.summary.calibrationStatus,'INSUFFICIENT_RESOLVED_OUTCOMES');
+
+const crossExchangeLedger=[forecast({id:'bse-forecast',ticker:'RELIANCE.BO',dueAt:'2026-10-08T00:00:00.000Z'})];
+const crossExchangeResult=api.resolveMatured(crossExchangeLedger,snapshot({ticker:'RELIANCE.NS',price:110,exchange:'NSE'}),{now:baseNow});
+assert.equal(crossExchangeResult.resolved,0,'a BSE forecast must never be settled with an NSE quote for the same company');
+assert.equal(crossExchangeLedger[0].forecastStatus,'PENDING_OUTCOME','cross-exchange quote mismatch must leave the forecast pending');
+assert.ok(crossExchangeResult.skippedReasons.includes('EXCHANGE_IDENTITY_MISMATCH'));
+
+const unverifiedExchangeLedger=[forecast({id:'venue-unverified',ticker:'RELIANCE.BO',dueAt:'2026-10-08T00:00:00.000Z'})];
+const unverifiedExchangeResult=api.resolveMatured(unverifiedExchangeLedger,snapshot({ticker:'RELIANCE',price:110,exchange:'UNKNOWN'}),{now:baseNow});
+assert.equal(unverifiedExchangeResult.resolved,0,'explicit BSE forecasts must not settle against quotes without a confirmed listing identity');
+assert.equal(unverifiedExchangeLedger[0].forecastStatus,'PENDING_OUTCOME');
 
 const staleLedger=[forecast({id:'stale'})];
 const staleResult=api.resolveMatured(staleLedger,snapshot({ageMs:180000}),{now:baseNow});
