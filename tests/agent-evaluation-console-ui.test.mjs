@@ -18,6 +18,11 @@ assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/run'/, 'server exposes
 assert.match(api,/AGENT_EVALUATION_RUN_LIMITER\.check\(clientKey\(req\)\)/, 'evaluation runs have a dedicated bounded rate limit');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/grade'/, 'server exposes decision output grading');
 assert.match(ui,/\/api\/ai-os\/training\/status/, 'console displays verified-only forecast-training status');
+assert.match(ui,/\/api\/agent-memory/, 'console displays agent memory status');
+assert.match(ui,/EPISODIC','SEMANTIC','PROCEDURAL','OUTCOME/, 'console distinguishes four memory layers');
+assert.match(ui,/UNVERIFIED CLIENT/, 'console labels client-reported telemetry separately');
+assert.match(api,/finpilot_agent_memory_ledger/, 'server stores memory in the existing database when configured');
+assert.match(api,/CLIENT_REPORTED_UNVERIFIED/, 'client-provided telemetry remains explicitly unverified');
 assert.match(ui,/data\.manualCycleAllowed===true/, 'market-training cycles stay disabled until explicitly permitted by server configuration');
 assert.match(api,/manualCycleAllowed:String\(process\.env\.FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED\|\|'false'\)\.toLowerCase\(\)==='true'/, 'market-training status truthfully discloses the manual cycle configuration');
 console.log('Agent Evaluation Console UI: explicit user trigger, status/history, and safety disclosure checks passed');
