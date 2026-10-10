@@ -67,6 +67,12 @@ function safeMetadata(value) {
   for (const key of ['domain','requestId','decisionId','evidenceId','outcome','horizon','provider','modelVersion','testCaseId']) {
     if (input[key] != null) out[key] = clean(input[key], 160);
   }
+  for (const key of ['horizonMinutes','referencePrice','actualReturnPct','brierScore','logLoss','pUp','pDown','pHold']) {
+    if (input[key] !== undefined && input[key] !== null && Number.isFinite(Number(input[key]))) out[key] = Number(input[key]);
+  }
+  for (const key of ['sourceAsOf','settledAt']) {
+    if (input[key] != null && Number.isFinite(Date.parse(String(input[key])))) out[key] = new Date(String(input[key])).toISOString();
+  }
   return out;
 }
 function dedupeFingerprint(row) {
@@ -176,6 +182,22 @@ export async function recordAgentMemory(input = {}) {
     state.rejected++;
     return {ok:false,error:'VERIFIED_EVIDENCE_REQUIRES_SOURCE_URL'};
   }
+  if (source === 'APPROVED_PROCEDURE' && input.metadata?.humanApproved !== true) {
+    state.rejected++;
+    return {ok:false,error:'APPROVED_PROCEDURE_REQUIRES_HUMAN_APPROVAL'};
+  }
+  const metadata = safeMetadata(input.metadata);
+  if (source === 'VERIFIED_OUTCOME') {
+    const validOutcome = Boolean(metadata.provider && metadata.sourceAsOf && metadata.decisionId &&
+      Number(metadata.horizonMinutes) > 0 && Number(metadata.referencePrice) > 0 &&
+      Number.isFinite(Number(metadata.actualReturnPct)) && Number.isFinite(Number(metadata.brierScore)) &&
+      Number.isFinite(Number(metadata.logLoss)) &&
+      ['UP','DOWN','HOLD'].includes(String(metadata.outcome).toUpperCase()));
+    if (!validOutcome) {
+      state.rejected++;
+      return {ok:false,error:'VERIFIED_OUTCOME_REQUIRES_PROVIDER_TIMESTAMP_AND_SETTLED_METRICS'};
+    }
+  }
   const observedAt = currentDate(input.observedAt).toISOString();
   const defaultRetention = RETENTION_MS[layer];
   const expiresAt = input.expiresAt
@@ -185,7 +207,7 @@ export async function recordAgentMemory(input = {}) {
     id: 'mem_' + randomUUID(),
     agent,layer,source,content,decision,sourceUrl,observedAt,expiresAt,
     verificationStatus: VERIFICATION[source],
-    metadata: safeMetadata(input.metadata)
+    metadata
   };
   row.fingerprint = dedupeFingerprint(row);
   const duplicate = state.records.find(item => item.fingerprint === row.fingerprint);
@@ -223,7 +245,7 @@ export async function getAgentMemorySnapshot(options = {}) {
   if (pool && state.schemaReady) {
     try {
       const [counts, rows, totals] = await Promise.all([
-        pool.query('SELECT layer,COUNT(*)::int AS count FROM finpilot_agent_memory_ledger GROUP BY layer'),
+        pool.query('SELECT layer,COUNT(*)::int AS count FROM finpilot_agent_memory_ledger WHERE expires_at IS NULL OR expires_at>NOW() GROUP BY layer'),
         pool.query('SELECT id,agent,layer,source,content,decision,source_url AS "sourceUrl",observed_at AS "observedAt",expires_at AS "expiresAt",verification_status AS "verificationStatus",metadata FROM finpilot_agent_memory_ledger WHERE expires_at IS NULL OR expires_at>NOW() ORDER BY observed_at DESC LIMIT $1',[limit]),
         pool.query(`SELECT COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE source='CLIENT_REPORTED_UNVERIFIED')::int AS unverified,
