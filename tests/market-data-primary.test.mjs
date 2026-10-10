@@ -41,4 +41,22 @@ const fallback=selectPrimaryMarketQuote(noFreshProviderTime,staleTiming);
 assert.equal(fallback.provider,'Kraken public','when no fresh timestamped provider exists, preserve the original provider fallback order');
 assert.equal(fallback.timestampType,'OBSERVATION_TIMESTAMP','fallback selection must not invent provider timestamp provenance');
 
-console.log('market-data-primary: timestamp preference and provenance checks passed');
+const gateTimed = {
+  provider:'Gate.io public',
+  price:82790.9,
+  latencyMs:7,
+  asOf:'2026-10-10T08:52:13.202Z',
+  timestampType:'PROVIDER_TIMESTAMP',
+  live:true
+};
+const gateQuotes=[observedOnly,gateTimed];
+const gateTiming=[
+  {provider:'Kraken public',valid:true,ageMs:1200,fresh:true},
+  {provider:'Gate.io public',valid:true,ageMs:11000,fresh:true}
+];
+const gateSelected=selectPrimaryMarketQuote(gateQuotes,gateTiming);
+assert.equal(gateSelected.provider,'Gate.io public','a fresh Gate.io exchange trade timestamp must outrank Kraken observation-only fallback data');
+assert.equal(gateSelected.price,82790.9,'Gate.io selected quote must retain its own price');
+assert.equal(gateSelected.timestampType,'PROVIDER_TIMESTAMP','Gate.io exchange timestamp provenance must be preserved');
+
+console.log('market-data-primary: timestamp preference, Gate.io priority, and provenance checks passed');
