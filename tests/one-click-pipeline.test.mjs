@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-13/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-14/, 'rebuilt one-click module must use a new asset version');
 assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
@@ -256,7 +256,7 @@ assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/,
 assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
 assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
 assert.match(pageText, /deep-learning-os\.js\?v=20261010-6/, 'the page must cache-bust the specialist module version');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-13/, 'the page must reference the latest analysis module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-14/, 'the page must reference the latest analysis module version');
 
 
 assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
@@ -280,3 +280,14 @@ assert.doesNotMatch(analysisSource,/String\(candidate\?\.market\|\|''\)\.toUpper
 assert.match(analysisSource,/scenarioAvailable&&v8\?\.quality\?\.signalStability!=null/,'signal stability must remain unavailable without a verified quote');
 assert.ok(analysisSource.includes('Historical support ')&&analysisSource.includes('no live target/stop'),'historical charts must not be presented as live target/stop forecasts');
 
+
+assert.ok(pageText.includes('/forecast-evaluation.js?v=20261010-1'), 'forecast evaluator must load before One-Click Analysis');
+assert.match(moduleText, /window.FinPilotForecastEvaluation\?\.normalizeProbabilities\(rawProbabilities\)/, 'forecast records must validate complete probability vectors');
+assert.match(moduleText, /value===null\|\|value===undefined\|\|String\(value\)\.trim\(\)===''/, 'missing probabilities must remain missing instead of coercing to zero');
+assert.match(moduleText, /forecastEvaluator\?\.resolveMatured\(state\.forecastLedger,marketSnapshot\)/, 'only matured forecasts may resolve against verified snapshots');
+assert.match(moduleText, /forecastEvaluationSummary=forecastEvaluator\?\.summarize\(state\.forecastLedger\)/, 'forecast outcomes must create scorecard diagnostics');
+assert.match(moduleText, /Mean Brier score ↓/, 'the result panel must show Brier score');
+assert.match(moduleText, /Mean log loss ↓/, 'the result panel must show log loss');
+assert.match(moduleText, /Probabilities calibrated:<\/b> NO\./, 'raw estimates must never be called calibrated');
+assert.match(moduleText, /probabilitySource:'FINPILOT_SCENARIO_HEURISTIC'/, 'forecast records must identify heuristic probability provenance');
+assert.match(moduleText, /forecastStatus:eligible\?'PENDING_OUTCOME':!snapshotEligible\?'BLOCKED_UNVERIFIED_DATA':'BLOCKED_INVALID_PROBABILITY_VECTOR'/, 'invalid probability vectors must be blocked');
