@@ -850,7 +850,9 @@ function canonicalProviderHealthId(value){
 }
 function aggregateDataHealthSources(now=Date.now()){
  const staleAfter=Number(DATA_HEALTH_STALE_AFTER_MS)||120000;
- const rank={UNKNOWN:1,HEALTHY:2,STALE:3,DEGRADED:4};
+ // A fresh successful adapter must outrank a stale sibling adapter in the same provider family.
+ // DEGRADED remains highest priority so active provider failures/cooldowns stay visible.
+ const rank={UNKNOWN:1,STALE:2,HEALTHY:3,DEGRADED:4};
  const grouped=new Map();
  for(const [name,raw] of Object.entries(DATA_HEALTH.sources||{})){
   const id=canonicalProviderHealthId(name);
