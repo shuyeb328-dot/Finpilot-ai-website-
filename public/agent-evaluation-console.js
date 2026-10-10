@@ -9,7 +9,9 @@
   const STATUS_URL='/api/agent-evaluation/status';
   const RUN_URL='/api/agent-evaluation/run';
   const HISTORY_URL='/api/agent-evaluation/history?limit=10';
-  let launcher=null, panel=null, lastStatus=null, busy=false;
+  const TRAINING_STATUS_URL='/api/ai-os/training/status';
+  const TRAINING_CYCLE_URL='/api/ai-os/training/cycle';
+  let launcher=null, panel=null, lastStatus=null, busy=false, trainingBusy=false;
 
   function node(tag,cls,text){
     const el=document.createElement(tag);
@@ -67,6 +69,91 @@
     );
     host.append(facts,node('p','fpEvalMuted',data.persistenceDetail||'Persistence details are not available.'));
   }
+  function renderTrainingStatus(data){
+    const host=panel.querySelector('[data-role="training-status"]');
+    if(!host)return;
+    lastTrainingStatus=data;
+    host.replaceChildren(node('h3','','Market Forecast Learning'));
+    const grid=node('div','fpEvalStats');
+    grid.append(
+      stat('MODEL',data.model||data.version||'Unknown','Existing deterministic baseline'),
+      stat('BACKGROUND',data.enabled?'Enabled':'Disabled',data.enabled?'Scheduled cycles active':'No recurring cycle active'),
+      stat('STORAGE',data.persistent?'PostgreSQL':data.persistence||'Unknown',data.persistent?'Durable across restarts':'Memory-only / unavailable'),
+      stat('OBSERVATIONS',data.observationCount??data.counters?.observationsStored??0,'Verified market snapshots')
+    );
+    const counts=node('div','fpEvalFacts');
+    counts.append(
+      node('span','', 'Forecasts: '+(data.forecastCount??0)),
+      node('span','', 'Pending: '+(data.pendingForecastCount??0)),
+      node('span','', 'Resolved: '+(data.resolvedForecastCount??0)),
+      node('span','', 'Mean Brier: '+(data.meanBrierScore==null?'Not measured':data.meanBrierScore)),
+      node('span','', 'Mean log loss: '+(data.meanLogLoss==null?'Not measured':data.meanLogLoss)),
+      node('span','', 'Calibration: '+(data.calibrationStatus||'Not measured'))
+    );
+    const safety=node('p','fpEvalMuted',
+      'This is a deterministic baseline, not foundation-model training. Outcomes require future timestamped market observations. No trades or automatic promotion are permitted. '+(data.persistenceDetail||'')
+    );
+    host.append(grid,counts,safety);
+    const runButton=panel.querySelector('[data-action="market-cycle"]');
+    if(runButton){
+      const manualAllowed=data.manualCycleAllowed===true;
+      runButton.disabled=!manualAllowed||trainingBusy;
+      runButton.title=manualAllowed?'Fetch one bounded market-learning cycle.':'Manual cycles are disabled in deployment configuration.';
+      runButton.textContent=trainingBusy?'Running market cycle…':manualAllowed?'Run one market cycle':'Market cycle disabled';
+    }
+  }
+  function renderTrainingResult(result){
+    const host=panel.querySelector('[data-role="training-result"]');
+    if(!host)return;
+    host.replaceChildren();
+    if(!result||result.ok!==true){
+      host.append(node('p','fpEvalBad',result?.error||'Training cycle did not complete.'));
+      return;
+    }
+    host.append(node('p',result.summary?.failedSymbols?'fpEvalBad':'fpEvalGood',
+      'Cycle '+result.cycle+' · accepted '+(result.summary?.accepted??0)+
+      ' · duplicates '+(result.summary?.duplicates??0)+
+      ' · rejected '+(result.summary?.rejected??0)+
+      ' · forecasts created '+(result.summary?.forecastsCreated??0)+
+      ' · settled '+(result.summary?.forecastsSettled??0)+
+      ' · persistence '+(result.summary?.persistence||'unknown')
+    ));
+    const list=node('div','fpEvalCaseList');
+    for(const item of (result.symbols||[])){
+      const row=node('div','fpEvalCase');
+      row.append(node('strong',item.accepted?'fpEvalGood':'fpEvalBad',
+        item.ticker+' · '+(item.accepted?'ACCEPTED':'NOT ACCEPTED')+(item.duplicate?' · DUPLICATE':'')));
+      if(item.error)row.append(node('p','fpEvalError',item.error));
+      else row.append(node('p','fpEvalMuted',
+        'Observation: '+(item.observationId||'not recorded')+
+        ' · forecast created: '+Boolean(item.forecastCreated)+
+        ' · settled outcomes: '+Number(item.settled||0)));
+      list.append(row);
+    }
+    host.append(list);
+    statusMessage('Market-learning cycle completed. Review persistence and resolved-outcome counts before interpreting the baseline.','success');
+  }
+  async function runTrainingCycle(){
+    if(trainingBusy)return;
+    const button=panel.querySelector('[data-action="market-cycle"]');
+    if(!button||button.disabled){
+      statusMessage('Manual market-training cycles are disabled by the current server configuration. No settings were changed.','error');
+      return;
+    }
+    trainingBusy=true;button.disabled=true;button.textContent='Running market cycle…';
+    statusMessage('Fetching one bounded cycle of public market evidence. This does not use external AI or place trades.','info');
+    try{
+      const result=await getJson(TRAINING_CYCLE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      renderTrainingResult(result);
+      const data=await getJson(TRAINING_STATUS_URL);
+      renderTrainingStatus(data);
+    }catch(error){
+      statusMessage('Market-learning cycle could not run: '+(error.message||'unknown error'),'error');
+      const host=panel.querySelector('[data-role="training-result"]');
+      if(host)host.replaceChildren(node('p','fpEvalBad',error.message||'Training cycle unavailable.'));
+    }finally{trainingBusy=false;const data=lastTrainingStatus;if(data)renderTrainingStatus(data);}
+  }
+  let lastTrainingStatus=null;
   function renderHistory(data){
     const host=panel.querySelector('[data-role="history"]');
     host.replaceChildren(node('h3','', 'Recent evaluation runs'));
@@ -110,7 +197,10 @@
     try{
       const [status,history]=await Promise.all([getJson(STATUS_URL),getJson(HISTORY_URL)]);
       renderStatus(status);renderHistory(history);
-      if(!busy)statusMessage('Ready. The evaluation runs only when you press the run button.','info');
+      try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}catch{}
+      try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}
+      catch(error){const host=panel.querySelector('[data-role="training-status"]');if(host)host.replaceChildren(node('h3','','Market Forecast Learning'),node('p','fpEvalMuted','Training status unavailable: '+(error.message||'unknown error')));}
+      if(!busy)statusMessage('Ready. Evaluation runs only when requested; recurring market learning remains governed by server configuration.','info');
     }catch(error){statusMessage(error.message||'Unable to load evaluation status.','error');}
   }
   async function run(){
@@ -137,13 +227,18 @@
     header.append(title,button('Close','',()=>{panel.hidden=true;launcher?.focus();}));
     const message=node('p','fpEvalMessage','Loading evaluation status…');message.dataset.role='message';
     const status=node('div','fpEvalStats');status.dataset.role='status';
+    const training=node('section','fpEvalTraining');training.dataset.role='training-status';
+    const trainingResult=node('div','fpEvalTrainingResult');trainingResult.dataset.role='training-result';
+    const trainingActions=node('div','fpEvalActions');
+    const cycleButton=button('Market cycle disabled','',runTrainingCycle);cycleButton.dataset.action='market-cycle';cycleButton.disabled=true;
+    trainingActions.append(cycleButton);
     const actions=node('div','fpEvalActions');
     const runButton=button('Run offline evaluation','primary',run);runButton.dataset.action='run';
     actions.append(runButton,button('Refresh history','',refresh));
     const result=node('div','fpEvalResult');result.dataset.role='run-result';
     const history=node('div','fpEvalHistory');history.dataset.role='history';
     const footer=node('p','fpEvalFooter','Guardrails: user-triggered only · no automatic promotion · no real-money execution · disabled Binance connector unchanged.');
-    card.append(header,message,status,actions,result,history,footer);
+    card.append(header,message,status,training,trainingActions,trainingResult,actions,result,history,footer);
     panel.append(card);
     panel.addEventListener('click',event=>{if(event.target===panel)panel.hidden=true;});
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&panel&&!panel.hidden)panel.hidden=true;});
@@ -192,6 +287,10 @@
 .fpEvalDot{font-weight:800;font-size:9px;min-width:29px}
 .fpEvalDot.ok{color:#8ce0b9}.fpEvalDot.bad{color:#ff9494}
 .fpEvalError{color:#ffb4b4;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.fpEvalTraining{border:1px solid #29445f;border-radius:10px;padding:12px;margin:12px 0;background:#09192c}
+.fpEvalTraining h3{margin:0 0 8px;font-size:15px}
+.fpEvalTraining .fpEvalStats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.fpEvalTrainingResult{margin:8px 0}
 .fpEvalFooter{color:#9cb0c7;border-top:1px solid #263d56;padding-top:12px;font-size:11px}
 @media(max-width:640px){.fpEvalStats{grid-template-columns:repeat(2,minmax(0,1fr))}.fpEvalCaseList{grid-template-columns:1fr}.fpEvalPanel{padding:14px}.fpEvalHeader h2{font-size:20px}.fpEvalLauncher{bottom:100px;right:9px}}
 `;
