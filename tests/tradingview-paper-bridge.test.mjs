@@ -26,7 +26,6 @@ const host=makeElement('paperlab');
 const ticket=makeElement('paperSymbol');ticket.value='BTC';
 const status=makeElement('paperMarketStatus');
 let refreshPaperCalls=0;
-const controls = new Map();
 const document={
   readyState:'loading',
   body:makeElement('body'),
@@ -34,6 +33,7 @@ const document={
   getElementById(id){return id==='paperlab'?host:id==='paperSymbol'?ticket:id==='paperMarketStatus'?status:null},
   querySelector(){return null},
   createElement(tag){
+    const controls=new Map();
     const section=makeElement('');
     section.tagName=String(tag).toUpperCase();
     section.querySelector=function(selector){
