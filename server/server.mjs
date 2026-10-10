@@ -10,6 +10,7 @@ import {cleanText as clean} from './text-sanitizer.mjs';
 import vm from 'node:vm';
 import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
+import {binanceReadOnlyStatus,checkBinanceReadOnlyAccount,isBinanceConnectorAuthorized} from './binance-readonly.mjs';
 import {normalizeMarketTick} from './market-tick-contract.mjs';
 import {createBoundedRateLimiter} from './bounded-rate-limiter.mjs';
 import {isAllowedRequestOrigin,MAX_REQUEST_BODY_BYTES} from './request-security.mjs';
@@ -2250,6 +2251,13 @@ const server=http.createServer(async(req,res)=>{
   if(Number.isFinite(contentLength)&&contentLength>MAX_REQUEST_BODY_BYTES){req.resume();return send(res,413,{ok:false,error:'REQUEST_BODY_TOO_LARGE',requestId:rid});}
   const u=new URL(req.url,'http://'+(req.headers.host||'localhost'));
 
+  if(req.method==='GET'&&u.pathname==='/api/binance/account/status')return send(res,200,{ok:true,...binanceReadOnlyStatus()});
+  if(req.method==='POST'&&u.pathname==='/api/binance/account/check'){
+   const expected=String(process.env.FINPILOT_BINANCE_CONNECTOR_TOKEN||'');
+   if(!isBinanceConnectorAuthorized(req.headers.authorization,expected))return send(res,401,{ok:false,error:'BINANCE_CONNECTOR_UNAUTHORIZED'});
+   const result=await checkBinanceReadOnlyAccount();
+   return send(res,result.ok?200:result.status==='NOT_CONFIGURED'?503:502,result);
+  }
   if(req.method==='GET'&&u.pathname==='/api/exa-intelligence')return exaIntelligence(req,res,u);
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
