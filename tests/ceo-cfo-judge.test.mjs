@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source=fs.readFileSync(new URL('../public/decision-core.js',import.meta.url),'utf8');
 const context={window:{},Date,Math,String,Number,JSON};
+context.window.FinPilotFoundation={quantumSearchSignal:(query)=>({intent:/market|invest|trading|options|futures/i.test(String(query||''))?'market':'research',confidence:70,evidenceCount:0,stance:'Mixed',freshness:'LIVE',route:[]})};
 vm.runInNewContext(source,context);
 const compute=context.window.FinPilotDecisionCore.computeExecutiveDecision;
 assert.equal(typeof compute,'function');
@@ -31,7 +32,10 @@ const cases=[
  ['Fresh matching quote plus independent sources clears market gates',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH');assert.equal(d.marketEvidence.independentSourceCount,3);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.status==='PASS'));assert.ok(d.decisionGates.some(g=>g.id==='source_diversity'&&g.status==='PASS'))}],
  ['Observation-only timestamp is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),sourceTimestampType:'OBSERVATION_TIMESTAMP'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'PROVIDER_TIMESTAMP_REQUIRED');assert.match(d.decision,/WAIT/)}],
  ['Wrong symbol is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),ticker:'TCS'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'SYMBOL_MISMATCH');assert.match(d.decision,/WAIT/)}],
- ['Stale quote is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),asOf:new Date(Date.now()-180000).toISOString()},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_STALE_OR_TIMESTAMP_INVALID');assert.match(d.decision,/WAIT/)}]
+ ['Stale quote is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),asOf:new Date(Date.now()-180000).toISOString()},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_STALE_OR_TIMESTAMP_INVALID');assert.match(d.decision,/WAIT/)}],
+ ['Natural-language query extracts ticker after “Analyse”',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:{...corroboratedWeb,query:'Analyse IRFC for intraday trading with ₹1,000'}}),d=>{assert.equal(d.marketEvidence.requestedTicker,'IRFC');assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH')}],
+ ['Generic market request cannot use an unrelated cached quote',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:{...corroboratedWeb,query:'Can you analyse the market and help me invest?'}}),d=>{assert.equal(d.marketEvidence.requestedTicker,null);assert.equal(d.marketEvidence.quoteStatus,'REQUESTED_SYMBOL_UNRESOLVED');assert.match(d.decision,/WAIT/)}],
+ ['Explicit false eligibility cannot be overridden by nested allow status',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),executionEligible:false,forecastEligible:true,marketDataOS:{decision:'ALLOW_ANALYSIS_AND_PAPER'}},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_NOT_EXECUTION_ELIGIBLE');assert.match(d.decision,/WAIT/)}]
 ];
 
 for(const [name,result,check] of cases){check(result);console.log('PASS:',name)}
