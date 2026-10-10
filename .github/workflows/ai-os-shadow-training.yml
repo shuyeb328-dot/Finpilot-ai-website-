@@ -1,0 +1,30 @@
+name: FinPilot AI OS Shadow Training
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finpilot-ai-os-shadow-training
+  cancel-in-progress: false
+
+jobs:
+  market-training-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20.x"
+      - name: Run authenticated shadow-training cycle
+        env:
+          FINPILOT_MARKET_API_BASE: https://finpilot-ai-8wn6.onrender.com
+          FINPILOT_AI_OS_WORKER_TOKEN: ${{ secrets.FINPILOT_AI_OS_WORKER_TOKEN }}
+        run: node scripts/ai-os-market-training-cron.mjs
