@@ -11,6 +11,9 @@ on:
       - "public/paper-engine.js"
       - "public/paper-lab.js"
       - "tests/tradingview-paper-bridge.test.mjs"
+      - "tests/tradingview-alert-bridge.test.mjs"
+      - "package.json"
+      - "TRADINGVIEW-PAPER-BRIDGE.md"
       - "server/**"
   workflow_dispatch:
   schedule:
@@ -55,6 +58,10 @@ jobs:
           fetch_200 "$BASE_URL/api/health" /tmp/finpilot-health.json
           fetch_200 "$BASE_URL/api/core-status" /tmp/finpilot-core.json
           fetch_200 "$BASE_URL/api/agent-memory" /tmp/finpilot-memory.json
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]]; then
+            fetch_200 "$BASE_URL/api/tradingview/status" /tmp/finpilot-tradingview-status.json
+            fetch_200 "$BASE_URL/api/tradingview/alerts?limit=2" /tmp/finpilot-tradingview-alerts.json
+          fi
 
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -62,6 +69,9 @@ jobs:
           const health = JSON.parse(fs.readFileSync('/tmp/finpilot-health.json', 'utf8'));
           const core = JSON.parse(fs.readFileSync('/tmp/finpilot-core.json', 'utf8'));
           const memory = JSON.parse(fs.readFileSync('/tmp/finpilot-memory.json', 'utf8'));
+          const isPullRequest = process.env.GITHUB_EVENT_NAME === 'pull_request';
+          const tradingView = isPullRequest ? null : JSON.parse(fs.readFileSync('/tmp/finpilot-tradingview-status.json', 'utf8'));
+          const tradingViewAlerts = isPullRequest ? null : JSON.parse(fs.readFileSync('/tmp/finpilot-tradingview-alerts.json', 'utf8'));
 
           const failures = [];
           if (!home.includes('one-click-analysis.js')) failures.push('homepage does not reference one-click analysis');
@@ -72,12 +82,15 @@ jobs:
           if (health.frontendSyntax?.ok !== true) failures.push('frontend syntax health check failed');
           if (core.ok !== true) failures.push('core status endpoint returned ok=false');
           if (memory.ok !== true || !String(memory.trust || '').includes('unverified telemetry')) failures.push('agent memory endpoint is missing the unverified telemetry trust boundary');
+          if (!isPullRequest && (tradingView.ok !== true || typeof tradingView.acceptingWebhooks !== 'boolean' || tradingView.realMoneyTrading !== false)) failures.push('TradingView webhook status is invalid or does not preserve paper-only mode');
+          if (!isPullRequest && (tradingViewAlerts.ok !== true || !Array.isArray(tradingViewAlerts.alerts) || tradingViewAlerts.realMoneyTrading !== false)) failures.push('TradingView alert inbox endpoint is invalid or does not preserve paper-only mode');
 
           console.log(JSON.stringify({
             homepage: 'HTTP 200',
             health: { ok: health.ok, status: health.status, version: health.version, frontendSyntax: health.frontendSyntax },
             core: { ok: core.ok, version: core.version, serverExecutedAgentRuns: core.serverExecutedAgentRuns, clientReportedAgentRuns: core.clientReportedAgentRuns, agentMemoryPersistent: core.agentMemoryPersistent },
             agentMemory: { ok: memory.ok, totalAgents: memory.totalAgents, persistence: memory.persistence, trust: memory.trust },
+            tradingView: isPullRequest ? 'production route checks deferred until merge/deploy' : { ok: tradingView.ok, configurationState: tradingView.configurationState, acceptingWebhooks: tradingView.acceptingWebhooks, queueCount: tradingView.queueCount, realMoneyTrading: tradingView.realMoneyTrading, listedAlerts: tradingViewAlerts.alerts.length },
             failures
           }, null, 2));
 
@@ -100,4 +113,7 @@ jobs:
           grep -q "function analysisSymbol" /tmp/finpilot-tradingview-bridge.js
           grep -q "SIMULATION ONLY" /tmp/finpilot-tradingview-bridge.js
           grep -q "does not send live prices" /tmp/finpilot-tradingview-bridge.js
+          grep -q "fpTvAlertInbox" /tmp/finpilot-tradingview-bridge.js
+          grep -q "TRADINGVIEW_WEBHOOK_SECRET" /tmp/finpilot-tradingview-bridge.js
+          grep -q "Review in Paper Arena" /tmp/finpilot-tradingview-bridge.js
           echo "Production agent assets and TradingView-to-paper bridge served their expected safety contracts."
