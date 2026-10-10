@@ -39,7 +39,7 @@ for (const endpoint of ['/api/health', '/api/core-status']) {
     assert(data.status === 'OPERATIONAL' || data.ok === true, 'health endpoint reports service availability');
   }
   if (endpoint === '/api/core-status') {
-    assert(data.ok === true || typeof data === 'object', 'core status endpoint returns a diagnostic snapshot');
+    assert(data.ok === true && typeof data.serverExecutedAgentRuns === 'number' && typeof data.clientReportedAgentRuns === 'number', 'core status exposes separate server/client agent telemetry');
   }
 }
 console.log('FinPilot live regression smoke checks completed.');
