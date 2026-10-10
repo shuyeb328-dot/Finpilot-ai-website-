@@ -19,6 +19,9 @@ assert.match(frontend, /UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY/, 'freshness UI mu
 assert.match(server, /\/api\/market-data-stream/);
 assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer resolution endpoint must be registered');
 assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
+assert.match(server,/function localInstrumentDirectory\(query,count=10\)/,'instrument lookup must have a free local directory fallback when Yahoo is rate-limited');
+assert.match(server,/provider:'FinPilot local instrument directory'/,'local symbol fallback must be labelled as directory data, not market pricing');
+assert.match(server,/INSTRUMENT_NAME_ALIASES\.get\(normalizeInstrumentDirectoryText\(raw\)\)/,'common company names should map to generic tickers when the directory is unavailable');
 assert.doesNotMatch(server,/const direct=INDIA_INDICES\[raw\]\|\|INDIA_EQUITIES\[raw\]\|\|normalizeGlobalSymbol\(raw\)/,'bare unknown tickers must not bypass the instrument directory');
 assert.match(server,/const exact=accepted\.find\(x=>String\(x\.symbol\)\.trim\(\)\.toUpperCase\(\)===raw\)/,'instrument resolution should prefer exact ticker matches when directory lookup is needed');
 assert.match(server, /selectPrimaryMarketQuote\(quotes,timestampState\)/, 'market quote selection should prefer a fresh provider timestamp');
