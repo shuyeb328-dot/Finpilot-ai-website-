@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {buildMarketSnapshot} from '../server/market-snapshot.mjs';
 
 const source=fs.readFileSync(new URL('../public/decision-core.js',import.meta.url),'utf8');
 const context={window:{},Date,Math,String,Number,JSON};
@@ -22,6 +23,19 @@ const goodQuote=(overrides={})=>({
  ticker:'IRFC',symbol:'IRFC',price:103,asOf:new Date().toISOString(),
  sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',executionEligible:true,...overrides
 });
+const goodCanonicalSnapshot=(ticker='IRFC')=>{
+ const now=Date.now();
+ const sourceAsOf=new Date(now-10000).toISOString();
+ const candles=[
+  {time:new Date(now-120000).toISOString(),open:101,high:104,low:100,close:102,volume:1000},
+  {time:new Date(now-60000).toISOString(),open:102,high:105,low:101,close:103,volume:1200}
+ ];
+ return buildMarketSnapshot({
+  ticker,symbol:ticker,name:ticker,market:'INDIA_EQUITY',exchange:'NSE',currency:'INR',
+  price:103,previous:101,changePct:1.98,dayHigh:105,dayLow:100,live:true,
+  asOf:sourceAsOf,sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',candles
+ },{requestedTicker:ticker,capturedAt:now,maxAgeMs:90000});
+};
 const corroboratedWeb={query:'IRFC',provider:'public research',count:3,stance:'Positive',confidence:80,
  urls:['https://www.nseindia.com/example','https://www.screener.in/company/IRFC/','https://www.bseindia.com/example']};
 const cases=[
@@ -29,7 +43,7 @@ const cases=[
  ['High-severity risk gate',run({emergency:300000,spending:50000,income:90000,findings:[{severity:'HIGH',domain:'Debt'}]}),d=>{assert.equal(d.executive.cfo.includes('high-severity'),true);assert.equal(d.decision,'Risk gate wins: resolve the highest-severity finding before adding new risk');assert.ok(d.decisionGates.some(g=>g.id==='high_severity_findings'&&g.blocking))}],
  ['Positive headlines without quote are blocked',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,urls:[]}}),d=>{assert.equal(d.webSignal.stance,'Positive');assert.equal(d.marketEvidence.quoteStatus,'NO_VERIFIED_QUOTE');assert.match(d.decision,/WAIT/);assert.ok(d.confidence<=40);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.blocking))}],
  ['Cautious web risk still respects hard data gate',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,stance:'Cautious'}}),d=>{assert.equal(d.webSignal.stance,'Cautious');assert.match(d.decision,/WAIT/);assert.ok(d.marketEvidence.blockingReason);assert.ok(d.executive.cfoConfidence>=0&&d.executive.cfoConfidence<=100)}],
- ['Fresh matching quote plus independent sources clears market gates',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH');assert.equal(d.marketEvidence.independentSourceCount,3);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.status==='PASS'));assert.ok(d.decisionGates.some(g=>g.id==='source_diversity'&&g.status==='PASS'))}],
+ ['Canonical nested market snapshot clears gates when verified',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodCanonicalSnapshot(),web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH');assert.equal(d.marketEvidence.ticker,'IRFC');assert.equal(d.marketEvidence.provider,'NSE public');assert.equal(d.marketEvidence.sourceTimestampType,'PROVIDER_TIMESTAMP');assert.equal(d.marketEvidence.independentSourceCount,3);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.status==='PASS'));assert.ok(d.decisionGates.some(g=>g.id==='source_diversity'&&g.status==='PASS'))}],
  ['Observation-only timestamp is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),sourceTimestampType:'OBSERVATION_TIMESTAMP'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'PROVIDER_TIMESTAMP_REQUIRED');assert.match(d.decision,/WAIT/)}],
  ['Wrong symbol is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),ticker:'TCS'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'SYMBOL_MISMATCH');assert.match(d.decision,/WAIT/)}],
  ['Stale quote is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),asOf:new Date(Date.now()-180000).toISOString()},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_STALE_OR_TIMESTAMP_INVALID');assert.match(d.decision,/WAIT/)}],
