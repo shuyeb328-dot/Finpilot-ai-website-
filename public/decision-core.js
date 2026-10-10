@@ -55,7 +55,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
 
  const snapshots=[state?.marketSnapshot,state?.latestMarketSnapshot,window.__fpMarketSnapshot].filter(x=>x&&typeof x==='object');
  const snapshot=snapshots[0]||null;
- const quoteObjects=snapshot?[snapshot,snapshot.report,snapshot.instrument,snapshot.quote,snapshot.marketDataOS,snapshot.snapshot,snapshot.snapshot?.instrument,snapshot.snapshot?.quote].filter(x=>x&&typeof x==='object'):[];
+ const quoteObjects=snapshot?[snapshot,snapshot.report,snapshot.instrument,snapshot.quote,snapshot.timing,snapshot.provenance,snapshot.quality,snapshot.marketDataOS,snapshot.snapshot,snapshot.snapshot?.instrument,snapshot.snapshot?.quote,snapshot.snapshot?.timing,snapshot.snapshot?.provenance,snapshot.snapshot?.quality].filter(x=>x&&typeof x==='object'):[];
  const firstValue=(keys)=>{for(const row of quoteObjects){for(const key of keys){if(row[key]!==undefined&&row[key]!==null&&row[key]!=='')return row[key];}}return undefined;};
 
  const equivalentSymbols={
@@ -69,7 +69,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
    (equivalentSymbols[normalizeSymbol(quoteSymbol)]||[]).includes(normalizeSymbol(requestedSymbol))));
  const price=Number(firstValue(['price','lastPrice','last','close']));
  const quoteAsOf=firstValue(['asOf','sourceAsOf','providerTimestamp','timestamp']);
- const timestampType=String(firstValue(['sourceTimestampType','timestampType'])||'UNKNOWN_TIMESTAMP').toUpperCase();
+ const timestampType=String(firstValue(['sourceTimestampType','timestampType'])||(snapshot?.quality?.status==='VERIFIED_LIVE'&&snapshot?.timing?.sourceAsOf?'PROVIDER_TIMESTAMP':'UNKNOWN_TIMESTAMP')).toUpperCase();
  const ageMs=Number.isFinite(Date.parse(String(quoteAsOf||'')))?Date.now()-Date.parse(String(quoteAsOf)):null;
  const topEligibility=snapshot?.executionEligible;
  const qualityEligibility=firstValue(['forecastEligible']);
@@ -91,7 +91,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const marketGateBlocked=marketSensitive&&(!quotePassed||!sourcePassed||multiInstrumentRequest);
  const marketEvidence={
   required:marketSensitive,quoteStatus:quotePassed?(marketSensitive?'VERIFIED_MATCHING_FRESH':'NOT_REQUIRED'):quoteBlock,
-  ticker:quoteSymbol||null,requestedTicker:requestedSymbol||null,provider:firstValue(['provider','exchange'])||null,
+  ticker:quoteSymbol||null,requestedTicker:requestedSymbol||null,provider:firstValue(['provider'])||snapshot?.provenance?.provider||firstValue(['exchange'])||null,
   asOf:quoteAsOf||null,ageMs:Number.isFinite(ageMs)?Math.round(ageMs):null,
   sourceTimestampType:timestampType,price:Number.isFinite(price)&&price>0?price:null,
   independentSourceCount,sourceDomains:[...domains].slice(0,8),blockingReason:marketGateBlocked?( !quotePassed?quoteBlock:sourceBlock):null
