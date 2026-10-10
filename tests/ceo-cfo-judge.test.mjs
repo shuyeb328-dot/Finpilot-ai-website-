@@ -42,6 +42,7 @@ const cases=[
  ['Liquidity gate',run({emergency:100000,spending:52000,income:90000}),d=>{assert.equal(d.executive.cfo.startsWith('Liquidity is the binding constraint'),true);assert.equal(d.decision,'CFO wins: strengthen liquidity before increasing risk');assert.ok(d.decisionGates.some(g=>g.id==='liquidity'&&g.blocking))}],
  ['High-severity risk gate',run({emergency:300000,spending:50000,income:90000,findings:[{severity:'HIGH',domain:'Debt'}]}),d=>{assert.equal(d.executive.cfo.includes('high-severity'),true);assert.equal(d.decision,'Risk gate wins: resolve the highest-severity finding before adding new risk');assert.ok(d.decisionGates.some(g=>g.id==='high_severity_findings'&&g.blocking))}],
  ['Positive headlines without quote are blocked',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,urls:[]}}),d=>{assert.equal(d.webSignal.stance,'Positive');assert.equal(d.marketEvidence.quoteStatus,'NO_VERIFIED_QUOTE');assert.match(d.decision,/WAIT/);assert.ok(d.confidence<=40);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.blocking))}],
+ ['Market quote gate becomes an explicit Data Auditor veto',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,urls:[]}}),d=>{const auditor=d.debate.initialPositions.find(p=>p.role==='Data Auditor');assert.equal(auditor.decisionEffect,'VETO');assert.ok(auditor.challenge);assert.ok(auditor.response.includes('cannot override')) ;assert.equal(d.debate.finalResolution.capitalAllocationStatus,'BLOCKED')}],
  ['Cautious web risk still respects hard data gate',run({emergency:300000,spending:50000,income:90000,web:{...corroboratedWeb,stance:'Cautious'}}),d=>{assert.equal(d.webSignal.stance,'Cautious');assert.match(d.decision,/WAIT/);assert.ok(d.marketEvidence.blockingReason);assert.ok(d.executive.cfoConfidence>=0&&d.executive.cfoConfidence<=100)}],
  ['Canonical nested market snapshot clears gates when verified',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodCanonicalSnapshot(),web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH');assert.equal(d.marketEvidence.ticker,'IRFC');assert.equal(d.marketEvidence.provider,'NSE public');assert.equal(d.marketEvidence.sourceTimestampType,'PROVIDER_TIMESTAMP');assert.equal(d.marketEvidence.independentSourceCount,3);assert.ok(d.decisionGates.some(g=>g.id==='market_quote'&&g.status==='PASS'));assert.ok(d.decisionGates.some(g=>g.id==='source_diversity'&&g.status==='PASS'))}],
  ['Observation-only timestamp is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),sourceTimestampType:'OBSERVATION_TIMESTAMP'},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'PROVIDER_TIMESTAMP_REQUIRED');assert.match(d.decision,/WAIT/)}],
@@ -55,5 +56,17 @@ const cases=[
  ['Multi-instrument comparison is blocked until comparative evidence exists',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote({ticker:'TCS',symbol:'TCS'}),web:{...corroboratedWeb,query:'Compare TCS and Infosys'}}),d=>{assert.equal(d.marketEvidence.quoteStatus,'MULTIPLE_INSTRUMENTS_REQUIRE_COMPARATIVE_EVIDENCE');assert.match(d.decision,/WAIT/) }]
 ];
 
-for(const [name,result,check] of cases){check(result);console.log('PASS:',name)}
+for(const [name,result,check] of cases){
+ check(result);
+ assert.equal(result.debate?.mode,'DETERMINISTIC_EVIDENCE_RULES',name+' must produce an honest deterministic debate trace');
+ assert.equal(result.debate?.initialPositions?.length,7,name+' must record all seven decision roles');
+ assert.equal(result.debate?.rounds?.length,3,name+' must include initial positions, cross-examination and veto reconciliation');
+ assert.ok(result.debate.initialPositions.every(p=>p.challenge&&p.response&&Array.isArray(p.evidence)),name+' must include each role\'s challenge, response and evidence basis');
+ assert.equal(result.debate.finalResolution.automaticExecution,false,name+' must never auto-execute a financial action');
+ if(result.decisionGates.some(g=>g.blocking)) {
+   assert.ok(result.debate.hardVetoes.length>0,name+' must retain hard safety vetoes');
+   assert.equal(result.debate.finalResolution.capitalAllocationStatus,'BLOCKED',name+' must not allocate capital while a hard gate blocks');
+ }
+ console.log('PASS:',name);
+}
 console.log('CEO/CFO/Judge automated tests: '+cases.length+'/'+cases.length+' passed with verified market quote, source-diversity and risk gates');
