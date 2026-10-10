@@ -186,6 +186,155 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
   ['Fundamental',web?'Headlines are evidence, not proof; validate revenue, debt, cash flow and business quality.':'Keep the decision tied to cash generation and goal probability.',clamp(marketConfidence)]
  ];
  const voices=voiceBase.map(v=>({name:v[0],view:v[1],conf:Math.round(v[2])}));
+
+ // Auditable, deterministic debate trace. These are rule-based role assessments,
+ // not independent foundation-model reasoning or private chain-of-thought.
+ const blockingGates=decisionGates.filter(g=>g.blocking===true);
+ const reviewGates=decisionGates.filter(g=>g.status==='REVIEW');
+ const evidenceReferences=[...new Set([
+  ...(Array.isArray(web?.urls)?web.urls:[]),
+  ...live.map(item=>item?.url)
+ ].filter(url=>typeof url==='string'&&(url.startsWith('https://')||url.startsWith('http://'))))].slice(0,8);
+ const reserveLabel=Number.isFinite(reserveMonths)?reserveMonths.toFixed(1)+' months':'not measured';
+ const gateLabels=blockingGates.map(g=>g.label);
+ const gateList=gateLabels.length?gateLabels.join('; '):'No hard safety gate is blocking the current decision.';
+ const validMarketBasis=marketSensitive&&quotePassed&&sourcePassed;
+ const hardVeto=blockingGates.length>0||marketGateBlocked;
+ const debatePositions=[
+  {
+   role:'Data Auditor',round:1,stance:!marketSensitive?'NO MARKET QUOTE REQUIRED':validMarketBasis?'DATA GATE PASSED':'VETO — INSUFFICIENT VERIFIED MARKET EVIDENCE',
+   confidence:95,
+   evidence:[
+    'Market-specific task: '+(marketSensitive?'yes':'no'),
+    'Quote status: '+marketEvidence.quoteStatus,
+    'Timestamp type: '+marketEvidence.sourceTimestampType,
+    'Independent source domains: '+independentSourceCount+' (minimum 2 for market-sensitive decisions)'
+   ],
+   challenge:'Could a stale price, a local observation timestamp, a wrong ticker or a single-source result be mistaken for verified market evidence?',
+   response:validMarketBasis?'The selected quote passes ticker, timestamp, freshness and eligibility checks; source diversity also passes.':marketSensitive?'The missing or failed data requirement is explicit. A headline or local observation time cannot override it.':'A market quote is not required for this non-market decision.',
+   decisionEffect:!marketSensitive?'NOT_REQUIRED':validMarketBasis?'PASS':'VETO'
+  },
+  {
+   role:'Bull Case',round:1,stance:marketGateBlocked?'ABSTAIN — MARKET DATA GATE FAILED':positive&&evidenceScore>=65?'CONDITIONAL UPSIDE CASE':'NO CLEAR UPSIDE EDGE',
+   confidence:Math.round(clamp(ceoSignal)),
+   evidence:[
+    'Web signal: '+(web?.stance||'unavailable'),
+    'Evidence count: '+webCount,
+    'Evidence score: '+Math.round(evidenceScore)+'/100',
+    web?.query?'Query: '+String(web.query).slice(0,180):'No live search query attached'
+   ],
+   challenge:'What primary-source fact, valuation assumption or fresh price confirmation would invalidate the upside thesis?',
+   response:marketGateBlocked?'No directional market thesis is advanced until the data gate passes.':positive?'Positive search sentiment is only a lead; fundamentals, valuation and suitability remain unverified.':'The available evidence does not establish a decisive upside edge.',
+   decisionEffect:marketGateBlocked?'ABSTAIN':positive&&evidenceScore>=65?'CONDITIONAL':'REVIEW'
+  },
+  {
+   role:'Bear Case',round:1,stance:cautious||high>0||risk>=60?'DOWNSIDE RISK IDENTIFIED':'COUNTERCASE REQUIRED',
+   confidence:Math.round(clamp(stabilityScore)),
+   evidence:[
+    'Risk score: '+Math.round(risk)+'/100',
+    'High-severity findings: '+high,
+    'Medium-severity findings: '+medium,
+    'Emergency reserve coverage: '+reserveLabel
+   ],
+   challenge:'Could liquidity pressure, leverage, volatility or a contradictory source overwhelm the positive narrative?',
+   response:high>0?'High-severity findings remain unresolved and limit risk-taking.':reserveMonths<3?'Liquidity coverage is below the minimum three-month threshold.':cautious?'The cautious signal needs primary-source verification before it is treated as a market conclusion.':'A downside case must still be considered; this assessment does not prove the thesis is safe.',
+   decisionEffect:high>0||reserveMonths<3?'VETO':risk>=60||cautious?'REVIEW':'COUNTERCASE'
+  },
+  {
+   role:'Quant',round:1,stance:marketSensitive&&!quotePassed?'ABSTAIN — NO ELIGIBLE QUOTE':marketSensitive?'CONDITIONAL QUANT REVIEW':'STRUCTURED CALCULATIONS ONLY',
+   confidence:Math.round(clamp(liquidityScore)),
+   evidence:[
+    'Liquidity score: '+Math.round(liquidityScore)+'/100',
+    'Market score: '+Math.round(marketScore)+'/100',
+    'Debt ratio: '+Number(debtRatio.toFixed(3)),
+    'Quote price: '+(marketEvidence.price==null?'not eligible':String(marketEvidence.price))
+   ],
+   challenge:'Are the input instrument, quote timestamp, units and measurement horizon aligned with the requested calculation?',
+   response:marketSensitive&&!quotePassed?'Quantitative market conclusions are withheld because the quote has not passed verification.':'These deterministic indicators summarize supplied inputs; they are not calibrated probabilities of profit.',
+   decisionEffect:marketSensitive&&!quotePassed?'ABSTAIN':marketSensitive?'CONDITIONAL':'REVIEW'
+  },
+  {
+   role:'Risk Guardian',round:1,stance:blockingGates.length?'HARD VETO':reviewGates.length?'REVIEW REQUIRED':'PASS WITH MONITORING',
+   confidence:95,
+   evidence:blockingGates.length?blockingGates.map(g=>g.label+': '+g.message):reviewGates.map(g=>g.label+': '+g.message).concat(['Risk score: '+Math.round(risk)+'/100']),
+   challenge:'Can any mandatory data, liquidity or high-severity risk control be bypassed by an optimistic aggregate score?',
+   response:blockingGates.length?'No. The following blocker(s) remain active: '+gateList+'. The CEO/Judge must respect the veto.':reviewGates.length?'No hard veto is active, but review items remain visible before capital allocation.':'No hard veto was triggered by the present rule set; human review remains required for high-impact actions.',
+   decisionEffect:blockingGates.length?'VETO':reviewGates.length?'REVIEW':'PASS'
+  },
+  {
+   role:'Red Team',round:1,stance:hardVeto?'FAIL-FAST — COUNTEREVIDENCE BLOCKS ACTION':'ADVERSARIAL CHALLENGE RECORDED',
+   confidence:Math.round(clamp(risk)),
+   evidence:[
+    'Blocked/review gates: '+(blockingGates.length+reviewGates.length),
+    'Evidence references: '+evidence.length,
+    'Independent web domains: '+independentSourceCount,
+    'Evidence stale: '+(stale?'yes':'no')
+   ],
+   challenge:'What is the strongest reason not to act, and which assumption would make the current conclusion wrong?',
+   response:hardVeto?'The decision is not allowed to outrank its failed gate. Resolve '+gateList+'.':'The countercase is recorded; missing evidence should lower conviction instead of being filled with invented data.',
+   decisionEffect:hardVeto?'VETO':'CHALLENGE'
+  },
+  {
+   role:'CFO',round:1,stance:reserveMonths<3||high>0?'REJECT ADDITIONAL CAPITAL RISK':hardVeto?'NO ALLOCATION UNTIL GATES PASS':'CONDITIONAL FINANCIAL REVIEW',
+   confidence:Math.round(clamp(cfoSignal)),
+   evidence:[
+    'Emergency coverage: '+reserveLabel,
+    'Monthly surplus: '+money(surplus),
+    'Debt / annual income ratio: '+Number(debtRatio.toFixed(3)),
+    'High-severity findings: '+high
+   ],
+   challenge:'Would the proposed exposure weaken essential liquidity, raise debt pressure or ignore unresolved severe findings?',
+   response:reserveMonths<3?'Capital risk is rejected until emergency coverage reaches the required threshold.':high>0?'Resolve severe findings before adding meaningful risk.':hardVeto?'No capital allocation is supported while data or source-diversity gates are blocked.':'Any opportunity remains conditional on suitability, evidence quality and explicit user approval.',
+   decisionEffect:reserveMonths<3||high>0?'VETO':hardVeto?'BLOCKED':'CONDITIONAL'
+  },
+  {
+   role:'CEO / Judge',round:1,stance:judge,
+   confidence:decisionConfidenceFinal,
+   evidence:[
+    'Market gate: '+marketEvidence.quoteStatus,
+    'Blocking gates: '+blockingGates.length,
+    'Risk score: '+Math.round(risk)+'/100',
+    'Decision confidence: '+decisionConfidenceFinal+'% (deterministic score, not calibrated probability)'
+   ],
+   challenge:'Does the final decision obey every mandatory veto and accurately describe what remains uncertain?',
+   response:hardVeto?'Hard veto preserved. Final resolution remains WAIT / BLOCK pending verification or risk remediation.':reviewGates.length?'No hard veto; the decision remains conditional and review items stay visible.':'No hard veto detected by the deterministic gates; this is still decision support, not trade authorization.',
+   decisionEffect:hardVeto?'VETO PRESERVED':reviewGates.length?'CONDITIONAL REVIEW':'HUMAN REVIEW'
+  }
+ ];
+ const debate={
+  version:'ROUND-TABLE-DEBATE-1.0.0',
+  mode:'DETERMINISTIC_EVIDENCE_RULES',
+  disclaimer:'Role assessments are deterministic rules based on the supplied data and evidence. External foundation-model reasoning is not configured; this is not independent LLM debate.',
+  rounds:[
+   {number:1,label:'Initial positions',summary:'Each role records an assessment using the same evidence snapshot.',entries:debatePositions.map(p=>({role:p.role,stance:p.stance,confidence:p.confidence,evidence:p.evidence}))},
+   {number:2,label:'Cross-examination',summary:'Every role records a counter-question and its evidence-based response.',entries:debatePositions.map(p=>({role:p.role,challenge:p.challenge,response:p.response,decisionEffect:p.decisionEffect}))},
+   {number:3,label:'Veto and reconciliation',summary:'The final decision preserves hard gates; no majority can override a blocking safeguard.',entries:[
+    {role:'Risk Guardian',hardVetoes:blockingGates.map(g=>({id:g.id,label:g.label,message:g.message})),result:blockingGates.length?'BLOCKED':'NO HARD VETO'},
+    {role:'CEO / Judge',result:judge,blockingGateCount:blockingGates.length,reviewGateCount:reviewGates.length,decisionConfidence:decisionConfidenceFinal}
+   ]}
+  ],
+  initialPositions:debatePositions,
+  hardVetoes:blockingGates.map(g=>({id:g.id,label:g.label,severity:g.severity,message:g.message})),
+  reviewItems:reviewGates.map(g=>({id:g.id,label:g.label,message:g.message})),
+  assessmentTally:{
+   veto:debatePositions.filter(p=>['VETO','BLOCKED','VETO PRESERVED'].includes(p.decisionEffect)).length,
+   abstain:debatePositions.filter(p=>p.decisionEffect==='ABSTAIN').length,
+   conditional:debatePositions.filter(p=>['CONDITIONAL','CONDITIONAL REVIEW','HUMAN REVIEW','REVIEW'].includes(p.decisionEffect)).length,
+   pass:debatePositions.filter(p=>p.decisionEffect==='PASS').length,
+   note:'This is a count of rule-based role assessments, not a democratic majority vote. Any hard safety gate takes precedence.'
+  },
+  evidenceReferences,
+  finalResolution:{
+   decision:judge,
+   blockingGateCount:blockingGates.length,
+   reviewGateCount:reviewGates.length,
+   marketQuoteStatus:marketEvidence.quoteStatus,
+   capitalAllocationStatus:hardVeto?'BLOCKED':'CONDITIONAL_HUMAN_REVIEW',
+   humanApprovalRequired:true,
+   automaticExecution:false
+  }
+ };
+
  const webView=web
    ? 'Live web search for “'+web.query+'” is '+web.stance.toLowerCase()+' based on '+webCount+' evidence item(s). '+(positive?'News flow is supportive, but fundamentals still require verification.':cautious?'News flow contains caution signals; verify primary sources before acting.':'News flow is mixed; headlines alone are insufficient for a trade signal.')
    : 'No live web evidence is attached to this council.';
@@ -193,7 +342,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const summary='Quantum Search routed through '+quantum.intent+' intent with '+quantum.evidenceCount+' evidence item(s). CEO/CFO/Judge synthesized '+fs.length+' Financial Brain findings using '+(matrix.length||'the available')+' specialist scores, '+evidence.length+' evidence records and '+webCount+' live web item(s). '+(high?'High-severity constraints are limiting the decision. ':'')+(marketGateBlocked?'Market-sensitive decision is blocked by quote provenance or independent-source requirements. ':stale?'Current evidence needs refreshing before market-sensitive action.':'Evidence freshness is acceptable for decision support.');
  return {
    decision:judge,summary,risk:Math.round(risk),confidence:decisionConfidenceFinal,
-   voices,evidenceFreshness,decisionGates,marketEvidence,
+   voices,evidenceFreshness,decisionGates,marketEvidence,debate,
    executive:{
      ceo,cfo,judge,
      ceoConfidence:Math.round(clamp(ceoSignal)),
