@@ -26,7 +26,7 @@ Example alert body (replace the secret placeholder before use):
 {
   "secret": "REPLACE_WITH_TRADINGVIEW_WEBHOOK_SECRET",
   "alert_id": "{{ticker}}-{{interval}}-{{timenow}}",
-  "ticker": "{{ticker}}",
+  "ticker": "{{exchange}}:{{ticker}}",
   "action": "BUY",
   "timeframe": "{{interval}}",
   "time": "{{timenow}}",
