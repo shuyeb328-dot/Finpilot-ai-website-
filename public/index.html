@@ -786,7 +786,7 @@ function refreshCurrentSearch(){
  doSearch(q,true);
 }
 function searchEngineLabel(value){
- const labels={'duckduckgo-html':'DuckDuckGo','yahoo-html':'Yahoo Search','bing-news-rss':'Bing News','google-news-rss':'Google News','google-search-bridge':'Google Search','google':'Google Custom Search','brave':'Brave Search','exa':'Exa','serpapi':'SerpAPI','tavily':'Tavily'};
+ const labels={'duckduckgo-html':'DuckDuckGo','brave-html':'Brave Search','yahoo-html':'Yahoo Search','bing-news-rss':'Bing News','google-news-rss':'Google News','google-search-bridge':'Google Search','google':'Google Custom Search','brave':'Brave Search','exa':'Exa','serpapi':'SerpAPI','tavily':'Tavily'};
  return labels[String(value||'').toLowerCase()]||String(value||'Search source').replace(/[-_]+/g,' ');
 }
 async function doSearch(q,forceRefresh=false){

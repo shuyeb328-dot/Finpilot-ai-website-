@@ -108,6 +108,7 @@ assert.match(pageText, /if\(!manual\)\{state\.lastEvidenceSync=.*syncCoreBrainEv
 assert.match(pageText, /async function retryResearchSource\(index\)/, 'unavailable article sources must offer a user-triggered retry');
 assert.match(pageText, /function searchEngineLabel\(value\)/, 'search results must have human-readable engine names');
 assert.match(pageText, /'yahoo-html':'Yahoo Search'/, 'Yahoo must be identified as an independent free search source');
+assert.match(pageText, /'brave-html':'Brave Search'/, 'Brave must be identified as an independent free search source');
 assert.match(pageText, /data-search-engine-coverage/, 'search UI must disclose engine coverage and failed-source status');
 assert.match(pageText, /matchingEngines/, 'search result cards must render engine provenance');
 assert.match(pageText, /externalSearchLinks/, 'search results must provide alternate free search-engine links');

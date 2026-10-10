@@ -262,10 +262,99 @@ async function yahooHtml(q,count){
  }finally{clearTimeout(timer)}
 }
 
+
+function braveResultBlocks(html,limit){
+ const tags=/<\/?div\b[^>]*>/gi, starts=[...html.matchAll(/<div\b(?=[^>]*\bdata-type=["']web["'])[^>]*>/gi)], blocks=[];
+ for(const start of starts){
+  if(blocks.length>=limit)break;
+  tags.lastIndex=start.index;
+  let depth=0,match,end=-1;
+  while((match=tags.exec(html))){
+   const raw=match[0];
+   if(/^<\/div/i.test(raw))depth--;
+   else if(!/\/\s*>$/.test(raw))depth++;
+   if(depth===0){end=tags.lastIndex;break;}
+  }
+  if(end>start.index){
+   const block=html.slice(start.index,end);
+   if(!blocks.includes(block))blocks.push(block);
+  }
+ }
+ return blocks;
+}
+function braveTitle(block){
+ const h=block.match(/<h[1-5]\b[^>]*>([\s\S]*?)<\/h[1-5]>/i);
+ if(h){const title=cleanText(h[1]);if(title.length>2&&title.length<300)return title;}
+ const els=[...block.matchAll(/<(?:div|span)\b([^>]*)>([\s\S]*?)<\/(?:div|span)>/gi)];
+ for(const [,attrs,body] of els){
+  if(!/(?:^|\s)(?:title|result-title|snippet-title|heading)(?:\s|$)/i.test(htmlAttribute(attrs,'class')))continue;
+  const title=cleanText(body);
+  if(title.length>2&&title.length<300)return title;
+ }
+ return '';
+}
+function braveSnippet(block,title){
+ const els=[...block.matchAll(/<(?:p|div|span)\b([^>]*)>([\s\S]*?)<\/(?:p|div|span)>/gi)];
+ for(const [,attrs,body] of els){
+  if(!/(?:description|snippet-content|snippet-description|result-description|snippet-text)/i.test(htmlAttribute(attrs,'class')))continue;
+  const value=cleanText(body);
+  if(value.length>35&&value!==title)return value.slice(0,700);
+ }
+ for(const [,attrs,body] of els){
+  const cls=htmlAttribute(attrs,'class');
+  const value=cleanText(body);
+  if(/(?:result-content|site-name|site-info|breadcrumb|favicon|title)/i.test(cls))continue;
+  if(value.length>65&&value!==title&&!value.includes(title))return value.slice(0,700);
+ }
+ return '';
+}
+function resolveBraveUrl(value){
+ const raw=String(value||'').trim();
+ try{
+  const target=new URL(raw,'https://search.brave.com');
+  if(!/^https?:$/.test(target.protocol)||target.username||target.password)return '';
+  if(/(^|\.)search\.brave\.com$/i.test(target.hostname))return '';
+  if(/(^|\.)brave\.com$/i.test(target.hostname))return '';
+  return target.href;
+ }catch{return ''}
+}
+async function braveHtml(q,count){
+ const u='https://search.brave.com/search?q='+encodeURIComponent(q)+'&source=web';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml'});
+  if(!r.ok)throw providerError('Brave Search returned HTTP '+r.status,r.status);
+  const html=await r.text();
+  if(/verify you are human|captcha|automated traffic|unusual traffic/i.test(html))throw providerError('Brave Search returned an automated-access challenge');
+  const blocks=braveResultBlocks(html,count*2);
+  const items=[];
+  for(const block of blocks){
+   if(items.length>=count)break;
+   const anchors=[...block.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+   const valid=anchors.map(([,attrs,body])=>({url:resolveBraveUrl(htmlAttribute(attrs,'href')),body})).filter(x=>x.url);
+   if(!valid.length)continue;
+   const title=braveTitle(block)||cleanText(valid[0].body).slice(0,240);
+   if(!title||title.length<3)continue;
+   const url=valid.find(x=>cleanText(x.body).toLowerCase().includes(title.toLowerCase()))?.url||valid[0].url;
+   const snippet=braveSnippet(block,title);
+   let source='Brave Search';
+   try{source=new URL(url).hostname.replace(/^www\./i,'')}catch{}
+   items.push({title,url,snippet,source,publishedAt:null});
+  }
+  // If the current HTML layout changes, fail closed rather than treating navigation links as results.
+  if(!items.length&&blocks.length===0)throw providerError('Brave Search markup changed or no web result blocks were found');
+  return normalize(items,'brave-html');
+ }catch(e){
+  if(e.name==='AbortError')throw providerError('Brave Search timed out');
+  throw e;
+ }finally{clearTimeout(timer)}
+}
+
 function freeSearchLinks(q){
  const x=encodeURIComponent(q);
  return [
   {provider:'DuckDuckGo',url:'https://duckduckgo.com/?q='+x},
+  {provider:'Brave Search',url:'https://search.brave.com/search?q='+x},
   {provider:'Yahoo Search',url:'https://search.yahoo.com/search?p='+x},
   {provider:'Bing News',url:'https://www.bing.com/news/search?q='+x},
   {provider:'Google News',url:'https://news.google.com/search?q='+x}
@@ -274,6 +363,7 @@ function freeSearchLinks(q){
 async function searchFreeMultiSource(q,count){
  const tasks=[
   {provider:'duckduckgo-html',run:()=>duckduckgoHtml(q,count)},
+  {provider:'brave-html',run:()=>braveHtml(q,count)},
   {provider:'yahoo-html',run:()=>yahooHtml(q,count)},
   {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
   {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
