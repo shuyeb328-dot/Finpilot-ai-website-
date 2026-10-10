@@ -1,15 +1,25 @@
 import assert from 'node:assert/strict';
 import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
 resetAutonomousCoreForTests();
-assert.equal(OS_REGISTRY.length,12);
+assert.equal(OS_REGISTRY.length,20);
 assert.ok(OS_REGISTRY.some(x=>x.id==='ai-security-os'));
 assert.ok(OS_REGISTRY.some(x=>x.id==='main-core'));
+for (const id of ['forecast-learning-os','training-fabric-os','autonomous-research-os','market-stream-hub-os','agent-factory-os','decision-memory-os','unified-workspace-os','market-training-os']) {
+ assert.ok(OS_REGISTRY.some(x=>x.id===id), 'central registry must include '+id);
+}
+
 const unknown=await getOSControlPlaneSnapshot({});
 assert.equal(unknown.ok,true);
 assert.equal(unknown.mode,'MONITOR_ONLY');
 assert.ok(unknown.os.every(x=>['UNKNOWN','PARTIAL','REVIEW_REQUIRED'].includes(x.status)),'missing telemetry must never appear healthy; missing safety policy must force review');
 assert.equal(unknown.os.find(x=>x.id==='trading-risk-os').status,'REVIEW_REQUIRED');
 assert.equal(unknown.policy.realMoneyExecution,'BLOCKED');
+assert.equal(unknown.operatingLayer.version,'AI-OS-1.0');
+assert.equal(unknown.operatingLayer.singleRegistry,true);
+assert.equal(unknown.operatingLayer.planes.length,5);
+assert.equal(unknown.operatingLayer.automaticPromotion,false);
+assert.equal(unknown.operatingLayer.liveTrading,false);
+
 const observations={
  health:{ok:true,frontendSyntax:{ok:true},search:{providerMode:'auto',freeFirst:true}},
  core:{ok:true,uptimeMs:1000,evidenceLedger:10,memoryAgents:12},
@@ -36,6 +46,27 @@ assert.equal(snap.os.find(x=>x.id==='learning-os').metrics.feedbackPersistence,'
 assert.match(snap.os.find(x=>x.id==='learning-os').detail,/can be lost on restart/);
 assert.equal(snap.os.find(x=>x.id==='evolution-os').status,'READY');
 assert.equal(snap.os.find(x=>x.id==='quantum-os').status,'PARTIAL');
+const unified = await getOSControlPlaneSnapshot({
+ ...observations,
+ marketStream:{ok:true,channels:2,subscribers:3,polling:0,pollMs:5000,heartbeatMs:15000},
+ agentFactory:{ok:true,count:2,maxAgents:100,persistence:'POSTGRES',persistent:true,detail:'persisted'},
+ marketTraining:{ok:true,enabled:false,requestedEnabled:false,persistence:'PROCESS_MEMORY',persistent:false,blockedReason:null,observationCount:3,forecastCount:1,pendingForecastCount:1,resolvedForecastCount:0,meanBrierScore:null,meanLogLoss:null,lastError:null,intervalMs:900000,watchlist:['BTC'],requiresAlwaysOnWorkerFor24x7:true,foundationModelTraining:false,automaticPromotion:false,realMoneyExecution:false}
+});
+assert.equal(unified.os.find(x=>x.id==='market-stream-hub-os').status,'READY');
+assert.equal(unified.os.find(x=>x.id==='market-training-os').status,'PARTIAL','worker must remain partial until durable storage and opt-in scheduling are ready');
+assert.equal(unified.os.find(x=>x.id==='market-training-os').metrics.foundationModelTraining,false);
+assert.equal(unified.os.find(x=>x.id==='market-training-os').metrics.realMoneyExecution,false);
+const trained=await getOSControlPlaneSnapshot({...observations,marketTraining:{...unified.os.find(x=>x.id==='market-training-os').metrics,ok:true,enabled:true,requestedEnabled:true,persistent:true,persistence:'POSTGRES',observationCount:500,forecastCount:400,pendingForecastCount:20,resolvedForecastCount:380,lastError:null,intervalMs:900000,watchlist:['BTC','SPY']}});
+assert.equal(trained.os.find(x=>x.id==='market-training-os').status,'ACTIVE');
+assert.equal(trained.os.find(x=>x.id==='market-training-os').metrics.automaticPromotion,false);
+
+assert.equal(unified.os.find(x=>x.id==='agent-factory-os').status,'ACTIVE');
+assert.equal(unified.os.find(x=>x.id==='agent-factory-os').metrics.automaticExecution,false);
+assert.equal(unified.os.find(x=>x.id==='forecast-learning-os').status,'PARTIAL','client-local forecast training must not be reported server-durable');
+assert.equal(unified.operatingLayer.singleRegistry,true);
+assert.ok(unified.operatingLayer.planes.some(x=>x.id==='training-learning'));
+assert.ok(unified.operatingLayer.planes.every(x=>Number.isInteger(x.readiness)&&x.readiness>=0&&x.readiness<=100));
+
 const beforeMode=getAutonomousCoreMode();
 const cycle=await runAutonomousCoreCycle({...observations,marketHealth:{providers:[{id:'nasdaq-public',status:'DEGRADED'}]},data:{dataQuality:'DEGRADED',dataQualityScore:35}});
 assert.equal(cycle.ok,true);

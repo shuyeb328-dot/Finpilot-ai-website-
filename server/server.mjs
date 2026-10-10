@@ -25,6 +25,8 @@ import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
 import {createTradingViewAlertInbox} from './tradingview-alert-inbox.mjs';
+import {listManagedAgents,createManagedAgent,getManagedAgentRegistrySnapshot} from './ai-os-operating-layer.mjs';
+import {initializeAIOSMarketTrainingDirector,runAIOSMarketTrainingCycle,getAIOSMarketTrainingStatus} from './ai-os-market-training.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
@@ -2082,6 +2084,9 @@ setInterval(()=>{if(String(process.env.FINPILOT_EXA_AUTO_REFRESH||'false').toLow
 
 const AUTONOMOUS_LEARNING_INIT=initAutonomousLearning({searchWeb,emitEvent,audit,getSchedulerState:()=>({running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,queue:SCHEDULER.queue})});
 audit('AUTONOMOUS_LEARNING_INIT',{version:AUTONOMOUS_LEARNING_INIT.version,enabled:AUTONOMOUS_LEARNING_INIT.enabled,intervalMs:AUTONOMOUS_LEARNING_INIT.intervalMs});
+const AIOS_MARKET_TRAINING_INIT=initializeAIOSMarketTrainingDirector({
+ loadSnapshot:ticker=>loadMarketStreamSnapshot(String(ticker)+'\u001f1h')
+}).then(status=>{audit('AIOS_MARKET_TRAINING_INIT',{version:status.version,enabled:status.enabled,requestedEnabled:status.requestedEnabled,persistence:status.persistence,blockedReason:status.blockedReason});return status;}).catch(error=>{audit('AIOS_MARKET_TRAINING_INIT_ERROR',{error:String(error?.message||error)});return null;});
 
 
 function osControlPlaneObservations(){
@@ -2099,12 +2104,21 @@ function osControlPlaneObservations(){
   autonomy:{ok:true,level:AUTONOMY.level,mode:AUTONOMY.mode,cycles:AUTONOMY.cycles,policyBlocks:AUTONOMY.policyBlocks},
   eventBus:{ok:true,events:EVENT_BUS.events.length,routed:EVENT_BUS.routed,coalesced:EVENT_BUS.coalesced,wakeups:EVENT_BUS.wakeups},
   quantum:{ok:true,configured:Boolean(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY),backend:(process.env.QUANTUM_API_URL&&process.env.QUANTUM_API_KEY)?'EXTERNAL_QUANTUM_PROVIDER':'UNCONFIGURED',mode:'HYBRID_OPTIMIZATION',finalValidator:'CLASSICAL'},
+  marketStream:{ok:true,...MARKET_STREAM_HUB.stats(),pollMs:MARKET_STREAM_POLL_MS,heartbeatMs:15000},
   evolution:getShadowEvaluationStatus()
  };
 }
-async function osControlPlaneSnapshot(req,res){return send(res,200,await getOSControlPlaneSnapshot(osControlPlaneObservations()));}
+async function osControlPlaneSnapshot(req,res){
+ const observations=osControlPlaneObservations();
+ observations.agentFactory=await getManagedAgentRegistrySnapshot();
+ observations.marketTraining=await getAIOSMarketTrainingStatus();
+ return send(res,200,await getOSControlPlaneSnapshot(observations));
+}
 async function osControlPlaneCycle(req,res){
- const plan=await runAutonomousCoreCycle(osControlPlaneObservations());
+ const observations=osControlPlaneObservations();
+ observations.agentFactory=await getManagedAgentRegistrySnapshot();
+ observations.marketTraining=await getAIOSMarketTrainingStatus();
+ const plan=await runAutonomousCoreCycle(observations);
  audit('AUTONOMOUS_CORE_CYCLE',{cycleId:plan.id,mode:plan.mode,taskCount:plan.tasks.length,actionsExecuted:plan.actionsExecuted.length});
  emitEvent('OS_CONTROL_CYCLE',{cycleId:plan.id,mode:plan.mode,taskCount:plan.tasks.length},65);
  return send(res,200,plan);
@@ -2240,6 +2254,15 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
+  if(req.method==='GET'&&u.pathname==='/api/ai-os/training/status')return send(res,200,await getAIOSMarketTrainingStatus());
+  if(req.method==='POST'&&u.pathname==='/api/ai-os/training/cycle'){
+   if(String(process.env.FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED||'false').toLowerCase()!=='true')return send(res,403,{ok:false,error:'MANUAL_TRAINING_CYCLE_DISABLED',detail:'Enable FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED only after reviewing data-provider limits.'});
+   await body(req);return send(res,200,await runAIOSMarketTrainingCycle({trigger:'operator-request'}));
+  }
+  if(req.method==='GET'&&u.pathname==='/api/ai-os/agents')return send(res,200,await listManagedAgents());
+  if(req.method==='POST'&&u.pathname==='/api/ai-os/agents'){await body(req);const r=await createManagedAgent(req._parsedBody||{});return send(res,r.ok?201:(r.status||400),r);}
+  if(req.method==='GET'&&u.pathname==='/api/ai-os/market-training/status')return send(res,200,await getAIOSMarketTrainingStatus());
+  if(req.method==='POST'&&u.pathname==='/api/ai-os/market-training/cycle'){await body(req);const r=await runAIOSMarketTrainingCycle({trigger:'operator'});audit('AIOS_MARKET_TRAINING_MANUAL_CYCLE',{ok:r.ok,cycle:r.cycle,summary:r.summary});return send(res,r.ok?200:503,r);}
   if(req.method==='GET'&&u.pathname==='/api/os-control-plane')return osControlPlaneSnapshot(req,res);
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/cycle'){await body(req);return osControlPlaneCycle(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/feedback'){await body(req);return osControlPlaneFeedback(req,res);}

@@ -210,7 +210,30 @@ function agentsView(){
 }
 
 function toggleAgent(id){if(id.startsWith('builtin-')){toast('Built-in agents are always available');return}const a=(state.agents||[]).find(x=>x.id===id);if(a){a.enabled=!a.enabled;save();render('agents')}}
-function createAgent(e){e.preventDefault();const name=document.getElementById('aName').value.trim();const role=document.getElementById('aRole').value.trim();if(!name||!role)return;state.agents.push({id:'custom-'+Date.now(),name,icon:document.getElementById('aIcon').value||'🤖',role,objective:document.getElementById('aObjective').value||'Analyze the Financial Brain and identify useful actions.',enabled:true,interval:Number(document.getElementById('aInterval').value||15),lastRun:null,createdAt:new Date().toISOString()});save();closeModal('agentModal');render('agents');toast(name+' agent created')}
+async function createAgent(e){
+ e.preventDefault();
+ const name=document.getElementById('aName').value.trim(),role=document.getElementById('aRole').value.trim();
+ if(!name||!role)return;
+ const icon=document.getElementById('aIcon').value||'🤖',objective=document.getElementById('aObjective').value||'Analyze the Financial Brain and identify useful actions.',interval=Number(document.getElementById('aInterval').value||15);
+ let registry=null,registryError=null;
+ try{
+  const response=await fetch('/api/ai-os/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,icon,role,objective,interval})});
+  const data=await response.json().catch(()=>({ok:false,error:'INVALID_JSON_RESPONSE'}));
+  if(!response.ok||!data.ok)throw new Error(data.error||('HTTP_'+response.status));
+  registry=data;
+ }catch(error){registryError=String(error?.message||error)}
+ if(!registry?.ok){
+  toast('Agent was not created: central AI OS registry unavailable ('+(registryError||'unknown error')+'). Please retry when the registry is healthy.');
+  return;
+ }
+ const agent={id:registry.agent.id,name,icon,role,objective,enabled:true,interval,lastRun:null,createdAt:new Date().toISOString(),osRegistryRegistered:true,osRegistryPersistence:registry.persistence||'PROCESS_MEMORY',executionMode:'USER_TRIGGERED_ONLY'};
+ state.agents.push(agent);save();closeModal('agentModal');render('agents');
+ if(registry?.ok){
+  toast(registry.persistent?name+' created and saved to the central AI OS registry':name+' created; central registry is process-memory only and may reset on server restart');
+ }else{
+  toast(name+' created locally only; AI OS registry sync failed ('+(registryError||'unknown error')+')');
+ }
+}
 async function runSingleAgent(name){
  refreshBrain(); toast(name+' is reasoning…');
  try{const r=await fetch('/api/agent-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:name,income:state.income,spending:state.spending,emergency:state.emergency,findings:state.findings})});const d=await r.json();
@@ -933,4 +956,4 @@ function startMonitorScheduler(){setInterval(()=>{if(state.monitoring&&document.
 window.addEventListener('error',function(e){console.error('FinPilot UI error',e.error||e.message);const v=document.querySelector('.view.active');if(v&&v.id==='search'){const b=document.getElementById('searchResults');if(b)b.innerHTML='<div class="notice highNotice"><b>Search module recovered from a UI error.</b><p class="muted">The rest of FinPilot remains available. Try the search again.</p><button class="btn primary" onclick="doSearch(document.getElementById(\"searchQuery\")?.value||\"\")">Retry search</button></div>'}});function init(){try{navView()}catch(e){console.error('FinPilot nav init failed',e)}try{document.getElementById("complianceBanner").innerHTML=complianceBannerView()}catch(e){console.error('FinPilot compliance init failed',e)}try{runMonitoring(false)}catch(e){console.error('FinPilot monitoring init failed',e);state.alerts=Array.isArray(state.alerts)?state.alerts:[];state.monitorHistory=Array.isArray(state.monitorHistory)?state.monitorHistory:[]}try{dashboardView()}catch(e){console.error('FinPilot dashboard init failed',e)}try{document.querySelector('[data-view="dashboard"]')?.classList.add('active')}catch(e){}try{document.getElementById('globalSearch')?.addEventListener('keydown',e=>{if(e.key==='Enter')webSearch()})}catch(e){console.error('FinPilot search init failed',e)}}
 initFPTheme();init();startFleetScheduler();startMonitorScheduler();
 </script><noscript><div style="position:fixed;left:16px;right:16px;bottom:16px;padding:12px;background:#172033;color:#fff;border-radius:10px;z-index:99">JavaScript is required for the full FinPilot command center.</div></noscript><script src="/training-fabric.js?v=20261009-1" defer></script><script src="/benchmark-os.js?v=20261009-1" defer></script><script src="/chat-copilot.js?v=20261009-1" defer></script><script src="/finpilot-ai-tier.js" defer></script><script src="/unified-os.js?v=20261009-1" defer></script>
-<script src="/execution-quality-dashboard.js?v=1.0" defer></script><script src="/autonomous-core-os.js?v=20261010-3" defer></script></body></html>
+<script src="/execution-quality-dashboard.js?v=1.0" defer></script><script src="/autonomous-core-os.js?v=20261010-aios-1" defer></script></body></html>

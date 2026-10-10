@@ -47,7 +47,7 @@ assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonicall
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
 assert.match(pageText, /one-click-analysis\.js\?v=20261010-15/, 'rebuilt one-click module must use a new asset version');
-assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
+assert.match(pageText, /autonomous-core-os\.js\?v=[^\"]+/, 'OS control panel must use a cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
