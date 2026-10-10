@@ -286,7 +286,7 @@ function buildCases(nowMs) {
       assert.equal(x.ok,true);assert.equal(x.decisionType,'ABSTAIN');assert.equal(x.automaticExecution,false);
     }),
     checkCase('EVIDENCE-01','research-quality','Official regulator evidence has high authority score',()=>{
-      const x=scoreEvidence({title:'Official filing',url:'https://www.sec.gov/filing',snippet:'Detailed official filing with balance sheet and risk disclosures.',publishedAt:timestamp(nowMs)});
+      const x=scoreEvidence({title:'Official filing',url:'https://www.sec.gov/filing',snippet:'Detailed official filing with balance sheet and risk disclosures.',publishedAt:new Date().toISOString()});
       assert.equal(x.authorityScore,100);assert.ok(x.qualityScore>=80);
     }),
     checkCase('EVIDENCE-02','research-quality','Evidence without publication date is marked unknown-age',()=>{
@@ -294,12 +294,12 @@ function buildCases(nowMs) {
       assert.equal(x.freshnessLabel,'UNKNOWN_AGE');
     }),
     checkCase('EVIDENCE-03','research-quality','Publication timestamp produces deterministic live freshness score',()=>{
-      const x=scoreEvidence({title:'Current filing',url:'https://www.sec.gov/filing',snippet:'Fresh source data with detailed financial disclosures.',publishedAt:timestamp(nowMs)});
+      const x=scoreEvidence({title:'Current filing',url:'https://www.sec.gov/filing',snippet:'Fresh source data with detailed financial disclosures.',publishedAt:new Date().toISOString()});
       assert.equal(x.freshnessLabel,'LIVE');assert.equal(x.freshnessScore,100);
     }),
     checkCase('EVIDENCE-04','research-quality','Authority score is kept separate from freshness score',()=>{
       const primary=scoreEvidence({title:'Regulator filing',url:'https://www.sec.gov/filing',snippet:'Short official source.',publishedAt:timestamp(nowMs,-24*60*60*1000)});
-      const secondary=scoreEvidence({title:'Recent article',url:'https://example.com/article',snippet:'A recent, detailed analysis with risk factors and uncertainty.',publishedAt:timestamp(nowMs)});
+      const secondary=scoreEvidence({title:'Recent article',url:'https://example.com/article',snippet:'A recent, detailed analysis with risk factors and uncertainty.',publishedAt:new Date().toISOString()});
       assert.equal(primary.authorityScore,100);assert.equal(secondary.authorityScore,55);assert.equal(secondary.freshnessScore,100);
     })
   ];
