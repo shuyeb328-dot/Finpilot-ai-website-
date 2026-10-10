@@ -27,14 +27,27 @@
   function paperProRiskGate(){
     var p=syncPaperAgents(),sym=(document.getElementById('paperSymbol')?.value||'BTC').trim().toUpperCase(),agentId=document.getElementById('paperAgent')?.value||p.agents[0]?.id,qty=Number(document.getElementById('paperQty')?.value||0),t=String(document.getElementById('paperOrderType')?.value||'MARKET').toUpperCase(),m=p.lastMarket&&p.lastMarket.symbol===sym?p.lastMarket:null,limit=Number(document.getElementById('paperLimitPrice')?.value||0),stop=Number(document.getElementById('paperStop')?.value||document.getElementById('paperBracketStop')?.value||0),target=Number(document.getElementById('paperBracketTarget')?.value||0),entry=(t==='LIMIT'||t==='STOP_LIMIT')?limit:Number(m?.price||0),host=document.getElementById('paperRiskTower');
     if(!host||!FinPilotPaperCore.preTradeCheck)return;
-    var meta={verified:Boolean(m?.verification?.verified??m?.live),available:Boolean(m?.price),provider:m?.provider||'',providerCount:Number(m?.verification?.providerCount||0),receivedAt:m?.receivedAt||m?.tick?.receivedAt||m?.asOf};
+    var meta=paperProMarketMeta(m);
     var gate=FinPilotPaperCore.preTradeCheck(state,{agentId:agentId,symbol:sym,side:window.__paperProSide||'BUY',qty:qty,entryPrice:entry,stopPrice:stop,targetPrice:target,marketMeta:meta});
     var tone=gate.status==='PASS'?'good':gate.status==='WARN'?'warn':'bad';
     var reasons=gate.reasons.concat(gate.warnings).slice(0,3),mm=gate.metrics||{};
     host.innerHTML='<div class="fpTowerHead"><div><span class="eyebrow">EXECUTION CONTROL TOWER</span><strong class="'+tone+'">'+gate.status+'</strong></div><span class="fpTowerConfidence">DATA CONFIDENCE '+(mm.dataConfidence??0)+'%</span></div><div class="fpTowerGrid"><div><span>QUOTE AGE</span><b>'+Number(mm.quoteAgeSec||0).toFixed(1)+'s</b></div><div><span>SPREAD</span><b>'+(mm.spreadBps==null?'—':Number(mm.spreadBps).toFixed(1)+' bps')+'</b></div><div><span>SLIPPAGE</span><b>'+Number(mm.estimatedSlippage||0).toFixed(2)+'</b></div><div><span>NOTIONAL</span><b>'+money(mm.notional||0)+'</b></div><div><span>POST EXPOSURE</span><b>'+Number(mm.postTradeExposurePct||0).toFixed(1)+'%</b></div><div><span>FILLABILITY</span><b>'+esc(mm.fillability||'BLOCKED')+'</b></div><div><span>RISK / UNIT</span><b>'+money(mm.riskPerUnit||0)+'</b></div><div><span>R:R</span><b>'+(mm.riskReward==null?'—':Number(mm.riskReward).toFixed(2)+':1')+'</b></div></div>'+(reasons.length?'<div class="fpTowerReasons">'+reasons.map(function(x){return '<span>• '+esc(x)+'</span>'}).join('')+'</div>':'<div class="fpTowerReasons"><span>• Execution checks passed; order is eligible for paper routing.</span></div>')+'<small class="fpTowerNote">Risk gate is enforced by the paper engine. Market execution remains virtual only.</small>';
     return gate;
   }
-  async function paperProMarket(){
+  async function paperProMarketMeta(m){
+ var v=m?.verification||{};
+ var sourceAsOf=m?.sourceAsOf||m?.asOf||m?.tick?.sourceAsOf||m?.tick?.asOf;
+ var ageMs=sourceAsOf?Date.now()-Date.parse(sourceAsOf):NaN;
+ var verified=Boolean(m?.verified===true&&m?.executionEligible===true&&m?.live===true
+   &&m?.sourceTimestampType==='PROVIDER_TIMESTAMP'&&Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=30000
+   &&v.status==='VERIFIED'&&v.available===true&&v.priceAgreement===true&&v.primaryProviderTimestampValid===true
+   &&Number(m?.price)>0);
+ return {verified,available:verified,executionEligible:verified,sourceTimestampType:m?.sourceTimestampType||'UNKNOWN_TIMESTAMP',
+   provider:m?.provider||'',providerCount:Number(v.providerCount||m?.providerCount||0),sourceAsOf:sourceAsOf||undefined,
+   asOf:sourceAsOf||undefined,receivedAt:m?.receivedAt||m?.tick?.receivedAt,bid:Number(m?.orderBook?.bid||0)||undefined,
+   ask:Number(m?.orderBook?.ask||0)||undefined};
+}
+function paperProMarket(){
     var sym=(document.getElementById('paperSymbol')?.value||'BTC').trim().toUpperCase();
     var m=null;
     try{m=await loadPaperMarket();}catch(e){m=null}
@@ -66,7 +79,7 @@
     if(t==='TRAILING_STOP'&&!trail){window.FinPilotBridge.toast('Enter a trailing percentage');return}
     if(bracket&&bracketStop<=0&&bracketTarget<=0){window.FinPilotBridge.toast('Add a bracket stop loss or take profit');return}
     var entryPrice=t==='LIMIT'||t==='STOP_LIMIT'?limit:Number(m.price);
-    var meta={verified:Boolean(m.verification?.verified??m.live),available:Boolean(m.price),provider:m.provider||'',providerCount:Number(m.verification?.providerCount||0),receivedAt:m.receivedAt||m.tick?.receivedAt||m.asOf};
+    var meta=paperProMarketMeta(m);
     var gate=FinPilotPaperCore.preTradeCheck(state,{agentId:agent.id,symbol:sym,side:side,qty:qty,entryPrice:entryPrice,stopPrice:bracket?bracketStop:stop,targetPrice:bracket?bracketTarget:0,marketMeta:meta});
     if(gate.status==='BLOCK'){paperProRiskGate();window.FinPilotBridge.toast('ORDER BLOCKED · '+gate.reasons[0]);return}
     try{
