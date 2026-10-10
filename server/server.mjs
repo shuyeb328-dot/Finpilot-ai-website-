@@ -28,6 +28,7 @@ import {createTradingViewAlertInbox} from './tradingview-alert-inbox.mjs';
 import {listManagedAgents,createManagedAgent,getManagedAgentRegistrySnapshot} from './ai-os-operating-layer.mjs';
 import {initializeAIOSMarketTrainingDirector,runAIOSMarketTrainingCycle,getAIOSMarketTrainingStatus} from './ai-os-market-training.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
+import {runEvaluationSuite,getEvaluationStatus,getEvaluationHistory,gradeDecisionOutput} from './agent-evaluation-lab.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
@@ -2269,6 +2270,10 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/mode'){await body(req);return osControlPlaneMode(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/security-check'){await body(req);return osControlPlaneSecurityCheck(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/shadow-evaluate'){await body(req);return osControlPlaneShadowEvaluate(req,res);}
+  if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/status')return send(res,200,getEvaluationStatus());
+  if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/history'){const h=await getEvaluationHistory(u.searchParams.get('limit')||10);return send(res,200,h);}
+  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/run'){const r=await runEvaluationSuite();return send(res,r.failed===0?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/grade'){await body(req);const r=gradeDecisionOutput(req._parsedBody||{});return send(res,r.ok?200:422,r);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
   if(req.method==='POST'&&u.pathname==='/api/autonomous-learning/cycle'){const r=await autonomousLearningCycle();return send(res,r.ok?200:503,r);}
