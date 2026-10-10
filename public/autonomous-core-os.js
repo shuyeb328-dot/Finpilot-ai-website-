@@ -9,7 +9,7 @@ const API='/api/os-control-plane';
 const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const tone=s=>({HEALTHY:'good',READY:'good',ACTIVE:'good',SAFE_GATED:'good',IDLE:'neutral',PARTIAL:'warn',DEGRADED:'bad',UNKNOWN:'neutral',REVIEW_REQUIRED:'bad'}[s]||'neutral');
 const nice=s=>String(s||'UNKNOWN').replace(/_/g,' ');
-let opened=false,lastData=null,lastCycle=null,busy=false,refreshTimer=null,client=null,managedRegistryData=null;
+let opened=false,lastData=null,lastCycle=null,busy=false,trainingBusy=false,refreshTimer=null,client=null,managedRegistryData=null,marketTrainingStatus=null;
 function clientSignals(){return {
  foundation:window.FinPilotFoundation?.getReport?.()||null,
  evolution:window.FinPilotEvolution?.snapshot?.()||null,
@@ -54,7 +54,7 @@ function ensureDOM(){
  styles();if(document.getElementById('fp-autonomous-panel'))return;
  const shade=document.createElement('div');shade.id='fp-autonomous-shade';shade.addEventListener('click',close);
  const panel=document.createElement('aside');panel.id='fp-autonomous-panel';panel.setAttribute('aria-label','Autonomous OS Control Center');
- panel.innerHTML='<div class="fpac-head"><div class="fpac-row"><div class="fpac-icon">⌘</div><div class="fpac-grow"><div class="fpac-title">FinPilot AI OS <span style="color:#6eddbb;font-size:9px">v1.1</span></div><div class="fpac-sub">One registry · shared operating layer · governed learning</div></div><button class="fpac-btn" id="fpac-close" aria-label="Close panel">✕</button></div><div class="fpac-stats" id="fpac-stats"><div class="fpac-stat"><b>—</b><span>REGISTERED OS</span></div><div class="fpac-stat"><b>—</b><span>DEGRADED</span></div><div class="fpac-stat"><b>—</b><span>LEARNED CASES</span></div></div><div class="fpac-row" style="margin-top:11px"><button class="fpac-btn primary" id="fpac-refresh">Refresh health</button><button class="fpac-btn" id="fpac-cycle">Run core cycle</button><button class="fpac-btn" id="fpac-mode">Enable safe mode</button></div></div><div class="fpac-content"><div id="fpac-alert" class="fpac-notice">Loading measured status…</div><div class="fpac-section">Operating planes · unified registry</div><div id="fpac-planes" class="fpac-planes"><div class="fpac-empty">Loading operating planes…</div></div><div class="fpac-section">Central Agent Factory · server registry</div><form id="fpac-agent-form" class="fpac-agent-form"><div class="fpac-agent-grid"><label>Agent name<input name="name" id="fpac-agent-name" required minlength="2" maxlength="60" placeholder="Market Regime Scout"></label><label>Run interval (minutes)<input name="interval" id="fpac-agent-interval" type="number" min="1" max="1440" value="15" required></label></div><label>Role / expertise<input name="role" id="fpac-agent-role" required maxlength="120" placeholder="Research public market evidence"></label><label>Objective<textarea name="objective" id="fpac-agent-objective" maxlength="600" rows="2" placeholder="Compare independent timestamped sources, identify contradictions and state uncertainty"></textarea></label><div class="fpac-meta">Creates a governed agent definition only. No arbitrary code, credential access, live trading, or automatic execution is granted.</div><button class="fpac-btn primary" id="fpac-agent-submit" type="submit">Register specialist</button></form><div id="fpac-managed-agents" class="fpac-empty">Loading central agent registry…</div><div class="fpac-section">All registered OS modules</div><div id="fpac-os-list" class="fpac-empty">Checking registered OS modules…</div><div class="fpac-section">Autonomous action plan</div><div id="fpac-plan"><div class="fpac-empty">Run a cycle to build a prioritized, read-only plan.</div></div><div class="fpac-section">AI Security OS · policy probe</div><div class="fpac-plan"><h4>Test the security guard</h4><p>Runs a policy-only test for a prohibited autonomous action. It does not attempt a trade, deploy, or change any setting.</p><button class="fpac-btn danger" id="fpac-security-probe">Probe protected action</button><div id="fpac-security-result" style="margin-top:8px"></div></div><div class="fpac-section">Self-learning record</div><div id="fpac-learning" class="fpac-empty">Outcome feedback adjusts bounded task-priority weights; it cannot rewrite code or weaken safety policy.</div></div><div class="fpac-footer">Safe by default · No real-money execution · No autonomous production code changes</div>';
+ panel.innerHTML='<div class="fpac-head"><div class="fpac-row"><div class="fpac-icon">⌘</div><div class="fpac-grow"><div class="fpac-title">FinPilot AI OS <span style="color:#6eddbb;font-size:9px">v1.1</span></div><div class="fpac-sub">One registry · shared operating layer · governed learning</div></div><button class="fpac-btn" id="fpac-close" aria-label="Close panel">✕</button></div><div class="fpac-stats" id="fpac-stats"><div class="fpac-stat"><b>—</b><span>REGISTERED OS</span></div><div class="fpac-stat"><b>—</b><span>DEGRADED</span></div><div class="fpac-stat"><b>—</b><span>LEARNED CASES</span></div></div><div class="fpac-row" style="margin-top:11px"><button class="fpac-btn primary" id="fpac-refresh">Refresh health</button><button class="fpac-btn" id="fpac-cycle">Run core cycle</button><button class="fpac-btn" id="fpac-mode">Enable safe mode</button></div></div><div class="fpac-content"><div id="fpac-alert" class="fpac-notice">Loading measured status…</div><div class="fpac-section">Operating planes · unified registry</div><div id="fpac-planes" class="fpac-planes"><div class="fpac-empty">Loading operating planes…</div></div><div class="fpac-section">Central Agent Factory · server registry</div><form id="fpac-agent-form" class="fpac-agent-form"><div class="fpac-agent-grid"><label>Agent name<input name="name" id="fpac-agent-name" required minlength="2" maxlength="60" placeholder="Market Regime Scout"></label><label>Run interval (minutes)<input name="interval" id="fpac-agent-interval" type="number" min="1" max="1440" value="15" required></label></div><label>Role / expertise<input name="role" id="fpac-agent-role" required maxlength="120" placeholder="Research public market evidence"></label><label>Objective<textarea name="objective" id="fpac-agent-objective" maxlength="600" rows="2" placeholder="Compare independent timestamped sources, identify contradictions and state uncertainty"></textarea></label><div class="fpac-meta">Creates a governed agent definition only. No arbitrary code, credential access, live trading, or automatic execution is granted.</div><button class="fpac-btn primary" id="fpac-agent-submit" type="submit">Register specialist</button></form><div id="fpac-managed-agents" class="fpac-empty">Loading central agent registry…</div><div class="fpac-section">24/7 Market Training OS</div><div class="fpac-plan"><div id="fpac-market-training-status" class="fpac-empty">Checking scheduler, storage and market-training readiness…</div><div class="fpac-row" style="margin-top:9px"><button class="fpac-btn" id="fpac-training-refresh" type="button">Refresh training status</button><button class="fpac-btn primary" id="fpac-training-cycle" type="button">Run safe learning cycle</button></div><div id="fpac-training-result" style="margin-top:8px"></div><p>The cycle records verified market observations and evaluates a non-executable baseline. Scheduler activation requires persistent storage and explicit server configuration; it never places orders.</p></div><div class="fpac-section">All registered OS modules</div><div id="fpac-os-list" class="fpac-empty">Checking registered OS modules…</div><div class="fpac-section">Autonomous action plan</div><div id="fpac-plan"><div class="fpac-empty">Run a cycle to build a prioritized, read-only plan.</div></div><div class="fpac-section">AI Security OS · policy probe</div><div class="fpac-plan"><h4>Test the security guard</h4><p>Runs a policy-only test for a prohibited autonomous action. It does not attempt a trade, deploy, or change any setting.</p><button class="fpac-btn danger" id="fpac-security-probe">Probe protected action</button><div id="fpac-security-result" style="margin-top:8px"></div></div><div class="fpac-section">Self-learning record</div><div id="fpac-learning" class="fpac-empty">Outcome feedback adjusts bounded task-priority weights; it cannot rewrite code or weaken safety policy.</div></div><div class="fpac-footer">Safe by default · No real-money execution · No autonomous production code changes</div>';
  const launcher=document.createElement('button');launcher.id='fp-autonomous-launch';launcher.textContent='◈ OS Control';launcher.setAttribute('aria-controls','fp-autonomous-panel');launcher.setAttribute('aria-expanded','false');launcher.addEventListener('click',toggle);
  document.body.append(shade,panel,launcher);
  panel.querySelector('#fpac-close').addEventListener('click',close);
@@ -63,6 +63,8 @@ function ensureDOM(){
  panel.querySelector('#fpac-mode').addEventListener('click',toggleMode);
  panel.querySelector('#fpac-security-probe').addEventListener('click',securityProbe);
  panel.querySelector('#fpac-agent-form').addEventListener('submit',createManagedAgentFromOS);
+ panel.querySelector('#fpac-training-refresh').addEventListener('click',()=>refreshMarketTrainingStatus(true));
+ panel.querySelector('#fpac-training-cycle').addEventListener('click',runMarketTrainingCycle);
 }
 async function api(url,options){
  options=options||{};
@@ -95,6 +97,38 @@ async function createManagedAgentFromOS(event){
   renderManagedAgents(null,error?.message||String(error));
   toast('Central agent registration failed; no local-only agent was created');
  }finally{if(button)button.disabled=false}
+}
+function renderMarketTrainingStatus(data,error){
+ const host=document.getElementById('fpac-market-training-status');if(!host)return;
+ if(error){host.innerHTML='<div class="fpac-empty">Market training status unavailable: '+esc(error)+'</div>';return}
+ if(!data){host.textContent='Waiting for market training status…';return}
+ marketTrainingStatus=data;
+ const enabled=data.enabled===true,persistent=data.persistent===true;
+ const badge=enabled?'ACTIVE':data.lastError?'DEGRADED':data.requestedEnabled?'BLOCKED':'DISABLED';
+ const toneClass=enabled?'good':data.lastError?'bad':'warn';
+ const blocked=data.blockedReason?'<p>Start guard: '+esc(nice(data.blockedReason))+'</p>':'';
+ const metrics='<div class="fpac-agent-grid"><div class="fpac-stat"><b>'+Number(data.observationCount||0)+'</b><span>VERIFIED OBSERVATIONS</span></div><div class="fpac-stat"><b>'+Number(data.resolvedForecastCount||0)+'</b><span>RESOLVED OUTCOMES</span></div><div class="fpac-stat"><b>'+Number(data.pendingForecastCount||0)+'</b><span>PENDING OUTCOMES</span></div><div class="fpac-stat"><b>'+(data.meanBrierScore==null?'—':Number(data.meanBrierScore).toFixed(3))+'</b><span>MEAN BRIER SCORE</span></div></div>';
+ host.innerHTML='<div class="fpac-row"><span class="fpac-badge '+toneClass+'">'+esc(badge)+'</span><span class="fpac-meta">'+esc(nice(data.persistence||'UNKNOWN'))+' · '+(persistent?'durable':'not restart-safe')+'</span></div><p>'+esc(data.persistenceDetail||'No storage detail available.')+'</p><p>Watchlist: '+esc((data.watchlist||[]).join(', ')||'none')+' · interval '+Math.round(Number(data.intervalMs||900000)/60000)+' min · cycles '+Number(data.cycleCount||0)+'</p>'+blocked+(data.lastSuccessAt?'<p>Last successful cycle: '+esc(data.lastSuccessAt)+'</p>':'<p>No successful cycle recorded yet.</p>')+(data.lastError?'<p>Latest error: '+esc(data.lastError)+'</p>':'')+metrics+'<p>Scoring: '+esc(nice(data.calibrationStatus||'INSUFFICIENT SAMPLE'))+' · foundation-model training '+(data.foundationModelTraining?'enabled':'not performed')+' · real-money execution '+(data.realMoneyExecution?'enabled':'blocked')+'</p>';
+ const btn=document.getElementById('fpac-training-cycle');
+ if(btn)btn.disabled=trainingBusy||data.persistence==='DATABASE_ERROR';
+}
+async function refreshMarketTrainingStatus(showToast){
+ const btn=document.getElementById('fpac-training-refresh');if(btn)btn.disabled=true;
+ try{const d=await api('/api/ai-os/market-training/status');renderMarketTrainingStatus(d);if(showToast)toast('Market Training OS status refreshed')}
+ catch(error){renderMarketTrainingStatus(null,error?.message||String(error))}
+ finally{if(btn)btn.disabled=false}
+}
+async function runMarketTrainingCycle(){
+ if(trainingBusy)return;
+ const btn=document.getElementById('fpac-training-cycle'),result=document.getElementById('fpac-training-result');
+ trainingBusy=true;if(btn)btn.disabled=true;if(result)result.textContent='Collecting verified market observations and settling due forecasts…';
+ try{
+  const cycle=await api('/api/ai-os/market-training/cycle',{method:'POST',body:JSON.stringify({requestedFrom:'ai-os-control-panel'})});
+  const q=cycle.summary||{};
+  if(result)result.innerHTML='<span class="fpac-badge '+(cycle.ok?'good':'warn')+'">'+esc(nice(cycle.status||'CYCLE COMPLETED'))+'</span><p>'+Number(q.accepted||0)+' fresh observations accepted · '+Number(q.duplicates||0)+' duplicates ignored · '+Number(q.forecastsCreated||0)+' forecasts created · '+Number(q.forecastsSettled||0)+' outcomes scored. No orders submitted.</p>';
+  await refreshMarketTrainingStatus(false);await refresh();toast('Market learning cycle completed; results remain subject to data and storage guards');
+ }catch(error){if(result)result.textContent='Market learning cycle stopped safely: '+String(error?.message||error);await refreshMarketTrainingStatus(false)}
+ finally{trainingBusy=false;if(btn)btn.disabled=marketTrainingStatus?.persistence==='DATABASE_ERROR'}
 }
 function open(){
  ensureDOM();opened=true;document.getElementById('fp-autonomous-panel').classList.add('open');document.getElementById('fp-autonomous-shade').classList.add('open');document.getElementById('fp-autonomous-launch').setAttribute('aria-expanded','true');refresh();
@@ -153,7 +187,8 @@ async function refresh(showToast){
  try{
   const d=await api(API);render(d);
   try{managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData)}catch(registryError){renderManagedAgents(null,registryError?.message||String(registryError))}
-  if(showToast)toast('AI OS health and central agent registry refreshed')
+  await refreshMarketTrainingStatus(false);
+  if(showToast)toast('AI OS health, agent registry and market training status refreshed')
  }
  catch(e){const a=document.getElementById('fpac-alert');if(a)a.textContent='Control plane unavailable: '+e.message}
  finally{busy=false;if(btn)btn.disabled=false}
@@ -161,7 +196,7 @@ async function refresh(showToast){
 function toast(m){if(typeof window.FinPilotBridge?.toast==='function')window.FinPilotBridge.toast(m);else console.info('[FinPilot Core OS]',m)}
 async function runCycle(){
  const btn=document.getElementById('fpac-cycle');if(busy)return;busy=true;if(btn)btn.disabled=true;
- try{const d=await api(API+'/cycle',{method:'POST',body:JSON.stringify({requestedFrom:'os-control-panel'})});lastCycle=d;renderPlan(d);const r=await api(API);render(r);renderPlan(d);try{managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData)}catch(registryError){renderManagedAgents(null,registryError?.message||String(registryError))}toast('AI OS cycle finished · '+d.tasks.length+' plans · no external actions executed')}
+ try{const d=await api(API+'/cycle',{method:'POST',body:JSON.stringify({requestedFrom:'os-control-panel'})});lastCycle=d;renderPlan(d);const r=await api(API);render(r);renderPlan(d);try{managedRegistryData=await api('/api/ai-os/agents');renderManagedAgents(managedRegistryData)}catch(registryError){renderManagedAgents(null,registryError?.message||String(registryError))}await refreshMarketTrainingStatus(false);toast('AI OS cycle finished · '+d.tasks.length+' plans · no external actions executed')}
  catch(e){document.getElementById('fpac-plan').innerHTML='<div class="fpac-empty">Cycle stopped safely: '+esc(e.message)+'</div>'}
  finally{busy=false;if(btn)btn.disabled=false}
 }
