@@ -259,7 +259,7 @@ export async function getAIOSMarketTrainingStatus(){
   calibrationStatus:resolved<100?'INSUFFICIENT_RESOLVED_OUTCOMES':'READY_FOR_HELD_OUT_REVIEW',
   probabilitiesCalibrated:false,foundationModelTraining:false,realMoneyExecution:false,automaticPromotion:false,
   nextRunAt:state.enabled&&state.lastCompletedAt?new Date(Date.parse(state.lastCompletedAt)+state.intervalMs).toISOString():state.enabled?new Date(Date.now()+state.intervalMs).toISOString():null,
-  requiresAlwaysOnWorkerFor24x7:true,scheduleMode:state.enabled?'IN_PROCESS_INTERVAL_REQUIRES_ALWAYS_ON_HOST':'DISABLED_UNTIL_STORAGE_AND_FLAG_READY',
+  requiresAlwaysOnWorkerFor24x7:true,scheduleMode:state.enabled?'IN_PROCESS_INTERVAL_REQUIRES_ALWAYS_ON_HOST':'IN_PROCESS_INTERVAL_DISABLED_EXTERNAL_TRIGGER_SUPPORTED',
   recentEvents:state.events.slice(0,12)
  };
 }
