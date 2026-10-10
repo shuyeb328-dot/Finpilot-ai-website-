@@ -2283,6 +2283,9 @@ const server=http.createServer(async(req,res)=>{
    if(String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()!=='application/json')return send(res,415,{ok:false,error:'JSON_CONTENT_TYPE_REQUIRED'});
    const input=await body(req);
    if(Buffer.byteLength(req._bodyCache||'','utf8')>8192)return send(res,413,{ok:false,error:'TRADINGVIEW_ALERT_TOO_LARGE',maxBytes:8192});
+   // Allow authenticated diagnostic clients to provide the same webhook secret via header;
+   // TradingView itself can continue sending the token in its JSON payload.
+   if(input&&typeof input==='object'&&!Array.isArray(input)&&input.token===undefined&&req.headers['x-finpilot-webhook-token'])input.token=req.headers['x-finpilot-webhook-token'];
    const result=TRADINGVIEW_ALERT_INBOX.ingest(input);
    if(!result.ok)return send(res,result.statusCode||400,result);
    return send(res,202,result);
