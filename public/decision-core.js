@@ -25,7 +25,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  // Search sentiment is not a substitute for verified price evidence.
  const queryText=String(web?.query||state?.query||state?.ticker||'').trim();
  const symbolToken=(queryText.toUpperCase().match(/\b[A-Z][A-Z0-9.^-]{1,11}\b/g)||[])
-   .find(token=>!new Set(['ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','STOCKS','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ','USA','US','ABOUT','OUTLOOK','PREDICT','FORECAST','TARGET','RISK','RETURN','PROBABILITY','PROBABILITIES','NEXT','WEEK','MONTH','SHORT','LONG','TERM','HORIZON','GIVE','ME','CAN','YOU','PLEASE','WHAT','WHETHER','SHOULD','IN','OF','ON','UNDER','OVER','LOW','TOP','EXPLORE','COMPANY','LATEST','NEWS','LIVE','QUOTE','CHECK','LOOK','UP','FIND','COMPARE','FROM','TODAY','TICKER']).has(token))||'';
+   .find(token=>!new Set(['ANALYSE','ANALYZED','ANALYZING','ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','STOCKS','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ','USA','US','ABOUT','OUTLOOK','PREDICT','FORECAST','TARGET','RISK','RETURN','PROBABILITY','PROBABILITIES','NEXT','WEEK','MONTH','SHORT','LONG','TERM','HORIZON','GIVE','ME','CAN','YOU','PLEASE','WHAT','WHETHER','SHOULD','IN','OF','ON','UNDER','OVER','LOW','TOP','EXPLORE','COMPANY','LATEST','NEWS','LIVE','QUOTE','CHECK','LOOK','UP','FIND','COMPARE','FROM','TODAY','TICKER','AND','OR','HELP','INVEST','INVESTING','AN','A','IS','TO','DO','FOR','IT','MY','YOUR','WITHIN','INTRADAY','SWING','TRADER','INVESTOR','INVESTMENT','INVESTMENTS','STOCK MARKET','ASSET','ASSETS','PORTFOLIO','HOW','WHY','WHEN','WHICH','CAN YOU','KINDLY','SHOW','TELL','ME','PLEASE','ANALYSIS','RECOMMEND','RECOMMENDATION','RECOMMENDATIONS','SIGNAL','SIGNALS','SUGGEST','SUGGESTION','SUGGESTIONS','FIND OUT','SEARCH','QUERY','CURRENT','LATEST PRICE','COMPARE','VERSUS','VS','OF THE','THE MARKET']).has(token))||'';
  const requestedSymbol=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
  const marketSensitive=Boolean(requestedSymbol)||['market','portfolio','equity','crypto','options','futures','trading'].includes(String(quantum.intent||'').toLowerCase());
 
@@ -50,7 +50,8 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const topEligibility=snapshot?.executionEligible;
  const qualityEligibility=firstValue(['forecastEligible']);
  const marketOsDecision=snapshot?.marketDataOS?.decision||snapshot?.marketDataOS?.status;
- const eligible=topEligibility===true||qualityEligibility===true||marketOsDecision==='ALLOW_ANALYSIS_AND_PAPER';
+ const explicitEligibilityBlock=topEligibility===false||qualityEligibility===false;
+ const eligible=!explicitEligibilityBlock&&(topEligibility===true||qualityEligibility===true||marketOsDecision==='ALLOW_ANALYSIS_AND_PAPER');
 
  const quoteValid=Boolean(snapshot&&symbolMatches&&Number.isFinite(price)&&price>0&&timestampType==='PROVIDER_TIMESTAMP'&&Number.isFinite(ageMs)&&ageMs>=-30000&&ageMs<=90000&&eligible);
 
@@ -59,7 +60,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  for(const url of (Array.isArray(web?.urls)?web.urls:[]))addDomain(url);
  for(const row of live)addDomain(row?.url);
  const independentSourceCount=domains.size;
- const quoteBlock= !marketSensitive?'NOT_REQUIRED':!snapshot?'NO_VERIFIED_QUOTE':!quoteSymbol?'SYMBOL_UNKNOWN':!symbolMatches?'SYMBOL_MISMATCH':timestampType!=='PROVIDER_TIMESTAMP'?'PROVIDER_TIMESTAMP_REQUIRED':!Number.isFinite(ageMs)||ageMs < -30000||ageMs>90000?'QUOTE_STALE_OR_TIMESTAMP_INVALID':!eligible?'QUOTE_NOT_EXECUTION_ELIGIBLE':'PASS';
+ const quoteBlock= !marketSensitive?'NOT_REQUIRED':!requestedSymbol?'REQUESTED_SYMBOL_UNRESOLVED':!snapshot?'NO_VERIFIED_QUOTE':!quoteSymbol?'SYMBOL_UNKNOWN':!symbolMatches?'SYMBOL_MISMATCH':timestampType!=='PROVIDER_TIMESTAMP'?'PROVIDER_TIMESTAMP_REQUIRED':!Number.isFinite(ageMs)||ageMs < -30000||ageMs>90000?'QUOTE_STALE_OR_TIMESTAMP_INVALID':!eligible?'QUOTE_NOT_EXECUTION_ELIGIBLE':'PASS';
  const quotePassed=!marketSensitive||quoteBlock==='PASS';
  const sourceBlock=!marketSensitive||independentSourceCount>=2?'PASS':'INSUFFICIENT_INDEPENDENT_SOURCES';
  const sourcePassed=sourceBlock==='PASS';
