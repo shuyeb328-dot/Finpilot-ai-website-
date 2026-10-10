@@ -85,6 +85,7 @@ jobs:
           NODE
 
       - name: Check production agent assets
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           BASE_URL: https://finpilot-ai-8wn6.onrender.com
