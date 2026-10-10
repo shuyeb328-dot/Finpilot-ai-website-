@@ -245,7 +245,8 @@ assert.match(moduleText, /never as server execution/, 'client-side agent results
 assert.match(serverText, /source:'CLIENT_REPORTED_UNVERIFIED'/, 'client telemetry must be assigned an explicit unverified source');
 assert.match(serverText, /serverExecutedRuns:0,clientReportedRuns:0/, 'server memory entries must track server and client activity separately');
 assert.match(serverText, /serverExecutedAgentRuns,clientReportedAgentRuns/, 'Core status must report server-executed and client-reported agent counts separately');
-assert.match(serverText, /agentMemoryPersistent:false/, 'Core status must not claim process-memory agent telemetry is durable');
+assert.match(serverText, /agentMemoryPersistent:memoryStatus\.persistent/, 'Core status must report persistence from the verified memory ledger');
+assert.match(serverText, /agentMemoryPersistence:memoryStatus\.persistence/, 'Core status must distinguish durable storage from process-memory fallback');
 assert.match(serverText, /Array\.isArray\(x\.agents\)\?x\.agents\.slice\(0,12\):\[x\]/, 'client-reported agent batches must be bounded');
 
 
