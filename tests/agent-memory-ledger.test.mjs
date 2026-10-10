@@ -32,6 +32,27 @@ assert.equal(client.ok,true);
 assert.match(client.record.content,/token=\[REDACTED\]/i);
 assert.equal(client.record.verificationStatus,'UNVERIFIED_CLIENT_TELEMETRY');
 
+const ungroundedOutcome=await recordAgentMemory({
+  agent:'Quant',layer:'OUTCOME',source:'VERIFIED_OUTCOME',content:'Claimed successful forecast'
+});
+assert.equal(ungroundedOutcome.ok,false);
+assert.equal(ungroundedOutcome.error,'VERIFIED_OUTCOME_REQUIRES_PROVIDER_TIMESTAMP_AND_SETTLED_METRICS');
+const validOutcome=await recordAgentMemory({
+  agent:'Forecast Outcome Evaluator',layer:'OUTCOME',source:'VERIFIED_OUTCOME',
+  content:'BTC forecast resolved from provider-timestamped data.',
+  decision:'Predicted UP; realized HOLD.',
+  observedAt:'2026-10-10T12:00:00.000Z',
+  metadata:{
+    domain:'forecast calibration',outcome:'HOLD',horizonMinutes:60,provider:'test-provider',
+    sourceAsOf:'2026-10-10T12:00:00.000Z',settledAt:'2026-10-10T12:00:01.000Z',
+    decisionId:'forecast-1',referencePrice:100,actualReturnPct:0.1,brierScore:0.5,logLoss:0.9,
+    pUp:35,pDown:25,pHold:40
+  }
+});
+assert.equal(validOutcome.ok,true);
+assert.equal(validOutcome.record.layer,'OUTCOME');
+assert.equal(validOutcome.record.metadata.horizonMinutes,60);
+
 const badLayer=await recordAgentMemory({
   agent:'Client',layer:'OUTCOME',source:'CLIENT_REPORTED_UNVERIFIED',content:'Claimed win'
 });
@@ -47,7 +68,7 @@ assert.equal(fakeEvidence.error,'VERIFIED_EVIDENCE_REQUIRES_SOURCE_URL');
 let snap=await getAgentMemorySnapshot();
 assert.deepEqual(Object.keys(snap.layerCounts),AGENT_MEMORY_LAYERS);
 assert.equal(snap.layerCounts.EPISODIC,2);
-assert.equal(snap.layerCounts.OUTCOME,0);
+assert.equal(snap.layerCounts.OUTCOME,1);
 assert.equal(snap.unverifiedClientRecords,1);
 assert.equal(snap.serverExecutedRecords,1);
 assert.equal(snap.persistent,false);
