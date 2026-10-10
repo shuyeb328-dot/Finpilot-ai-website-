@@ -46,6 +46,19 @@ assert.equal(snap.os.find(x=>x.id==='learning-os').metrics.feedbackPersistence,'
 assert.match(snap.os.find(x=>x.id==='learning-os').detail,/can be lost on restart/);
 assert.equal(snap.os.find(x=>x.id==='evolution-os').status,'READY');
 assert.equal(snap.os.find(x=>x.id==='quantum-os').status,'PARTIAL');
+const unified = await getOSControlPlaneSnapshot({
+ ...observations,
+ marketStream:{ok:true,channels:2,subscribers:3,polling:0,pollMs:5000,heartbeatMs:15000},
+ agentFactory:{ok:true,count:2,maxAgents:100,persistence:'POSTGRES',persistent:true,detail:'persisted'}
+});
+assert.equal(unified.os.find(x=>x.id==='market-stream-hub-os').status,'READY');
+assert.equal(unified.os.find(x=>x.id==='agent-factory-os').status,'ACTIVE');
+assert.equal(unified.os.find(x=>x.id==='agent-factory-os').metrics.automaticExecution,false);
+assert.equal(unified.os.find(x=>x.id==='forecast-learning-os').status,'PARTIAL','client-local forecast training must not be reported server-durable');
+assert.equal(unified.operatingLayer.singleRegistry,true);
+assert.ok(unified.operatingLayer.planes.some(x=>x.id==='training-learning'));
+assert.ok(unified.operatingLayer.planes.every(x=>Number.isInteger(x.readiness)&&x.readiness>=0&&x.readiness<=100));
+
 const beforeMode=getAutonomousCoreMode();
 const cycle=await runAutonomousCoreCycle({...observations,marketHealth:{providers:[{id:'nasdaq-public',status:'DEGRADED'}]},data:{dataQuality:'DEGRADED',dataQualityScore:35}});
 assert.equal(cycle.ok,true);
