@@ -310,4 +310,5 @@ assert.match(decisionCore,/rounds:\[/,'the result must include multiple ordered 
 assert.match(pageText,/Auditable Debate Ledger/,'Round Table must visibly show per-role debate records');
 assert.match(pageText,/debate:core\.debate/,'Round Table must persist the full debate trace in its decision record');
 assert.match(pageText,/Final reconciliation/,'Round Table must expose the final gate-aware reconciliation');
-assert.match(pageText,/Risk Guardian/,'the interface must label the Risk Guardian veto role');
+assert.match(pageText,/d\.debate\.initialPositions\.map/,'the interface must render the role assessment cards from the debate record');
+assert.match(decisionCore,/role:'Risk Guardian'/,'decision core must include the Risk Guardian hard-veto role');
