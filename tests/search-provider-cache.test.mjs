@@ -8,10 +8,19 @@ process.env.SEARCH_CACHE_TTL_MS='60000';
 let fetchCalls=0;
 let emptyMode=false;
 let wrapperMode=false;
+let rankingMode=false;
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async url=>{
   fetchCalls++;
   const href=String(url);
+  if(rankingMode && (href.includes('www.bing.com/search?') || href.includes('www.bing.com/news/search?') || href.includes('news.google.com/rss/search?'))){
+    const published=new Date().toUTCString();
+    const item=(title,link,description,date,source)=>'<item><title>'+title+'</title><link>'+link+'</link><description>'+description+'</description><pubDate>'+date+'</pubDate><source>'+source+'</source></item>';
+    const generic=item('Microsoft Singapore','https://www.microsoft.com/en-sg/','Microsoft regional homepage.',published,'Microsoft');
+    const story=item('Microsoft Q4 earnings and revenue top estimates','https://example.com/msft-earnings','Microsoft reported quarterly earnings and revenue above analyst expectations.',published,'Example Finance');
+    const rows=href.includes('www.bing.com/search?')?generic:story+generic;
+    return {ok:true,status:200,text:async()=>'<rss><channel>'+rows+'</channel></rss>'};
+  }
   if(href.includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
   await new Promise(resolve=>setTimeout(resolve,15));
   if(href.includes('www.bing.com/search?')){
@@ -132,7 +141,25 @@ try{
   assert.equal(resolved.results[0].url,'https://example.com/finpilot-quota-test','Bing RSS wrapper must resolve to the publisher HTTPS URL before article retrieval');
   assert.equal(fetchCalls,3,'publisher-link resolution must not trigger any extra provider requests beyond the bounded fan-out');
 
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first Bing Web RSS + Bing News RSS + Google News RSS, paid-fallback guard and clean source URLs');
+  // Query relevance must outrank raw engine agreement: the generic homepage appears in all three feeds,
+  // while the earnings story appears in only two, but the earnings story must rank first.
+  rankingMode=true;
+  wrapperMode=false;
+  fetchCalls=0;
+  const ranked=await searchWeb('Microsoft earnings',{count:5,freeOnly:true,forceRefresh:true});
+  assert.equal(ranked.live,true);
+  assert.equal(fetchCalls,3,'ranking must not add extra provider requests');
+  assert.match(ranked.results[0].title,/earnings/i,'query-relevant finance result should beat generic high-agreement result');
+  const genericResult=ranked.results.find(x=>/Microsoft Singapore/i.test(x.title));
+  assert.ok(genericResult,'fixture should include generic high-agreement result');
+  assert.equal(genericResult.engineAgreementCount,3,'generic page fixture should retain its three-engine agreement');
+  assert.ok(ranked.results[0].relevanceScore>genericResult.relevanceScore,'relevance score should place earnings result above generic result');
+  assert.equal(ranked.results[0].engineAgreementCount,2,'earnings fixture has lower agreement, proving relevance ranks first');
+  assert.equal(ranked.results[0].relevanceSignals.allQueryTermsInTitle,true);
+  assert.match(ranked.message,/heuristic ranking aids/i);
+  rankingMode=false;
+
+  console.log('PASS search provider cache + relevance ranking: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first RSS sources, paid-fallback guard, clean source URLs and query relevance ahead of engine agreement');
 }finally{
   globalThis.fetch=originalFetch;
 }

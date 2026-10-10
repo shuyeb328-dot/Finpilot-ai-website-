@@ -214,6 +214,55 @@ function normalizedTitle(value){
  return cleanText(value).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 }
 
+const SEARCH_RANK_STOP_WORDS=new Set([
+ 'a','an','and','are','as','at','be','but','by','for','from','how','i','in','into','is','it','me','of','on','or','please','show','the','to','what','when','where','which','who','why','with',
+ 'latest','today','now','current','recent','news'
+]);
+const SEARCH_FINANCE_INTENT_RE=/\b(?:earnings?|revenue|profit|loss|guidance|forecast|outlook|eps|stock|stocks|shares?|share price|market|market cap|valuation|target price|price target|crypto|cryptocurrency|bitcoin|ethereum|options?|futures?|forex|fx|ipo|merger|acquisition|deal|sec filing|results|quarterly|dividend|yield|bond|treasury|interest rate|inflation|etf|index|indices|nasdaq|nyse|nifty|sensex|btc|eth|trading|analyst|investor)\b/i;
+const SEARCH_FINANCE_SIGNAL_RE=/\b(?:earnings?|revenue|profit|loss|guidance|forecast|outlook|eps|shares?|stock|market cap|valuation|target price|price target|dividend|yield|quarterly results|quarter|analyst|sec filing|nasdaq|nyse|ipo|merger|acquisition|bitcoin|ethereum|cryptocurrency|etf|options?|futures?|treasury|inflation|interest rate|volume|price|trading)\b/i;
+const SEARCH_RECENCY_INTENT_RE=/\b(?:latest|today|now|current|recent|news|earnings?|results|release|guidance|forecast|price|quote|market)\b/i;
+function scoreSearchResult(row,query,now=Date.now()){
+ const title=normalizedTitle(row.title);
+ const snippet=normalizedTitle(row.snippet);
+ const queryText=normalizedTitle(query);
+ const queryTerms=[...new Set(queryText.split(/\s+/).filter(term=>term.length>1&&!SEARCH_RANK_STOP_WORDS.has(term)))];
+ const titleWords=new Set(title.split(/\s+/).filter(Boolean));
+ const snippetWords=new Set(snippet.split(/\s+/).filter(Boolean));
+ const titleMatches=queryTerms.filter(term=>titleWords.has(term));
+ const snippetOnlyMatches=queryTerms.filter(term=>snippetWords.has(term)&&!titleWords.has(term));
+ const titleCoverage=queryTerms.length?titleMatches.length/queryTerms.length:0;
+ const contentCoverage=queryTerms.length?(titleMatches.length+snippetOnlyMatches.length)/queryTerms.length:0;
+ const financeQuery=SEARCH_FINANCE_INTENT_RE.test(query);
+ const titleFinanceMatch=SEARCH_FINANCE_SIGNAL_RE.test(title);
+ const financeTopicMatch=financeQuery&&SEARCH_FINANCE_SIGNAL_RE.test(title+' '+snippet);
+ let score=titleMatches.length*4+titleCoverage*8+snippetOnlyMatches.length*1.5;
+ if(queryTerms.length>=2&&titleCoverage===1)score+=6;
+ if(queryText.length>=5&&title.includes(queryText))score+=1.5;
+ if(financeTopicMatch)score+=4;
+ if(financeQuery&&titleFinanceMatch)score+=2;
+ const url=String(row.url||'');
+ if(financeQuery&&/(?:^|[./_-])(?:account|login|signin|sign-in|support|help|privacy|terms|signup|register)(?:[./?_-]|$)/i.test(url))score-=5;
+ const rawDate=row.publishedAt?Date.parse(row.publishedAt):NaN;
+ const recencyDays=Number.isFinite(rawDate)?Math.max(0,(now-rawDate)/86400000):null;
+ if(SEARCH_RECENCY_INTENT_RE.test(query)&&recencyDays!==null){
+  if(recencyDays<=1)score+=2;
+  else if(recencyDays<=7)score+=1.25;
+  else if(recencyDays<=30)score+=0.5;
+  else if(recencyDays>180)score-=1;
+ }
+ return {
+  score:Number(score.toFixed(3)),
+  signals:{
+   queryTermsMatched:titleMatches.length+snippetOnlyMatches.length,
+   queryTermsTotal:queryTerms.length,
+   queryTermsInTitle:titleMatches.length,
+   allQueryTermsInTitle:queryTerms.length>0&&titleCoverage===1,
+   financeTopicMatch,
+   recencyDays:recencyDays===null?null:Number(recencyDays.toFixed(2))
+  }
+ };
+}
+
 function resolveYahooSearchUrl(value){
  const raw=String(value||'').trim();
  try{
@@ -486,7 +535,17 @@ async function searchFreeMultiSource(q,count){
   const detail=providerErrors.length?' Search attempts: '+providerErrors.map(x=>x.provider+': '+x.error).join(' | '):'';
   throw providerError('No live results were returned by the free multi-source search.'+detail);
  }
- results.sort((a,b)=>(Number(b.engineAgreementCount)||1)-(Number(a.engineAgreementCount)||1));
+ for(const item of results){
+  const ranking=scoreSearchResult(item,q);
+  item.relevanceScore=ranking.score;
+  item.relevanceSignals=ranking.signals;
+  item.relevanceBasis='QUERY_TERMS_FINANCE_TOPIC_RECENCY';
+ }
+ results.sort((a,b)=>
+  (Number(b.relevanceScore)||0)-(Number(a.relevanceScore)||0)||
+  (Number(b.engineAgreementCount)||1)-(Number(a.engineAgreementCount)||1)||
+  ((Number.isFinite(Date.parse(b.publishedAt||''))?Date.parse(b.publishedAt):0)-(Number.isFinite(Date.parse(a.publishedAt||''))?Date.parse(a.publishedAt):0))
+ );
  const limit=Math.min(20,Math.max(count,count*2));
  const visible=results.slice(0,limit);
  return {
@@ -497,7 +556,7 @@ async function searchFreeMultiSource(q,count){
   results:visible,
   externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),
   externalUrls:freeSearchLinks(q),
-  message:'Free multi-source search returned '+visible.length+' result(s). Results came from '+providers.join(', ')+'. Matching engines indicate URL/title agreement only, not independent verification of the underlying claim.',
+  message:'Free multi-source search returned '+visible.length+' result(s), ranked by query-term relevance, finance-topic fit, available publication recency, then URL/title agreement. Relevance scores are heuristic ranking aids, not confidence probabilities. Matching engines indicate URL/title agreement only, not independent verification of the underlying claim.',
   live:true,
   fetchedAt:new Date().toISOString(),
   cached:false
