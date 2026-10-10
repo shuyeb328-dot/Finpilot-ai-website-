@@ -38,11 +38,11 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
   BITCOIN:['BTC'],ETHEREUM:['ETH'],ETHER:['ETH'],SOLANA:['SOL'],RIPPLE:['XRP'],
   NIFTY:['^NSEI','NIFTY50'],NIFTY50:['^NSEI','NIFTY'],SENSEX:['^BSESN'],BANKNIFTY:['^NSEBANK']
  };
+ const quoteSymbol=String(firstValue(['ticker','symbol','requestedTicker'])||snapshot?.requested?.ticker||snapshot?.instrument?.ticker||'').toUpperCase();
  const symbolMatches=Boolean(quoteSymbol&&(!requestedSymbol||
    normalizeSymbol(quoteSymbol)===normalizeSymbol(requestedSymbol)||
    (equivalentSymbols[normalizeSymbol(requestedSymbol)]||[]).includes(normalizeSymbol(quoteSymbol))||
    (equivalentSymbols[normalizeSymbol(quoteSymbol)]||[]).includes(normalizeSymbol(requestedSymbol))));
- const quoteSymbol=String(firstValue(['ticker','symbol','requestedTicker'])||snapshot?.requested?.ticker||snapshot?.instrument?.ticker||'').toUpperCase();
  const price=Number(firstValue(['price','lastPrice','last','close']));
  const quoteAsOf=firstValue(['asOf','sourceAsOf','providerTimestamp','timestamp']);
  const timestampType=String(firstValue(['sourceTimestampType','timestampType'])||'UNKNOWN_TIMESTAMP').toUpperCase();
