@@ -76,9 +76,24 @@ assert.match(snap.persistenceDetail,/process-memory/i);
 
 // Verify persistence via a bounded fake PostgreSQL adapter without external services.
 const rows=[];
+const legacyForecast={
+  id:'legacy-aif-1',ticker:'BTC',model_name:'MOMENTUM_BASELINE_V1',
+  reference_price:83000,reference_as_of:'2026-10-10T10:00:00.000Z',
+  horizon_minutes:60,p_up:40,p_down:35,p_hold:25,
+  outcome:'UP',actual_return_pct:0.2,brier_score:0.5,log_loss:0.9,
+  predicted_outcome:'UP',settled_at:'2026-10-10T11:01:00.000Z',
+  settlement_source_as_of:'2026-10-10T11:01:00.000Z',settlement_provider:'Kraken public'
+};
 const fakePool={
   async query(sql,args=[]){
     if(sql.startsWith('CREATE TABLE')||sql.startsWith('CREATE INDEX'))return {rows:[],rowCount:0};
+    if(sql.includes('FROM finpilot_ai_os_market_forecasts f')){
+      assert.equal((sql.match(/source_timestamp_type='PROVIDER_TIMESTAMP'/g)||[]).length,2,
+        'legacy forecasts must have provider-timestamped reference and settlement observations');
+      assert.match(sql,/JOIN finpilot_ai_os_market_observations so/);
+      assert.match(sql,/JOIN finpilot_ai_os_market_observations ro/);
+      return {rows:[legacyForecast,{...legacyForecast,id:'legacy-bad-probability-vector',p_hold:10}],rowCount:2};
+    }
     if(sql.startsWith('INSERT INTO finpilot_agent_memory_ledger')){
       const [id,fingerprint,agent,layer,source,content,decision,sourceUrl,observedAt,expiresAt,verificationStatus,metadata]=args;
       if(rows.some(r=>r.fingerprint===fingerprint))return {rows:[],rowCount:0};
@@ -111,7 +126,11 @@ assert.equal(persisted.persistent,true);
 snap=await getAgentMemorySnapshot();
 assert.equal(snap.persistent,true);
 assert.equal(snap.persistence,'POSTGRES');
-assert.equal(snap.totalRecords,1);
+assert.equal(snap.totalRecords,2,'eligible legacy forecast outcomes should be migrated into layered memory');
+assert.equal(snap.layerCounts.OUTCOME,1);
+assert.equal(snap.migratedOutcomes,1);
 assert.equal(snap.records[0].agent,'Market Sentinel');
+assert.ok(rows.some(row=>row.agent==='Forecast Outcome Evaluator'&&row.layer==='OUTCOME'));
+assert.ok(rows.find(row=>row.layer==='OUTCOME').metadata.provider==='Kraken public');
 
 console.log('Agent memory ledger: layer/source allowlist, secret redaction, dedupe, retention and truthful persistence status passed.');

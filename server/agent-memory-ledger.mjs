@@ -36,7 +36,9 @@ const state = {
   records: [],
   duplicatesSuppressed: 0,
   rejected: 0,
-  writeFailures: 0
+  writeFailures: 0,
+  outcomesBackfilled: 0,
+  outcomeBackfillWarning: null
 };
 
 const nowIso = () => new Date().toISOString();
@@ -101,6 +103,84 @@ function currentDate(value) {
   return Number.isFinite(date.getTime()) ? date : new Date();
 }
 
+async function backfillVerifiedForecastOutcomes(pool) {
+  // Only migrate legacy forecast outcomes whose reference AND settlement snapshots
+  // are independently present in the observation ledger with provider-sourced time.
+  // Local observation timestamps are deliberately excluded.
+  const query = await pool.query(`
+    SELECT f.id,f.ticker,f.model_name,f.reference_price,f.reference_as_of,
+           f.horizon_minutes,f.p_up,f.p_down,f.p_hold,f.outcome,
+           f.actual_return_pct,f.brier_score,f.log_loss,f.predicted_outcome,
+           f.settled_at,f.settlement_source_as_of,f.settlement_provider
+    FROM finpilot_ai_os_market_forecasts f
+    JOIN finpilot_ai_os_market_observations so
+      ON so.ticker=f.ticker
+     AND so.source_as_of=f.settlement_source_as_of
+     AND so.provider=f.settlement_provider
+     AND so.source_timestamp_type='PROVIDER_TIMESTAMP'
+    JOIN finpilot_ai_os_market_observations ro
+      ON ro.ticker=f.ticker
+     AND ro.source_as_of=f.reference_as_of
+     AND ro.price=f.reference_price
+     AND ro.source_timestamp_type='PROVIDER_TIMESTAMP'
+    WHERE f.status='RESOLVED'
+      AND f.outcome IN ('UP','DOWN','HOLD')
+      AND f.settled_at IS NOT NULL
+      AND f.settlement_source_as_of IS NOT NULL
+      AND f.settlement_provider IS NOT NULL
+      AND f.actual_return_pct IS NOT NULL
+      AND f.brier_score IS NOT NULL
+      AND f.log_loss IS NOT NULL
+    ORDER BY f.settled_at DESC
+    LIMIT 250
+  `);
+  let inserted = 0;
+  for (const item of query.rows || []) {
+    const ticker = clean(item.ticker, 32).toUpperCase();
+    const outcome = clean(item.outcome, 12).toUpperCase();
+    const provider = clean(item.settlement_provider, 120);
+    const horizonMinutes = Number(item.horizon_minutes);
+    const referencePrice = Number(item.reference_price);
+    const actualReturnPct = Number(item.actual_return_pct);
+    const brierScore = Number(item.brier_score);
+    const logLoss = Number(item.log_loss);
+    const sourceAsOfDate = new Date(item.settlement_source_as_of);
+    const settledAtDate = new Date(item.settled_at);
+    const pUp = Number(item.p_up), pDown = Number(item.p_down), pHold = Number(item.p_hold);
+    if (!ticker || !provider || !['UP','DOWN','HOLD'].includes(outcome) ||
+        !Number.isInteger(horizonMinutes) || horizonMinutes < 1 ||
+        !Number.isFinite(referencePrice) || referencePrice <= 0 ||
+        !Number.isFinite(actualReturnPct) || !Number.isFinite(brierScore) ||
+        !Number.isFinite(logLoss) || !Number.isFinite(sourceAsOfDate.getTime()) ||
+        !Number.isFinite(settledAtDate.getTime()) ||
+        ![pUp,pDown,pHold].every(Number.isFinite) ||
+        Math.abs(pUp + pDown + pHold - 100) > 0.05) continue;
+
+    const observedAt = settledAtDate.toISOString();
+    const sourceAsOf = sourceAsOfDate.toISOString();
+    const content = safeContent(`${ticker} ${horizonMinutes}-minute baseline forecast resolved as ${outcome}; actual return ${actualReturnPct.toFixed(4)}% from ${provider} provider-timestamped data.`);
+    const decision = safeContent(`Predicted class ${clean(item.predicted_outcome,12) || 'unknown'}; realized class ${outcome}; Brier ${brierScore}; log loss ${logLoss}.`);
+    const metadata = safeMetadata({
+      domain:'forecast calibration',outcome,horizonMinutes,provider,sourceAsOf,settledAt:observedAt,
+      decisionId:clean(item.id,160),modelVersion:clean(item.model_name,160),
+      referencePrice,actualReturnPct,brierScore,logLoss,pUp,pDown,pHold
+    });
+    const row = {
+      id:'mem_' + randomUUID(), agent:'Forecast Outcome Evaluator', layer:'OUTCOME',
+      source:'VERIFIED_OUTCOME',content,decision,sourceUrl:null,observedAt,
+      expiresAt:null,verificationStatus:VERIFICATION.VERIFIED_OUTCOME,metadata
+    };
+    row.fingerprint = dedupeFingerprint(row);
+    const result = await pool.query(
+      'INSERT INTO finpilot_agent_memory_ledger(id,fingerprint,agent,layer,source,content,decision,source_url,observed_at,expires_at,verification_status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) ON CONFLICT (fingerprint) DO NOTHING RETURNING id',
+      [row.id,row.fingerprint,row.agent,row.layer,row.source,row.content,row.decision,row.sourceUrl,row.observedAt,row.expiresAt,row.verificationStatus,JSON.stringify(row.metadata)]
+    );
+    if (result.rowCount) inserted++;
+  }
+  state.outcomesBackfilled += inserted;
+  return inserted;
+}
+
 export function configureAgentMemoryLedger(options = {}) {
   if (typeof options.getPool === 'function') state.getPool = options.getPool;
   if (typeof options.databaseConfigured === 'function') state.databaseConfigured = options.databaseConfigured;
@@ -146,6 +226,16 @@ async function ensureStorage() {
       state.persistence = 'POSTGRES';
       state.persistent = true;
       state.detail = 'Agent memory records are stored in PostgreSQL with layer, provenance, verification status and retention metadata.';
+      try {
+        await backfillVerifiedForecastOutcomes(pool);
+        if (state.outcomesBackfilled > 0) {
+          state.detail += ` Imported ${state.outcomesBackfilled} prior forecast outcomes whose reference and settlement quotes both had verified provider timestamps.`;
+        }
+      } catch (error) {
+        // Keep the ledger available even if an older training schema lacks migration columns.
+        state.outcomeBackfillWarning = clean(error?.message || 'prior outcome migration unavailable', 120);
+        state.detail += ' Existing forecast outcomes were not imported because their provenance could not be verified.';
+      }
       return pool;
     } catch (error) {
       state.pool = null;
@@ -266,6 +356,8 @@ export async function getAgentMemorySnapshot(options = {}) {
         serverExecutedRecords:Number(totals.rows[0]?.server_executed||0),
         verifiedOutcomeRecords:Number(totals.rows[0]?.outcomes||0),
         duplicatesSuppressed:state.duplicatesSuppressed,rejected:state.rejected,writeFailures:state.writeFailures,
+    migratedOutcomes:state.outcomesBackfilled,outcomeBackfillWarning:state.outcomeBackfillWarning,
+        migratedOutcomes:state.outcomesBackfilled,outcomeBackfillWarning:state.outcomeBackfillWarning,
         retentionPolicy:{EPISODIC_DAYS:180,SEMANTIC_DAYS:365,PROCEDURAL_DAYS:365,OUTCOME:'retain until explicit retention review'}
       };
     } catch (error) {
@@ -294,6 +386,7 @@ export async function resetAgentMemoryLedgerForTests(options = {}) {
   state.persistence = 'PROCESS_MEMORY';state.persistent = false;
   state.detail = 'Test-only in-memory ledger.';
   state.records = [];state.duplicatesSuppressed = 0;state.rejected = 0;state.writeFailures = 0;
+  state.outcomesBackfilled = 0;state.outcomeBackfillWarning = null;
   if (options.getPool && typeof options.getPool === 'function') state.getPool = options.getPool;
   if (options.databaseConfigured === true) state.databaseConfigured = () => true;
 }
