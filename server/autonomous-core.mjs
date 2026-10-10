@@ -26,7 +26,8 @@ export const OS_REGISTRY=[
  {id:'market-stream-hub-os',name:'Market Stream Hub OS',domain:'MARKETS',criticality:'HIGH',dependencies:['market-data-os','ai-security-os'],description:'Shared market snapshot polling and live-stream subscriber orchestration.',signal:'market-stream'},
  {id:'agent-factory-os',name:'Agent Factory OS',domain:'AGENTS',criticality:'HIGH',dependencies:['agent-mesh','ai-security-os'],description:'Central registry for declarative specialist-agent definitions and permitted data scopes.',signal:'agent-factory'},
  {id:'decision-memory-os',name:'Decision Memory OS',domain:'MEMORY',criticality:'HIGH',dependencies:['core-brain','learning-os'],description:'Evidence lineage, decision records, scored outcomes, and recovery-aware persistence.',signal:'decision-memory'},
- {id:'unified-workspace-os',name:'Unified Workspace OS',domain:'WORKSPACE',criticality:'MEDIUM',dependencies:['main-core','agent-mesh','training-fabric-os'],description:'Single operating surface for registered OS components, agent fleet, training, and governance.',signal:'unified-workspace'}
+ {id:'unified-workspace-os',name:'Unified Workspace OS',domain:'WORKSPACE',criticality:'MEDIUM',dependencies:['main-core','agent-mesh','training-fabric-os'],description:'Single operating surface for registered OS components, agent fleet, training, and governance.',signal:'unified-workspace'},
+ {id:'market-training-os',name:'Market Training OS',domain:'TRAINING',criticality:'HIGH',dependencies:['market-data-os','forecast-learning-os','ai-security-os'],description:'Persistent market observation, heuristic baseline forecasts, and later outcome scoring.',signal:'market-training'}
 ];
 
 const state={version:'1.1.0',mode:'MONITOR_ONLY',cycleCount:0,lastCycle:null,lastFeedbackAt:null,recentCycles:[],feedback:[],categories:{},persistence:'PROCESS_MEMORY',persistenceDetail:'Outcome feedback is held in this server process unless DATABASE_URL persistence is available.',persistenceAttempted:false,shadowMetrics:{evaluations:0,claimedThresholdsMet:0,rejected:0,riskRegressionCount:0,lastEvaluatedAt:null}};
@@ -168,6 +169,17 @@ function checkStatus(signal,obs){
   const evidence=Number(x.evidenceLedger||0),agents=Number(x.memoryAgents||0),decisions=Number(x.decisions||0);
   return {status:evidence>0&&agents>0?'HEALTHY':'PARTIAL',detail:evidence+' evidence records · '+agents+' memory agents · '+decisions+' in-process decisions. Server runtime memory and browser-local learning have different persistence boundaries.',metrics:{evidence,agents,decisions,decisionCache:Number(x.decisionCache||0)}};
  }
+ if(signal==='market-training'){
+  const x=obs.marketTraining;
+  if(!x?.ok)return {status:'UNKNOWN',detail:'Market Training OS status is unavailable.'};
+  const resolved=Number(x.resolvedForecastCount||0),pending=Number(x.pendingForecastCount||0),forecasts=Number(x.forecastCount||0),observations=Number(x.observationCount||0);
+  const enabled=Boolean(x.enabled),persistent=x.persistent===true;
+  const status=x.lastError?'DEGRADED':enabled?'ACTIVE':'PARTIAL';
+  const detail=enabled
+   ? 'Scheduled market collection is enabled every '+Math.round(Number(x.intervalMs||900000)/60000)+' minutes for '+(x.watchlist||[]).length+' symbols; '+observations+' observations · '+resolved+' scored baseline outcomes · '+pending+' pending. Always-on hosting is required.'
+   : 'Automatic collection is not running. '+(x.blockedReason||'Set FINPILOT_AI_OS_TRAINING_ENABLED=true only after persistent storage and always-on hosting are ready.')+' Storage '+clean(x.persistence||'UNKNOWN',30)+'; '+(persistent?'durable storage available':'data will not survive a restart')+'.';
+  return {status,detail,metrics:{enabled,requestedEnabled:Boolean(x.requestedEnabled),observations,forecasts,pending,resolved,meanBrierScore:x.meanBrierScore??null,meanLogLoss:x.meanLogLoss??null,persistence:x.persistence,persistent,foundationModelTraining:false,automaticPromotion:false,realMoneyExecution:false,requiresAlwaysOnWorkerFor24x7:true}};
+ }
  if(signal==='unified-workspace'){
   const x=obs.unifiedWorkspace;
   return x?.ok?{status:'READY',detail:'Unified workspace is available and its browser snapshot has been observed.',metrics:{version:clean(x.version||'unknown',30),checks:Number(x.checks||0),ready:Number(x.ready||0)}}:{status:'PARTIAL',detail:'The unified workspace and OS control panel exist; browser-side local modules are merged when the operator opens the control panel.'};
@@ -185,7 +197,7 @@ export async function getOSControlPlaneSnapshot(observations={}){
   {id:'orchestration',name:'Orchestration & Workspace',members:['main-core','core-brain','unified-workspace-os']},
   {id:'agents-memory',name:'Agent Factory, Mesh & Memory',members:['agent-mesh','agent-factory-os','decision-memory-os']},
   {id:'data-markets',name:'Data & Market Intelligence',members:['data-os','market-data-os','market-stream-hub-os','research-search-os']},
-  {id:'training-learning',name:'Training, Research & Evolution',members:['learning-os','forecast-learning-os','training-fabric-os','autonomous-research-os','evolution-os']},
+  {id:'training-learning',name:'Training, Research & Evolution',members:['learning-os','forecast-learning-os','market-training-os','training-fabric-os','autonomous-research-os','evolution-os']},
   {id:'safety-governance',name:'Safety, Risk & Governance',members:['ai-security-os','trading-risk-os','foundation-os','quantum-os']}
  ].map(plane=>{
   const members=plane.members.map(id=>os.find(item=>item.id===id)).filter(Boolean);
@@ -196,7 +208,7 @@ export async function getOSControlPlaneSnapshot(observations={}){
   return {...plane,status,readiness,components:members.length,counts};
  });
  const operatingLayer={version:'AI-OS-1.0',name:'FinPilot AI Operating Layer',status:planes.some(p=>p.status==='REVIEW_REQUIRED'||p.status==='DEGRADED')?'NEEDS_ATTENTION':planes.some(p=>p.status==='PARTIAL')?'PARTIAL':'READY',singleRegistry:true,autonomousCodeMutation:false,automaticPromotion:false,liveTrading:false,planes,principles:['One OS registry','Shared evidence and outcome contracts','Explicit storage durability','Shadow-first evolution','Independent safety gates']};
- return {ok:true,version:state.version,mode:state.mode,persistence:state.persistence,persistenceDetail:state.persistenceDetail,registryVersion:'1.1.0',os,statusCounts,operatingLayer,
+ return {ok:true,version:state.version,mode:state.mode,persistence:state.persistence,persistenceDetail:state.persistenceDetail,registryVersion:'1.2.0',os,statusCounts,operatingLayer,
   summary:{total:os.length,healthy:(statusCounts.HEALTHY||0)+(statusCounts.READY||0)+(statusCounts.ACTIVE||0),degraded:statusCounts.DEGRADED||0,unknown:statusCounts.UNKNOWN||0,reviewRequired:statusCounts.REVIEW_REQUIRED||0,guarded:statusCounts.SAFE_GATED||0,cycles:state.cycleCount,lastCycle:state.lastCycle,lastFeedbackAt:state.lastFeedbackAt},
   learning:{feedbackCount:state.feedback.length,categories:Object.entries(state.categories).map(([category,x])=>({category,...x})),recentFeedback:state.feedback.slice(0,8),promotionPolicy:{minSamples:30,minReliability:0.8,requiresShadowBenchmark:true,automaticPromotion:false},adaptation:'Feedback adjusts bounded recommendation priorities only; it cannot alter security policy or execution gates.',shadowEvaluation:{...state.shadowMetrics,minimumSamples:20,minimumScoreGain:2,requiresAllTestsPass:true,automaticPromotion:false,sourceMutation:false,validation:'METADATA_GATE_ONLY',execution:'NO_CANDIDATE_EXECUTION',metricsVerified:false}},
   policy:{autonomousModes:[...ALLOWED_MODES],safeAllowlist:[...SAFE_ACTIONS],neverAutonomous:['live money movement','placing/cancelling broker orders','credential access/export','security-policy changes','disabling risk or approval gates','unreviewed production deployments','self-modifying source code'],execution:'HUMAN_APPROVAL_REQUIRED',realMoneyExecution:'BLOCKED'}};
