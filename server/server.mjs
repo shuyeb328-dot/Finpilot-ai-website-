@@ -12,6 +12,7 @@ import pg from 'pg';
 import {searchWeb} from './search-provider.mjs';
 import {normalizeMarketTick} from './market-tick-contract.mjs';
 import {createBoundedRateLimiter} from './bounded-rate-limiter.mjs';
+import {configureAgentMemoryLedger,recordAgentMemory,getAgentMemorySnapshot} from './agent-memory-ledger.mjs';
 import {isAllowedRequestOrigin,MAX_REQUEST_BODY_BYTES} from './request-security.mjs';
 import {planFinancialTask,buildSupplementalDiscovery,filterFinancialSearchResults,getSourceCatalog} from './task-intelligence.mjs';
 import {fetchTejHqEod} from './tejhq-eod.mjs';
@@ -33,6 +34,7 @@ import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,rec
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
 async function marketStore(){if(MARKET_POOL||!process.env.DATABASE_URL)return MARKET_POOL;MARKET_POOL=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false},max:3,idleTimeoutMillis:30000,connectionTimeoutMillis:1800});return MARKET_POOL;}
+configureAgentMemoryLedger({getPool:marketStore,databaseConfigured:()=>Boolean(process.env.DATABASE_URL)});
 async function ensureMarketSchema(){const pool=await marketStore();if(!pool||MARKET_SCHEMA_READY)return !!pool;await pool.query('CREATE TABLE IF NOT EXISTS market_ticks (id BIGSERIAL PRIMARY KEY,ticker TEXT NOT NULL,symbol TEXT,price DOUBLE PRECISION,change_pct DOUBLE PRECISION,volume DOUBLE PRECISION,high DOUBLE PRECISION,low DOUBLE PRECISION,source TEXT,source_verified BOOLEAN NOT NULL DEFAULT FALSE,observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');await pool.query('ALTER TABLE market_ticks ADD COLUMN IF NOT EXISTS source_verified BOOLEAN NOT NULL DEFAULT FALSE');await pool.query('CREATE INDEX IF NOT EXISTS market_ticks_ticker_time_idx ON market_ticks(ticker,observed_at DESC)');MARKET_SCHEMA_READY=true;return true;}
 async function storeMarketTick(x){try{if(!(await ensureMarketSchema()))return false;await MARKET_POOL.query('INSERT INTO market_ticks(ticker,symbol,price,change_pct,volume,high,low,source,source_verified,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[x.ticker,x.symbol,x.price,x.changePct,x.volume,x.high,x.low,x.source,false,x.time]);return true}catch(e){MARKET_SCHEMA_READY=false;return false;}}
 async function marketHistory(req,res,u){try{if(!(await ensureMarketSchema()))return send(res,200,{ok:true,cloud:false,rows:[],message:'Cloud archive adapter ready; connect DATABASE_URL on Render.'});const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase();const limit=Math.min(500,Math.max(10,Number(u.searchParams.get('limit')||100)));const q=await MARKET_POOL.query('SELECT ticker,symbol,price,change_pct AS "changePct",volume,high,low,source,source_verified AS "sourceVerified",observed_at AS time FROM market_ticks WHERE ticker=$1 ORDER BY observed_at DESC LIMIT $2',[ticker,limit]);return send(res,200,{ok:true,cloud:true,ticker,rows:q.rows});}catch(e){return send(res,200,{ok:true,cloud:false,rows:[],error:'MARKET_HISTORY_UNAVAILABLE'});}}
@@ -1825,10 +1827,15 @@ function remember(agent,entry){
  if(source==='SERVER_EXECUTED')a.serverExecutedRuns++;else a.clientReportedRuns++;
  if(source==='SERVER_EXECUTED'&&entry?.decision)a.decisions++;
  const lesson=clean(entry?.lesson||'',600);
+ const decision=clean(entry?.decision||'',600);
  if(lesson)a.lessons.unshift({text:lesson,source,recordedAt:new Date().toISOString()});
  a.lessons=a.lessons.slice(0,20);
  a.memoryTrust=a.serverExecutedRuns>0&&a.clientReportedRuns>0?'MIXED':source==='SERVER_EXECUTED'?'SERVER_EXECUTED':'CLIENT_REPORTED_UNVERIFIED';
- AGENT_MEMORY.set(k,a);return a;
+ AGENT_MEMORY.set(k,a);
+ if(lesson||decision){
+  void recordAgentMemory({agent:k,layer:'EPISODIC',source,content:lesson||decision,decision:decision||null,observedAt:new Date().toISOString(),metadata:{domain:entry?.domain,requestId:entry?.requestId}}).catch(()=>{});
+ }
+ return a;
 }
 function evidenceFusion(req,res){
  const x=JSON.parse(req._bodyCache||'{}');
@@ -1880,12 +1887,13 @@ function evidenceFusion(req,res){
   unknownTimestampEvidence:EVIDENCE_LEDGER.filter(e=>typeof e.fresh!=='boolean').length,
   retrievedPages:EVIDENCE_LEDGER.filter(e=>e.retrievalStatus==='RETRIEVED').length,ledgerSize:EVIDENCE_LEDGER.length});
 }
-function agentMemory(req,res){
+async function agentMemory(req,res){
  const agents=[...AGENT_MEMORY.values()];
  const summary=agents.reduce((a,x)=>({serverExecutedRuns:a.serverExecutedRuns+Number(x.serverExecutedRuns||0),clientReportedRuns:a.clientReportedRuns+Number(x.clientReportedRuns||0)}),{serverExecutedRuns:0,clientReportedRuns:0});
- return send(res,200,{ok:true,engine:'agent-memory-v4300',agents,totalAgents:agents.length,...summary,
-  trust:'Client-reported events are unverified telemetry, not independently executed server runs or trained outcomes.',
-  persistence:'PROCESS_MEMORY',persistent:false});
+ const ledger=await getAgentMemorySnapshot({limit:40});
+ return send(res,200,{ok:true,engine:'agent-memory-v4400',agents,totalAgents:agents.length,...summary,...ledger,
+  trust:'Client-reported events remain unverified telemetry; server-executed records document completed routines, not verified financial outcomes. Only independently settled outcomes may enter the OUTCOME layer.',
+  writePolicy:{clientMayWriteVerifiedEvidence:false,clientMayWriteProcedures:false,clientMayWriteOutcomes:false,automaticPromotion:false}});
 }
 function recordMemory(req,res){
  const x=JSON.parse(req._bodyCache||'{}');
@@ -1916,16 +1924,17 @@ function portfolioRisk(req,res){const x=JSON.parse(req._bodyCache||'{}');const p
 function researchQueue(req,res){const x=JSON.parse(req._bodyCache||'{}');const item={id:requestId(),priority:coreClamp(Number(x.priority||50),0,100),topic:String(x.topic||'Market evidence'),reason:String(x.reason||''),createdAt:new Date().toISOString(),status:'QUEUED'};RESEARCH_QUEUE.push(item);return send(res,200,{ok:true,engine:'research-queue-v4600',item,queue:RESEARCH_QUEUE.slice(-50)});}
 function decisionCache(req,res){const x=JSON.parse(req._bodyCache||'{}');const key=coreKey(x);const hit=DECISION_CACHE.get(key);if(hit&&hit.expires>Date.now()){CORE.cacheHits++;return send(res,200,{ok:true,hit:true,decision:hit.value})}const confidence=coreClamp(Number(x.confidence||0),0,100);const decision=confidence>=75?'CONDITIONAL':confidence>=55?'WATCH':'WAIT';const value={decision,confidence,createdAt:new Date().toISOString()};DECISION_CACHE.set(key,{value,expires:Date.now()+30000});CORE.decisions++;return send(res,200,{ok:true,hit:false,decision:value});}
 function executionGuard(req,res){const x=JSON.parse(req._bodyCache||'{}');const risk=Number(x.riskScore||100),conf=Number(x.confidence||0),approved=x.userApproved===true;const blocked=!approved||risk>=65||conf<65;return send(res,200,{ok:true,engine:'execution-guard-v4800',status:blocked?'BLOCKED':'READY_FOR_APPROVAL',reasons:[...(!approved?['USER_APPROVAL_REQUIRED']:[]),...(risk>=65?['CFO_RISK_VETO']:[]),...(conf<65?['LOW_CONFIDENCE']:[])],canAutoExecute:false});}
-function coreStatus(req,res){
+async function coreStatus(req,res){
  const agents=[...AGENT_MEMORY.values()];
  const serverExecutedAgentRuns=agents.reduce((n,a)=>n+Number(a.serverExecutedRuns||0),0);
  const clientReportedAgentRuns=agents.reduce((n,a)=>n+Number(a.clientReportedRuns||0),0);
- return send(res,200,{ok:true,engine:'autonomous-intelligence-core-v5000',version:'7.0',uptimeMs:Date.now()-CORE.started,
+ const memoryStatus=await getAgentMemorySnapshot({limit:1});
+ return send(res,200,{ok:true,engine:'autonomous-intelligence-core-v5100',version:'7.1',uptimeMs:Date.now()-CORE.started,
   memoryAgents:AGENT_MEMORY.size,serverExecutedAgentRuns,clientReportedAgentRuns,
   agentMemoryTrust:clientReportedAgentRuns&&serverExecutedAgentRuns?'MIXED':clientReportedAgentRuns?'CLIENT_REPORTED_UNVERIFIED':serverExecutedAgentRuns?'SERVER_EXECUTED':'NO_AGENT_MEMORY_RECORDED',
-  agentMemoryPersistence:'PROCESS_MEMORY',agentMemoryPersistent:false,
+  agentMemoryPersistence:memoryStatus.persistence,agentMemoryPersistent:memoryStatus.persistent,agentMemoryLayers:memoryStatus.layerCounts,
   evidenceLedger:EVIDENCE_LEDGER.length,marketEvents:MARKET_EVENTS.length,researchQueue:RESEARCH_QUEUE.length,decisionCache:DECISION_CACHE.size,cacheHits:CORE.cacheHits,decisions:CORE.decisions,
-  features:['bounded-agent-memory-telemetry','evidence-fusion','contradiction-detection','real-time-event-detection','portfolio-risk','research-queue','decision-cache','execution-guard','CEO-CFO governance','human approval']});
+  features:['layered-agent-memory-ledger','provenance-aware-episodic-memory','client-telemetry-quarantine','evidence-fusion','contradiction-detection','real-time-event-detection','portfolio-risk','research-queue','decision-cache','execution-guard','CEO-CFO governance','human approval']});
 }
 
 async function globalMarketTest(req,res,u){
