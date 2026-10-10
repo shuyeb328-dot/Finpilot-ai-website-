@@ -15,10 +15,13 @@ globalThis.fetch=async url=>{
   if(href.includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
   await new Promise(resolve=>setTimeout(resolve,15));
   if(href.includes('www.bing.com/search?')){
-    if(emptyMode)return {ok:true,status:200,text:async()=>'<html><body>No results</body></html>'};
+    if(emptyMode)return {ok:true,status:200,text:async()=>'<rss><channel></channel></rss>'};
     const title=wrapperMode?'Resolved publisher story':'Quota test source';
     const snippet=wrapperMode?'Article-link resolver regression test with enough readable context.':'Evidence for the search cache test with enough context.';
-    return {ok:true,status:200,text:async()=>'<ol id="b_results"><li class="b_algo"><h2><a href="https://example.com/finpilot-quota-test">'+title+'</a></h2><div class="b_caption"><p>'+snippet+'</p></div></li></ol>'};
+    const xml=wrapperMode
+      ? '<rss><channel><item><title>Resolved publisher story</title><link>https://example.com/finpilot-quota-test</link><description>Article-link resolver regression test with enough readable context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item></channel></rss>'
+      : '<rss><channel><item><title>Quota test source</title><link>https://example.com/finpilot-quota-test</link><description>Evidence for the search cache test with enough context.</description><pubDate>Fri, 09 Oct 2026 06:00:00 GMT</pubDate><source>Example News</source></item></channel></rss>';
+    return {ok:true,status:200,text:async()=>xml};
   }
   if(href.includes('search.brave.com/search')){
     if(emptyMode)return {ok:true,status:200,text:async()=>'<html><body>No results</body></html>'};
@@ -57,8 +60,8 @@ try{
   assert.equal(first.results[0].url,'https://example.com/finpilot-quota-test','keep the clean source URL when duplicate tracking variants exist');
   assert.equal(first.live,true);
   assert.equal(first.provider,'multi-free-search');
-  assert.deepEqual(first.providers,['bing-html','bing-news-rss','google-news-rss']);
-  assert.deepEqual(first.attemptedProviders,['bing-html','bing-news-rss','google-news-rss']);
+  assert.deepEqual(first.providers,['bing-web-rss','bing-news-rss','google-news-rss']);
+  assert.deepEqual(first.attemptedProviders,['bing-web-rss','bing-news-rss','google-news-rss']);
   assert.equal(first.results[0].engineAgreementCount,3,'matching URLs or exact titles should record which engines found the item');
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
@@ -94,7 +97,7 @@ try{
   process.env.EXA_API_KEY='test-metered-key';
   const freeFirst=await searchWeb('FinPilot free-first fallback test',{count:3});
   assert.equal(freeFirst.provider,'multi-free-search');
-  assert.deepEqual(freeFirst.providers,['bing-html','bing-news-rss','google-news-rss']);
+  assert.deepEqual(freeFirst.providers,['bing-web-rss','bing-news-rss','google-news-rss']);
   assert.equal(fetchCalls,3,'free multi-source search should satisfy auto search without calling a metered provider');
 
   // Even when a metered key exists, empty RSS results must not trigger paid calls by default.
@@ -129,7 +132,7 @@ try{
   assert.equal(resolved.results[0].url,'https://example.com/finpilot-quota-test','Bing RSS wrapper must resolve to the publisher HTTPS URL before article retrieval');
   assert.equal(fetchCalls,3,'publisher-link resolution must not trigger any extra provider requests beyond the bounded fan-out');
 
-  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first Bing Web + Bing News + Google News search, paid-fallback guard and clean source URLs');
+  console.log('PASS search provider cache: in-flight dedupe, TTL cache labels, empty-result non-caching, free-first Bing Web RSS + Bing News RSS + Google News RSS, paid-fallback guard and clean source URLs');
 }finally{
   globalThis.fetch=originalFetch;
 }

@@ -389,6 +389,34 @@ async function bingWebHtml(q,count){
  }finally{clearTimeout(timer)}
 }
 
+
+async function bingWebRss(q,count){
+ const u='https://www.bing.com/search?q='+encodeURIComponent(q)+'&format=rss&setlang=en';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0','Accept':'application/rss+xml,application/xml,text/xml'}});
+  if(!r.ok)throw providerError('Bing Web RSS returned HTTP '+r.status,r.status);
+  const xml=await r.text();
+  if(/verify you are human|captcha|unusual traffic/i.test(xml))throw providerError('Bing Web RSS returned an automated-access challenge');
+  const blocks=xml.match(/<item\b[\s\S]*?<\/item>/gi)||[];
+  const items=[];
+  for(const block of blocks.slice(0,count)){
+   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\\\s\\\\S]*?)<\\\\/'+tag+'>','i'));return m?m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim():''};
+   const title=cleanText(val('title'));
+   const url=cleanText(val('link'));
+   const snippet=cleanText(val('description'));
+   const publishedAt=cleanText(val('pubDate'))||null;
+   const source=cleanText(val('source'))||'Bing Web';
+   if(!title||!/^https?:\\/\\//i.test(url))continue;
+   items.push({title,url,snippet,source,publishedAt});
+  }
+  return normalize(items,'bing-web-rss');
+ }catch(e){
+  if(e.name==='AbortError')throw providerError('Bing Web RSS timed out');
+  throw e;
+ }finally{clearTimeout(timer)}
+}
+
 function freeSearchLinks(q){
  const x=encodeURIComponent(q);
  return [
@@ -402,7 +430,7 @@ function freeSearchLinks(q){
 }
 async function searchFreeMultiSource(q,count){
  const tasks=[
-  {provider:'bing-html',run:()=>bingWebHtml(q,count)},
+  {provider:'bing-web-rss',run:()=>bingWebRss(q,count)},
   {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
   {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
  ];
