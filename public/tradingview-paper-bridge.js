@@ -36,7 +36,12 @@
   }
   function paperSymbol(value){
     const s=normalizeSymbol(value);if(!s)return '';
-    return s.split(':').pop().replace(/\.(NS|BO)$/,'');
+    const colon=s.indexOf(':');
+    if(colon<0)return s; // Keep explicit .NS/.BO listing suffixes supplied by the user.
+    const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
+    if(venue==='NSE')return ticker+'.NS';
+    if(venue==='BSE')return ticker+'.BO';
+    return ticker;
   }
   function mount(){
     const host=document.getElementById('paperlab');
