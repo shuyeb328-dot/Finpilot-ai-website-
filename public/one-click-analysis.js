@@ -225,8 +225,8 @@
     const candidateMarketClass=String(candidate?.market||'').toUpperCase();
     const exchangeConflict=hasMarketRegionConflict(candidateMarketClass,sourceExchangeText,candidate?.exchange,candidateTicker)||hasMarketRegionConflict(candidateMarketClass,market.market,candidate?.exchange,candidateTicker);
     const sourceCurrency=String(market.currency||'').trim().toUpperCase();
-    const venueCurrency=inferMarketCurrency(sourceExchangeText,returnedTicker);
-    const currencyConflict=Boolean(sourceCurrency&&sourceCurrency!=='UNKNOWN'&&venueCurrency!=='UNKNOWN'&&sourceCurrency!==venueCurrency);
+    const validatedVenueCurrency=inferMarketCurrency(sourceExchangeText,returnedTicker);
+    const currencyConflict=Boolean(sourceCurrency&&sourceCurrency!=='UNKNOWN'&&validatedVenueCurrency!=='UNKNOWN'&&sourceCurrency!==validatedVenueCurrency);
     if((candidateTicker&&returnedTicker&&normaliseEquitySymbol(candidateTicker)!==normaliseEquitySymbol(returnedTicker))||exchangeConflict||currencyConflict){
       return {available:false,symbolMismatch:true,realtimeAvailable:false,executionEligible:false,marketTrust:'INSTRUMENT MISMATCH',candles:[],ticker:returnedTicker,name:market.name||'Unverified issuer',provider:market.provider,exchange:market.exchange||'UNKNOWN',currency:'UNKNOWN',asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',message:exchangeConflict?'Chart withheld because the source exchange conflicts with the selected instrument.':currencyConflict?'Chart withheld because the provider currency conflicts with the source exchange.':'Chart withheld because the returned market-data symbol does not match the selected instrument.'};
     }
