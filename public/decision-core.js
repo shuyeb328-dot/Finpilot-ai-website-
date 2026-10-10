@@ -45,9 +45,11 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  ];
  const aliasSymbols=[...new Set(aliases.filter(([pattern])=>pattern.test(queryText)).map(([,ticker])=>ticker))];
  const querySymbols=[...new Set([...explicitTickerTokens,...aliasSymbols])];
- const symbolToken=explicitTickerTokens[0]||aliasSymbols[0]||'';
- const requestedSymbol=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
- const isComparisonQuery=/\b(compare|comparison|versus|vs|between)\b/i.test(queryText);
+ const symbolToken=aliasSymbols[0]||explicitTickerTokens[0]||'';
+ const requestedRaw=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
+ const canonicalTickerAlias={SBI:'SBIN',STATE:'SBIN',HDFC:'HDFCBANK',ICICI:'ICICIBANK',INFOSYS:'INFY',TESLA:'TSLA',APPLE:'AAPL',MICROSOFT:'MSFT',NVIDIA:'NVDA',AMAZON:'AMZN',GOOGLE:'GOOGL',ALPHABET:'GOOGL',BITCOIN:'BTC',ETHEREUM:'ETH',SOLANA:'SOL',RIPPLE:'XRP'};
+ const requestedSymbol=canonicalTickerAlias[requestedRaw]||requestedRaw;
+ const isComparisonQuery=/\b(compare|comparison|versus|vs|between|against|relative\s+to|and)\b/i.test(queryText);
  const multiInstrumentRequest=isComparisonQuery&&querySymbols.length>1;
  const marketSensitive=Boolean(requestedSymbol)||['market','portfolio','equity','crypto','options','futures','trading'].includes(String(quantum.intent||'').toLowerCase());
 
