@@ -1956,7 +1956,7 @@ function marketStream(req,res,u){
 const EVENT_BUS={seq:0,events:[],subscriptions:new Map(),coalesced:0,routed:0,wakeups:0,dropped:0};
 const AGENT_POOL=new Map();
 const SCHEDULER={queue:[],running:0,completed:0,failed:0,coalesced:0,lastTick:null,maxConcurrency:5};
-const DATA_HEALTH={sources:{binance:{status:'UNKNOWN',latencyMs:null,lastSuccess:null,lastError:null}},qualityScore:0,freshness:'UNKNOWN',updatedAt:null};
+const DATA_HEALTH={sources:{},qualityScore:0,freshness:'UNKNOWN',updatedAt:null};
 const RESILIENCE={providerFailures:0,retries:0,circuitOpen:false,backoffMs:1000,lastIncident:null};
 const AUTONOMY={version:'7.0',mode:'GOVERNED_AUTONOMY',level:7,cycles:0,lastCycle:null,optimizations:0,policyBlocks:0,approvals:0};
 const AUDIT=[];
