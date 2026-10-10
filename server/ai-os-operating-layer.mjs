@@ -32,6 +32,7 @@ const state = {
 
 const safeText = (value, max) => String(value ?? '')
   .replace(/[\u0000-\u001f\u007f]/g, ' ')
+  .replace(/[<>]/g, '')
   .replace(/\s+/g, ' ')
   .trim()
   .slice(0, max);
