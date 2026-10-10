@@ -210,7 +210,7 @@ function agentsView(){
 }
 
 function toggleAgent(id){if(id.startsWith('builtin-')){toast('Built-in agents are always available');return}const a=(state.agents||[]).find(x=>x.id===id);if(a){a.enabled=!a.enabled;save();render('agents')}}
-async async function createAgent(e){
+async function createAgent(e){
  e.preventDefault();
  const name=document.getElementById('aName').value.trim(),role=document.getElementById('aRole').value.trim();
  if(!name||!role)return;
