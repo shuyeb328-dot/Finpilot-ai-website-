@@ -18,9 +18,48 @@
     if(/\b(?:GLOBAL|US|USA|UNITED STATES|NYSE|NASDAQ|LSE|LONDON STOCK EXCHANGE|TSX|TORONTO STOCK EXCHANGE|ASX|AUSTRALIAN SECURITIES EXCHANGE|XETRA|EURONEXT|TSE|TOKYO STOCK EXCHANGE|AMEX|NYSE AMERICAN)\b/.test(normalized))return 'GLOBAL';
     return 'UNKNOWN';
   }
-  function hasMarketRegionConflict(candidateMarket,sourceIdentity){
-    const expected=marketRegion(candidateMarket),actual=marketRegion(sourceIdentity);
-    return expected!=='UNKNOWN'&&actual!=='UNKNOWN'&&expected!==actual;
+  function marketVenue(value,symbol=''){
+    const text=String(value||'').toUpperCase().replace(/[^A-Z0-9.]+/g,' ').replace(/\s+/g,' ').trim();
+    const ticker=String(symbol||'').toUpperCase().trim();
+    if(/\.NS$/.test(ticker)||/\bNSE\b|NATIONAL STOCK EXCHANGE OF INDIA/.test(text))return 'NSE';
+    if(/\.BO$/.test(ticker)||/\bBSE\b|BOMBAY STOCK EXCHANGE/.test(text))return 'BSE';
+    if(/\.L$/.test(ticker)||/\bLSE\b|LONDON STOCK EXCHANGE/.test(text))return 'LSE';
+    if(/\.TO$/.test(ticker)||/\bTSX\b|TORONTO STOCK EXCHANGE/.test(text))return 'TSX';
+    if(/\.AX$/.test(ticker)||/\bASX\b|AUSTRALIAN SECURITIES EXCHANGE/.test(text))return 'ASX';
+    if(/\.DE$/.test(ticker)||/\bXETRA\b|FRANKFURT STOCK EXCHANGE/.test(text))return 'XETRA';
+    if(/\.PA$|\.AS$/.test(ticker)||/\bEURONEXT\b|PARIS STOCK EXCHANGE|AMSTERDAM STOCK EXCHANGE/.test(text))return 'EURONEXT';
+    if(/\.HK$/.test(ticker)||/\bHKG\b|HONG KONG STOCK EXCHANGE/.test(text))return 'HKG';
+    if(/\.T$/.test(ticker)||/\bTSE\b|TOKYO STOCK EXCHANGE/.test(text))return 'TSE';
+    if(/\.SW$/.test(ticker)||/\bSIX\b|SWISS EXCHANGE/.test(text))return 'SIX';
+    if(/\.SI$/.test(ticker)||/\bSGX\b|SINGAPORE EXCHANGE/.test(text))return 'SGX';
+    if(/\.SA$/.test(ticker)||/\bB3\b|BRAZILIAN STOCK EXCHANGE/.test(text))return 'B3';
+    if(/\.JK$/.test(ticker)||/\bIDX\b|INDONESIA STOCK EXCHANGE/.test(text))return 'IDX';
+    if(/\.KL$/.test(ticker)||/\bBURSA MALAYSIA\b/.test(text))return 'BURSA';
+    if(/\.BK$/.test(ticker)||/\bSET\b|STOCK EXCHANGE OF THAILAND/.test(text))return 'SET';
+    if(/\.NZ$/.test(ticker)||/\bNZX\b|NEW ZEALAND EXCHANGE/.test(text))return 'NZX';
+    if(/\.SR$/.test(ticker)||/\bTADAWUL\b/.test(text))return 'TADAWUL';
+    if(/\.TA$/.test(ticker)||/\bTASE\b|TEL AVIV STOCK EXCHANGE/.test(text))return 'TASE';
+    if(/\.KS$|\.KQ$/.test(ticker)||/\bKRX\b|KOREA EXCHANGE/.test(text))return 'KRX';
+    if(/\.TW$/.test(ticker)||/\bTWSE\b|TAIWAN STOCK EXCHANGE/.test(text))return 'TWSE';
+    if(/\.SS$/.test(ticker)||/\bSSE\b|SHANGHAI STOCK EXCHANGE/.test(text))return 'SSE';
+    if(/\.SZ$/.test(ticker)||/\bSZSE\b|SHENZHEN STOCK EXCHANGE/.test(text))return 'SZSE';
+    if(/\bNASDAQ\b/.test(text))return 'NASDAQ';
+    if(/\bNYSE\b|NEW YORK STOCK EXCHANGE|NYSE AMERICAN|NYSE ARCA/.test(text))return 'NYSE';
+    if(/\bAMEX\b/.test(text))return 'AMEX';
+    return 'UNKNOWN';
+  }
+  function inferMarketCurrency(sourceIdentity,symbol=''){
+    const text=String(sourceIdentity||'').toUpperCase(),ticker=String(symbol||'').toUpperCase();
+    const venue=marketVenue(text,ticker);
+    const currencies={NSE:'INR',BSE:'INR',NASDAQ:'USD',NYSE:'USD',AMEX:'USD',LSE:'GBP',TSX:'CAD',ASX:'AUD',XETRA:'EUR',EURONEXT:'EUR',HKG:'HKD',TSE:'JPY',SIX:'CHF',SGX:'SGD',B3:'BRL',IDX:'IDR',BURSA:'MYR',SET:'THB',NZX:'NZD',TADAWUL:'SAR',TASE:'ILS',KRX:'KRW',TWSE:'TWD',SSE:'CNY',SZSE:'CNY'};
+    return currencies[venue]||'UNKNOWN';
+  }
+  function hasMarketRegionConflict(candidateMarket,sourceIdentity,candidateExchange='',candidateSymbol=''){
+    const expected=marketRegion(String(candidateMarket||'')+' '+String(candidateExchange||'')+' '+String(candidateSymbol||''));
+    const actual=marketRegion(sourceIdentity);
+    if(expected!=='UNKNOWN'&&actual!=='UNKNOWN'&&expected!==actual)return true;
+    const expectedVenue=marketVenue(candidateExchange,candidateSymbol),actualVenue=marketVenue(sourceIdentity);
+    return expectedVenue!=='UNKNOWN'&&actualVenue!=='UNKNOWN'&&expectedVenue!==actualVenue;
   }
   let rawDoSearch = null;
   let running = false;
@@ -144,8 +183,8 @@
     const requested=String(d.candidate?.ticker||d.ticker||'').trim().toUpperCase();
     const sameInstrument=(!requested)||(Boolean(ticker)&&ticker.replace(/\.(?:NS|BO)$/,'')===requested.replace(/\.(?:NS|BO)$/,''));
     const candidateMarket=String(d.candidate?.market||'').toUpperCase();
-    const sourceIdentity=[m?.exchange,m?.provider,m?.market].filter(Boolean).join(' ');
-    const exchangeConflict=hasMarketRegionConflict(candidateMarket,sourceIdentity);
+    const sourceIdentity=[m?.exchange,m?.provider].filter(Boolean).join(' ');
+    const exchangeConflict=hasMarketRegionConflict(candidateMarket,sourceIdentity,d.candidate?.exchange,requested)||hasMarketRegionConflict(candidateMarket,m?.market,d.candidate?.exchange,requested);
     const liveQuote=Boolean(m&&Number.isFinite(price)&&price>0&&sameInstrument&&!exchangeConflict&&m.live===true&&m.executionEligible===true&&String(m.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&m.asOf&&Number.isFinite(Date.parse(m.asOf))&&(Date.now()-Date.parse(m.asOf))>=-30000&&(Date.now()-Date.parse(m.asOf))<=90000);
     if(!liveQuote){
       return {version:'market-data-gate-v1',upgradeCount:0,amount:1000,horizon:30,action:'NO TRADE — VERIFY LIVE MARKET DATA',riskBand:'UNVERIFIED',approved:false,buyProbability:null,sellProbability:null,holdProbability:null,upsidePct:null,downsidePct:null,estimatedProfit:null,estimatedLoss:null,riskReward:null,expectedValue:null,inputs:{marketDataVerified:false},plan:{requestedAmount:1000,recommendedAmount:0,approval:'BLOCKED',riskBudget:null,capitalAtRisk:null,targetProfit:null,stopLoss:null,maximumLoss:null,breakEvenPct:null,breakEvenCost:null,targetPct:null,stopPct:null,trailingStopPct:null,riskReward:null,expectedValue:null,stress7:null,stress30:null,stress90:null,positionCap:0,gateReasons:['No fresh, matching live market quote'],actionReason:'Market-dependent probabilities and P/L are blocked until a fresh quote for the selected ticker is verified.'},probabilityBasis:'Not calculated: fresh matching live quote unavailable.',disclaimer:'No trade plan: verify ticker, exchange, currency and quote timestamp first.'};
@@ -182,11 +221,14 @@
     const returnedTicker=String(market.ticker||market.symbol||'').trim().toUpperCase();
     const candidateTicker=String(candidate?.ticker||'').trim().toUpperCase();
     const normaliseEquitySymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'');
-    const sourceExchangeText=[market.exchange,market.provider,market.market].filter(Boolean).join(' ');
+    const sourceExchangeText=[market.exchange,market.provider].filter(Boolean).join(' ');
     const candidateMarketClass=String(candidate?.market||'').toUpperCase();
-    const exchangeConflict=hasMarketRegionConflict(candidateMarketClass,sourceExchangeText);
-    if((candidateTicker&&returnedTicker&&normaliseEquitySymbol(candidateTicker)!==normaliseEquitySymbol(returnedTicker))||exchangeConflict){
-      return {available:false,symbolMismatch:true,realtimeAvailable:false,executionEligible:false,marketTrust:'INSTRUMENT MISMATCH',candles:[],ticker:returnedTicker,name:market.name||'Unverified issuer',provider:market.provider,exchange:market.exchange||'UNKNOWN',currency:'UNKNOWN',asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',message:exchangeConflict?'Chart withheld because the source exchange conflicts with the selected instrument.':'Chart withheld because the returned market-data symbol does not match the selected instrument.'};
+    const exchangeConflict=hasMarketRegionConflict(candidateMarketClass,sourceExchangeText,candidate?.exchange,candidateTicker)||hasMarketRegionConflict(candidateMarketClass,market.market,candidate?.exchange,candidateTicker);
+    const sourceCurrency=String(market.currency||'').trim().toUpperCase();
+    const venueCurrency=inferMarketCurrency(sourceExchangeText,returnedTicker);
+    const currencyConflict=Boolean(sourceCurrency&&sourceCurrency!=='UNKNOWN'&&venueCurrency!=='UNKNOWN'&&sourceCurrency!==venueCurrency);
+    if((candidateTicker&&returnedTicker&&normaliseEquitySymbol(candidateTicker)!==normaliseEquitySymbol(returnedTicker))||exchangeConflict||currencyConflict){
+      return {available:false,symbolMismatch:true,realtimeAvailable:false,executionEligible:false,marketTrust:'INSTRUMENT MISMATCH',candles:[],ticker:returnedTicker,name:market.name||'Unverified issuer',provider:market.provider,exchange:market.exchange||'UNKNOWN',currency:'UNKNOWN',asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',message:exchangeConflict?'Chart withheld because the source exchange conflicts with the selected instrument.':currencyConflict?'Chart withheld because the provider currency conflicts with the source exchange.':'Chart withheld because the returned market-data symbol does not match the selected instrument.'};
     }
     const target=positive(money?.upsidePct)&&price!==null?price*(1+Number(money.upsidePct)/100):resistance;
     const stop=positive(money?.downsidePct)&&price!==null?price*(1-Number(money.downsidePct)/100):support;
@@ -194,9 +236,10 @@
     const trust=marketTrustState(market);const trend=trust.trendPrefix+baseTrend;
     const exchange=String(market.exchange||candidate?.exchange||'UNKNOWN').trim().toUpperCase();
     const provider=String(market.provider||'').trim();
-    const declaredCurrency=String(market.currency||candidate?.currency||'').trim().toUpperCase();
-    const sourceIdentity=(exchange+' '+provider+' '+String(market.market||candidate?.market||'')).toUpperCase();
-    const inferredCurrency=String(market.market||candidate?.market||'').toUpperCase()==='CRYPTO'?'USD':(/\b(?:NSE|BSE|INDIA|TEJHQ)\b/.test(sourceIdentity)||/\.(?:NS|BO)$/.test(returnedTicker)?'INR':(/\b(?:NASDAQ|NYSE|NYSE AMERICAN|US EQUITY)\b/.test(sourceIdentity)||String(candidate?.market||'').toUpperCase()==='GLOBAL_EQUITY'?'USD':'UNKNOWN'));
+    const declaredCurrency=String(market.currency||'').trim().toUpperCase();
+    const sourceIdentity=[exchange,provider].filter(Boolean).join(' ').toUpperCase();
+    const venueCurrency=inferMarketCurrency(sourceIdentity,returnedTicker);
+    const inferredCurrency=String(market.market||candidate?.market||'').toUpperCase()==='CRYPTO'?(declaredCurrency&&declaredCurrency!=='UNKNOWN'?declaredCurrency:'UNKNOWN'):venueCurrency;
     const currency=declaredCurrency&&declaredCurrency!=='UNKNOWN'&&declaredCurrency!=='N/A'?declaredCurrency:inferredCurrency;
     return {available:candles.length>1,realtimeAvailable:trust.verified,marketTrust:trust.label,executionEligible:trust.verified,candles,price,sma20:s20,sma50:s50,support,resistance,target,stop,rsi:positive(market.rsi),trend,ticker:returnedTicker||candidate?.ticker,name:market.name||candidate?.name,provider,exchange,asOf:market.asOf,sourceTimestampType:market.sourceTimestampType||'UNKNOWN_TIMESTAMP',market:String(market.market||candidate?.market||'').toUpperCase(),currency};
   }
@@ -312,9 +355,12 @@
     const scenarioTicker=String(scenarioQuote?.ticker||scenarioQuote?.symbol||'').trim().toUpperCase();
     const requestedTicker=String(report.candidate?.ticker||report.ticker||'').trim().toUpperCase();
     const scenarioCandidateMarket=String(report.candidate?.market||'').toUpperCase();
-    const scenarioQuoteIdentity=[scenarioQuote?.exchange,scenarioQuote?.provider,scenarioQuote?.market].filter(Boolean).join(' ');
-    const scenarioExchangeConflict=hasMarketRegionConflict(scenarioCandidateMarket,scenarioQuoteIdentity);
-    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&!scenarioExchangeConflict&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||(scenarioTicker&&scenarioTicker.replace(/\.(?:NS|BO)$/,'')===requestedTicker.replace(/\.(?:NS|BO)$/,''))));
+    const scenarioQuoteIdentity=[scenarioQuote?.exchange,scenarioQuote?.provider].filter(Boolean).join(' ');
+    const scenarioExchangeConflict=hasMarketRegionConflict(scenarioCandidateMarket,scenarioQuoteIdentity,report.candidate?.exchange,requestedTicker)||hasMarketRegionConflict(scenarioCandidateMarket,scenarioQuote?.market,report.candidate?.exchange,requestedTicker);
+    const scenarioSourceCurrency=String(scenarioQuote?.currency||'').trim().toUpperCase();
+    const scenarioVenueCurrency=inferMarketCurrency(scenarioQuoteIdentity,scenarioTicker);
+    const scenarioCurrencyConflict=Boolean(scenarioSourceCurrency&&scenarioSourceCurrency!=='UNKNOWN'&&scenarioVenueCurrency!=='UNKNOWN'&&scenarioSourceCurrency!==scenarioVenueCurrency);
+    const scenarioQuoteValid=Boolean(scenarioQuote&&scenarioQuote.live===true&&scenarioQuote.executionEligible===true&&!scenarioExchangeConflict&&!scenarioCurrencyConflict&&String(scenarioQuote.sourceTimestampType||'').toUpperCase()==='PROVIDER_TIMESTAMP'&&Number(scenarioQuote.price)>0&&scenarioQuote.asOf&&Number.isFinite(Date.parse(scenarioQuote.asOf))&&(Date.now()-Date.parse(scenarioQuote.asOf))>=-30000&&(Date.now()-Date.parse(scenarioQuote.asOf))<=90000&&(!requestedTicker||(scenarioTicker&&scenarioTicker.replace(/\.(?:NS|BO)$/,'')===requestedTicker.replace(/\.(?:NS|BO)$/,''))));
     const scenarioAvailable=Boolean(scenarioQuoteValid&&money?.inputs?.marketDataVerified!==false);
     const scenarioStartedAt=new Date();
     const scenarioReviewAt=new Date(scenarioStartedAt.getTime()+scenarioDays*86400000);

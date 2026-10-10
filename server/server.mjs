@@ -735,22 +735,41 @@ async function instrumentSearch(req,res,u){
   return send(res,200,{ok:false,query,provider:'Yahoo Finance instrument directory',cached:false,results:[],error:reason});
  }finally{clearTimeout(timer);}
 }
+const COMMON_US_EQUITY_SYMBOLS = new Set([
+ 'AAPL','MSFT','NVDA','TSLA','AMZN','GOOGL','GOOG','META','AMD','INTC','ORCL','CRM','NFLX',
+ 'AVGO','ADBE','JPM','V','MA','KO','PEP','COST','WMT','DIS','UBER','SHOP','PLTR','LLY','XOM',
+ 'BAC','GS','MCD','TMO','QCOM','CSCO','PFE','BA','NKE','IBM','BRK.B'
+]);
 async function resolveYahooSymbol(input){
  const raw=String(input||'').trim().toUpperCase();
- const direct=INDIA_INDICES[raw]||INDIA_EQUITIES[raw]||normalizeGlobalSymbol(raw);
- if(direct)return direct;
+ const directIndia=INDIA_INDICES[raw]||INDIA_EQUITIES[raw];
+ if(directIndia)return directIndia;
+ const explicitIndex=/^\^[A-Z0-9_.-]+$/.test(raw);
+ const suffixMatch=raw.match(/\.([A-Z0-9]{1,5})$/);
+ const knownSuffix=new Set(['NS','BO','L','TO','AX','DE','PA','HK','T','SW','AS','MI','SA','JK','KL','BK','SI','NZ','JO','SR','TA','KS','KQ','TW','SS','SZ','MX']);
+ if(explicitIndex||(suffixMatch&&knownSuffix.has(suffixMatch[1])))return normalizeGlobalSymbol(raw);
+ const compact=raw.replace(/[^A-Z0-9]/g,'');
+ const index=GLOBAL_INDEXES.find(x=>{
+  const symbol=String(x.symbol||'').toUpperCase(),name=String(x.name||'').toUpperCase();
+  return symbol===raw||name===raw||name.replace(/[^A-Z0-9]/g,'')===compact;
+ });
+ if(index)return index.symbol;
+ // Common US symbols may be resolved directly; unfamiliar bare symbols go through the directory.
+ if(COMMON_US_EQUITY_SYMBOLS.has(raw))return raw;
  if(!/^[A-Z0-9 .&'_-]{1,80}$/.test(raw))return null;
  const cached=YAHOO_RESOLVE_CACHE.get(raw);
  if(cached&&Date.now()-cached.at<6*60*60*1000)return cached.symbol||null;
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
  try{
   const u='https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(raw)+'&quotesCount=10&newsCount=0';
-  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.3 symbol-resolver'},signal:controller.signal});
-  if(!r.ok)throw new Error('Yahoo search HTTP '+r.status);
+  const r=await fetch(u,{headers:{'Accept':'application/json','User-Agent':'FinPilot/8.6 instrument-resolver'},signal:controller.signal});
+  if(!r.ok)throw new Error('Instrument directory HTTP '+r.status);
   const d=await r.json();
   const quotes=Array.isArray(d?.quotes)?d.quotes:[];
-  const q=quotes.find(x=>['EQUITY','ETF','INDEX'].includes(String(x.quoteType||'').toUpperCase())&&x.symbol)||quotes.find(x=>x.symbol);
-  const symbol=q?.symbol?String(q.symbol).toUpperCase():null;
+  const accepted=quotes.filter(x=>['EQUITY','ETF','INDEX'].includes(String(x.quoteType||'').toUpperCase())&&x.symbol);
+  const exact=accepted.find(x=>String(x.symbol).trim().toUpperCase()===raw);
+  const chosen=exact||accepted[0]||null;
+  const symbol=chosen?.symbol?String(chosen.symbol).trim().toUpperCase():null;
   YAHOO_RESOLVE_CACHE.set(raw,{at:Date.now(),symbol});
   return symbol;
  }catch{YAHOO_RESOLVE_CACHE.set(raw,{at:Date.now(),symbol:null});return null}

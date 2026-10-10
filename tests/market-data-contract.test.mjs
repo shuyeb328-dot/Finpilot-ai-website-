@@ -19,6 +19,8 @@ assert.match(frontend, /UNOFFICIAL_YAHOO_SOURCE_ANALYSIS_ONLY/, 'freshness UI mu
 assert.match(server, /\/api\/market-data-stream/);
 assert.match(server, /\/api\/instrument-search/, 'dynamic ticker and issuer resolution endpoint must be registered');
 assert.match(server, /query1\.finance\.yahoo\.com\/v1\/finance\/search/, 'instrument lookup must use the live instrument directory');
+assert.doesNotMatch(server,/const direct=INDIA_INDICES\[raw\]\|\|INDIA_EQUITIES\[raw\]\|\|normalizeGlobalSymbol\(raw\)/,'bare unknown tickers must not bypass the instrument directory');
+assert.match(server,/const exact=accepted\.find\(x=>String\(x\.symbol\)\.trim\(\)\.toUpperCase\(\)===raw\)/,'instrument resolution should prefer exact ticker matches when directory lookup is needed');
 assert.match(server, /selectPrimaryMarketQuote\(quotes,timestampState\)/, 'market quote selection should prefer a fresh provider timestamp');
 assert.match(server, /price:winner\.price/, 'the exposed price must come from the provider named in the response');
 assert.match(server, /sourceReady=Boolean\(winner\.live!==false&&winner\.executionEligible!==false&&primaryTimestampValid/, 'the execution safety gate must require provider timestamp provenance and explicit source eligibility');
