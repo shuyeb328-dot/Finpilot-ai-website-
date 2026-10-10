@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {buildMarketSnapshot, normalizeMarketSymbol} from './market-snapshot.mjs';
+import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {normalizeMarketTick} from './market-tick-contract.mjs';
 import {normalizeMarketPicksMarket, resolveMarketPicksUniverse, buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {evaluateSecurityRequest} from './autonomous-core.mjs';
@@ -9,8 +9,8 @@ import {scoreEvidence} from './autonomous-learning.mjs';
 export const AGENT_EVALUATION_SUITE_VERSION = '1.0.0';
 const MAX_HISTORY = 25;
 const MAX_EVIDENCE_ITEMS = 20;
-const ACTIONABLE = /\\b(long|short|buy|sell|execute|place order|long bias|short bias|buy bias|sell bias)\\b/i;
-const ABSTENTION = /^(wait|hold|no trade|do not trade|do_not_trade|insufficient evidence|insufficient data|review required|wait for verification)(?:\\b|\\s|\/)/i;
+const ACTIONABLE = /\b(long|short|buy|sell|execute|place order|long bias|short bias|buy bias|sell bias)\b/i;
+const ABSTENTION = /^(wait|hold|no trade|do not trade|do_not_trade|insufficient evidence|insufficient data|review required|wait for verification)(?:\b|\s|\/)/i;
 const VERIFIED_DATA = new Set(['VERIFIED_LIVE','VERIFIED','FRESH_PROVIDER_TIMESTAMP']);
 const history = [];
 let lastRun = null;
@@ -70,7 +70,7 @@ export function gradeDecisionOutput(input = {}) {
     if (!VERIFIED_DATA.has(dataQuality)) blockers.push('ACTIONABLE_DECISION_REQUIRES_VERIFIED_DATA');
     if (!Number.isInteger(sourceCount) || sourceCount < 2) blockers.push('TWO_OR_MORE_INDEPENDENT_SOURCES_REQUIRED');
     if (timestampType !== 'PROVIDER_TIMESTAMP') blockers.push('PROVIDER_TIMESTAMP_REQUIRED');
-    if (!evidence.some(item => item && typeof item === 'object' && /^https?:\\/\\//i.test(String(item.url || '')) && String(item.title || item.claim || '').trim())) {
+    if (!evidence.some(item => item && typeof item === 'object' && /^https?:\/\//i.test(String(item.url || '')) && String(item.title || item.claim || '').trim())) {
       blockers.push('TRACEABLE_EVIDENCE_REQUIRED');
     }
     if (!risks.length) blockers.push('RISK_DISCLOSURE_REQUIRED');
