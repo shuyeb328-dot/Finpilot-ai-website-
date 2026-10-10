@@ -1953,6 +1953,7 @@ function staticFile(req,res,u){
 const SECURITY={started:Date.now(),blocked:0,rateLimited:0,events:[],lastRefresh:null};
 const RATE_LIMITER=createBoundedRateLimiter({limit:Number(process.env.FINPILOT_RATE_LIMIT||240),maxClients:10000});
 const TRADINGVIEW_ALERT_LIMITER=createBoundedRateLimiter({limit:60,windowMs:60000,maxClients:1000});
+const AGENT_EVALUATION_RUN_LIMITER=createBoundedRateLimiter({limit:3,windowMs:60000,maxClients:1000});
 const TRADINGVIEW_ALERT_INBOX=createTradingViewAlertInbox({getToken:()=>process.env.FINPILOT_TRADINGVIEW_WEBHOOK_TOKEN||''});
 const AUTO={enabled:true,marketRefreshMs:5000,agentRefreshMs:15000,maxConcurrentAgents:5,cacheTtlMs:CACHE_TTL_MS,lastOptimization:null,optimizations:0};
 function clientKey(req){return String(req.socket?.remoteAddress||'unknown').replace(/^::ffff:/,'');}
@@ -2294,7 +2295,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/shadow-evaluate'){await body(req);return osControlPlaneShadowEvaluate(req,res);}
   if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/status')return send(res,200,getEvaluationStatus());
   if(req.method==='GET'&&u.pathname==='/api/agent-evaluation/history'){const h=await getEvaluationHistory(u.searchParams.get('limit')||10);return send(res,200,h);}
-  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/run'){const r=await runEvaluationSuite();return send(res,r.failed===0?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/run'){const limited=AGENT_EVALUATION_RUN_LIMITER.check(clientKey(req));if(!limited.allowed)return send(res,429,{ok:false,error:'AGENT_EVALUATION_RATE_LIMITED'});const r=await runEvaluationSuite();return send(res,r.failed===0?200:503,r);}
   if(req.method==='POST'&&u.pathname==='/api/agent-evaluation/grade'){await body(req);const r=gradeDecisionOutput(req._parsedBody||{});return send(res,r.ok?200:422,r);}
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/status')return send(res,200,{ok:true,...autonomousLearningStatus()});
   if(req.method==='GET'&&u.pathname==='/api/autonomous-learning/queue')return send(res,200,{ok:true,queue:autonomousLearningQueue(u.searchParams.get('limit')||40)});
