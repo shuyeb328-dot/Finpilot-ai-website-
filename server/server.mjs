@@ -1160,7 +1160,8 @@ async function marketPicks(req,res,u){
  });
  if(!universe.length)return send(res,400,{ok:false,error:'NO_MARKET_PICK_UNIVERSE',market:normalizedMarket.market});
  const rows=await Promise.all(universe.map(async t=>{try{return await liveEquity(t)}catch(e){return null}}));
- const result=buildMarketPicksEnvelope(rows,{market:normalizedMarket.market,limit,nowMs:Date.now(),maxAgeMs:EXECUTION_FRESHNESS_MS});
+ const usTickers=GLOBAL_STOCK_TEST_SET.filter(row=>String(row?.[0]||'').toUpperCase()==='UNITED STATES').map(row=>String(row?.[1]||'').toUpperCase());
+ const result=buildMarketPicksEnvelope(rows,{market:normalizedMarket.market,limit,nowMs:Date.now(),maxAgeMs:EXECUTION_FRESHNESS_MS,usTickers});
  return send(res,200,{...result,
   method:'Recent/delayed equity scan ranked by price change, momentum, RSI and relative volume; stale or unofficial data remains ineligible for paper execution.',
   provider:result.provider,
