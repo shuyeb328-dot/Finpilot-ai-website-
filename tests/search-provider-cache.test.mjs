@@ -72,11 +72,11 @@ try{
   assert.equal(first.provider,'multi-free-search');
   assert.deepEqual(first.providers,['bing-web-rss','bing-news-rss','google-news-rss','duckduckgo-html','yahoo-html']);
   assert.deepEqual(first.attemptedProviders,['bing-web-rss','bing-news-rss','google-news-rss','duckduckgo-html','yahoo-html']);
-  assert.equal(first.results[0].engineAgreementCount,3,'matching URLs or exact titles should record which engines found the item');
+  assert.equal(first.results[0].engineAgreementCount,5,'matching URLs or exact titles should record which engines found the item');
   assert.ok(first.coalesced===true||parallel.coalesced===true,'one caller should identify coalesced request');
 
   const cached=await searchWeb('FINPILOT quota cache test',{count:3});
-  assert.equal(fetchCalls,3,'repeat query within TTL should not fetch upstream again');
+  assert.equal(fetchCalls,5,'repeat query within TTL should not fetch upstream again');
   assert.equal(cached.cached,true);
   assert.equal(cached.live,false,'cached evidence must not be presented as newly live');
   assert.equal(cached.originalLive,true);
@@ -86,11 +86,11 @@ try{
 
   // An explicit user refresh bypasses the successful-result cache and replaces it on success.
   const forced=await searchWeb('FINPILOT quota cache test',{count:3,forceRefresh:true});
-  assert.equal(fetchCalls,6,'forceRefresh must make a new three-source request instead of reusing cache');
+  assert.equal(fetchCalls,10,'forceRefresh must make a new five-source request instead of reusing cache');
   assert.equal(forced.live,true,'forced refresh should preserve the provider live flag');
   assert.equal(forced.cached,false,'forced refresh must not label the new fetch cached');
   const updatedCache=await searchWeb('finpilot quota cache test',{count:3});
-  assert.equal(fetchCalls,6,'successful forced refresh should repopulate the normal query cache');
+  assert.equal(fetchCalls,10,'successful forced refresh should repopulate the normal query cache');
   assert.equal(updatedCache.cached,true,'the result of a successful refresh should become cacheable');
 
 
