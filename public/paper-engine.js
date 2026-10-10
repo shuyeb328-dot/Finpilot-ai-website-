@@ -77,21 +77,40 @@
     return step===1?Math.floor(n):Math.floor(n/step+1e-9)*step;
   }
   function estimateQuoteAgeSec(meta){
-    const t=meta?.sourceAsOf||meta?.asOf||meta?.tick?.sourceAsOf||meta?.tick?.asOf||meta?.receivedAt||meta?.tick?.receivedAt;
-    const ms=t?Date.now()-Date.parse(t):0;
-    return Number.isFinite(ms)&&ms>=0?ms/1000:0;
+    const raw=meta?.sourceAsOf??meta?.asOf??meta?.tick?.sourceAsOf??meta?.tick?.asOf;
+    if(raw===null||raw===undefined||String(raw).trim()==='')return null;
+    const text=String(raw).trim();
+    let ms;
+    if(typeof raw==='number'||/^\d{10,13}$/.test(text)){
+      const value=Number(raw);
+      if(!Number.isFinite(value))return null;
+      ms=value<100000000000?value*1000:value;
+    }else{
+      ms=Date.parse(text);
+    }
+    if(!Number.isFinite(ms))return null;
+    const ageMs=Date.now()-ms;
+    if(ageMs < -5000)return null;
+    return Math.max(0,ageMs)/1000;
   }
   function preTradeCheck(state,args={}){
     const p=ensure(state),agent=p.agents.find(x=>x.id===args.agentId);
     const symbol=String(args.symbol||'').toUpperCase(),side=String(args.side||'').toUpperCase();
     const qty=normalizeQty(symbol,args.qty),price=Math.max(0,num(args.entryPrice));
-    const meta=args.marketMeta||{},verified=meta.verified!==false && meta.available!==false;
+    const meta=args.marketMeta&&typeof args.marketMeta==='object'?args.marketMeta:{};
+    const age=estimateQuoteAgeSec(meta);
+    const verified=meta.verified===true&&meta.available===true&&meta.executionEligible===true
+      &&meta.sourceTimestampType==='PROVIDER_TIMESTAMP'&&age!==null&&age<=30;
     const reasons=[],warnings=[];let status='PASS';
-    const block=x=>{reasons.push(x);status='BLOCK'};
+    const block=x=>{if(!reasons.includes(x))reasons.push(x);status='BLOCK'};
     const warn=x=>{warnings.push(x);if(status!=='BLOCK')status='WARN'};
-    if(!verified)block('Verified market data is required for execution.');
+    if(!verified)block('Verified live market data with a fresh provider timestamp is required for paper execution.');
+    if(age===null)block('Provider quote timestamp is missing, invalid, or too far in the future.');
+    else if(age>30)block('Verified quote is stale (>30s).');
+    else if(age>10)warn('Quote is older than 10s.');
     if(!agent)block('Selected paper agent is unavailable.');
     if(!symbol)block('A trading symbol is required.');
+    if(!['BUY','SELL'].includes(side))block('A valid BUY or SELL side is required.');
     if(qty<=0)block('Quantity is below the minimum tradable size.');
     if(price<=0)block('Executable reference price is unavailable.');
     if(agent&&price>0&&qty>0){
@@ -107,9 +126,6 @@
       const exposurePct=projectedExposure/equity*100;
       if(exposurePct>90)block('Post-trade exposure exceeds the 90% paper risk ceiling.');
       else if(exposurePct>50)warn('Post-trade exposure will exceed 50% of agent equity.');
-      const age=estimateQuoteAgeSec(meta);
-      if(age>30)block('Verified quote is stale (>30s).');
-      else if(age>10)warn('Quote is older than 10s.');
       const bid=Number(meta.bid),ask=Number(meta.ask),mid=(bid>0&&ask>0)?(bid+ask)/2:0,spreadBps=mid>0?(ask-bid)/mid*10000:null;
       if(spreadBps!=null){if(spreadBps>80)block('Quote spread is too wide for controlled execution.');else if(spreadBps>40)warn('Quote spread is elevated.')}
       const liquidityNotional=Math.max(2500,Math.min(250000,price*50)),liquidityQty=liquidityNotional/price;
@@ -129,10 +145,10 @@
         }
         if(riskPerUnit>0&&rewardPerUnit>0){rr=rewardPerUnit/riskPerUnit;maxLoss=riskPerUnit*qty+fee;if(rr<1)block('Risk/reward is below 1:1.');else if(rr<1.5)warn('Risk/reward is below the preferred 1.5:1 threshold.')}
       }else warn('No protective stop/target configured; maximum loss is not bounded.');
-      const confidence=Math.max(0,Math.min(99,Math.round((verified?72:0)+(Number(meta.providerCount||0)>=2?15:5)+(estimateQuoteAgeSec(meta)<5?8:0)-(status==='BLOCK'?25:status==='WARN'?5:0))));
-      return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:+(qty*price).toFixed(2),estimatedFee:+fee.toFixed(2),estimatedSlippage:+slip.toFixed(2),quoteAgeSec:+estimateQuoteAgeSec(meta).toFixed(1),spreadBps:spreadBps==null?null:+spreadBps.toFixed(1),postTradeExposurePct:+exposurePct.toFixed(1),riskPerUnit:+riskPerUnit.toFixed(6),maxLoss:maxLoss==null?null:+maxLoss.toFixed(2),riskReward:rr==null?null:+rr.toFixed(2),liquidityQty:+liquidityQty.toFixed(4),fillability:qty<=liquidityQty?'FULL':'PARTIAL',dataConfidence:confidence},timestamp:now()};
+      const confidence=Math.max(0,Math.min(99,Math.round((verified?72:0)+(Number(meta.providerCount||0)>=2?15:5)+(age!==null&&age<5?8:0)-(status==='BLOCK'?25:status==='WARN'?5:0))));
+      return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:+(qty*price).toFixed(2),estimatedFee:+fee.toFixed(2),estimatedSlippage:+slip.toFixed(2),quoteAgeSec:age===null?null:+age.toFixed(1),spreadBps:spreadBps==null?null:+spreadBps.toFixed(1),postTradeExposurePct:+exposurePct.toFixed(1),riskPerUnit:+riskPerUnit.toFixed(6),maxLoss:maxLoss==null?null:+maxLoss.toFixed(2),riskReward:rr==null?null:+rr.toFixed(2),liquidityQty:+liquidityQty.toFixed(4),fillability:qty<=liquidityQty?'FULL':'PARTIAL',dataConfidence:confidence},timestamp:now()};
     }
-    return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:0,estimatedFee:0,estimatedSlippage:0,quoteAgeSec:estimateQuoteAgeSec(meta),spreadBps:null,postTradeExposurePct:0,riskPerUnit:0,maxLoss:null,riskReward:null,liquidityQty:0,fillability:'BLOCKED',dataConfidence:0},timestamp:now()};
+    return {status,reasons,warnings,virtualOnly:true,metrics:{qty,qtyStep:qtyStep(symbol),price,notional:0,estimatedFee:0,estimatedSlippage:0,quoteAgeSec:age===null?null:+age.toFixed(1),spreadBps:null,postTradeExposurePct:0,riskPerUnit:0,maxLoss:null,riskReward:null,liquidityQty:0,fillability:'BLOCKED',dataConfidence:0},timestamp:now()};
   }
   function paperOrder(state,agentId,symbol,side,qty,price,reason,opts={}){
     const p=ensure(state),a=p.agents.find(x=>x.id===agentId);if(!a)throw new Error('Paper agent not found');
@@ -251,8 +267,8 @@
     const p=ensure(state),fills=[];expirePaperOrders(state);reconcileOrders(state);const px=prices||p.marketSnapshot||{};
     const tickKey=marketMeta?.seq!=null?String(marketMeta.seq):(marketMeta?.receivedAt||marketMeta?.asOf||null);
     if(tickKey&&p.execution.lastTick===tickKey)return fills;
-    if(marketMeta?.executionEligible===false||marketMeta?.verified===false){if(tickKey)p.execution.lastTick=tickKey;return fills;}
-    if(marketMeta&&(marketMeta.sourceAsOf||marketMeta.asOf||marketMeta.receivedAt)){const age=estimateQuoteAgeSec(marketMeta);if(age>30){p.execution.lastTick=tickKey||p.execution.lastTick;return fills;}}
+    const hasMarketMeta=Boolean(marketMeta&&Object.keys(marketMeta).length);const quoteAge=hasMarketMeta?estimateQuoteAgeSec(marketMeta):null;if(hasMarketMeta&&(marketMeta.executionEligible!==true||marketMeta.verified!==true||marketMeta.sourceTimestampType!=='PROVIDER_TIMESTAMP'||quoteAge===null||quoteAge>30)){if(tickKey)p.execution.lastTick=tickKey;return fills;}
+    if(hasMarketMeta&&quoteAge>10){/* quote is still usable but surfaced as aged by the risk gate */}
     if(tickKey)p.execution.lastTick=tickKey;
     p.execution.tickCount=Math.max(0,num(p.execution.tickCount,0))+1;
     p.execution.lastTickAt=now();
@@ -315,14 +331,14 @@
   function processMarketTick(state,tick={}){
     const p=ensure(state),symbol=String(tick.symbol||tick.ticker||'').toUpperCase(),price=Math.max(0,num(tick.price));
     if(!symbol||price<=0)return {ok:false,error:'Market tick requires symbol and positive price',fills:[],virtualOnly:true};
-    const receivedAt=tick.receivedAt||now(),sourceAsOf=tick.sourceAsOf||tick.asOf||receivedAt;
+    const receivedAt=tick.receivedAt||now(),sourceAsOf=tick.sourceAsOf||tick.asOf||null;
     const bid=Math.max(0,num(tick.bid,price)),ask=Math.max(0,num(tick.ask,price)),seq=tick.seq!=null?String(tick.seq):receivedAt;
-    const meta={...tick,symbol,price,bid,ask,seq,receivedAt,sourceAsOf,asOf:sourceAsOf,verified:tick.verified!==false};
+    const meta={...tick,symbol,price,bid,ask,seq,receivedAt,sourceAsOf,asOf:sourceAsOf,sourceTimestampType:tick.sourceTimestampType||'UNKNOWN_TIMESTAMP',verified:tick.verified===true,executionEligible:tick.executionEligible===true};
     p.marketSnapshot[symbol]=price;
-    p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,asOf:sourceAsOf,streamSeq:seq,streamStatus:tick.status||'LIVE',executionEligible:tick.executionEligible!==false,verification:tick.verification||p.lastMarket?.verification||{available:true,providerCount:tick.providerCount||1}};
+    p.lastMarket={...(p.lastMarket||{}),...tick,symbol,price,bid,ask,receivedAt,sourceAsOf,asOf:sourceAsOf,sourceTimestampType:meta.sourceTimestampType,streamSeq:seq,streamStatus:tick.status||'UNKNOWN',verified:meta.verified,executionEligible:meta.executionEligible,verification:tick.verification||p.lastMarket?.verification||{available:false,providerCount:tick.providerCount||0}};
     const fills=processOpenOrders(state,{[symbol]:price},meta);
     const age=estimateQuoteAgeSec(meta);
-    const executionFresh=meta.executionEligible!==false && meta.verified!==false && age<=30;
+    const executionFresh=meta.executionEligible===true && meta.verified===true && meta.sourceTimestampType==='PROVIDER_TIMESTAMP' && age!==null && age<=30;
     let exposure=0,unreal=0;
     p.agents.forEach(a=>a.positions.forEach(pos=>{
       if(executionFresh&&pos.symbol===symbol)pos.last=price;
@@ -331,9 +347,9 @@
       unreal+=(last-pos.avg)*pos.qty;
     }));
     p.unrealizedPnl=+unreal.toFixed(2);
-    const riskFills=age<=30&&executionFresh?processRiskExits(state,{[symbol]:price}):[];
+    const riskFills=age!==null&&age<=30&&executionFresh?processRiskExits(state,{[symbol]:price}):[];
     p.execution.lastTick=seq;p.execution.lastTickAt=receivedAt;
-    p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible!==false,virtualOnly:true});
+    p.journal.unshift({type:'MARKET_TICK',symbol,price,bid,ask,spreadBps:bid>0&&ask>0?+(((ask-bid)/((bid+ask)/2))*10000).toFixed(2):0,seq,receivedAt,sourceAsOf,executionEligible:meta.executionEligible===true,sourceTimestampType:meta.sourceTimestampType,virtualOnly:true});
     if(p.journal.length>500)p.journal=p.journal.slice(0,500);
     reconcileOrders(state);p.updatedAt=now();
     return {ok:true,symbol,price,bid,ask,seq,fills:[...fills,...riskFills],execution:{tickCount:p.execution.tickCount,lastTick:seq},virtualOnly:true};

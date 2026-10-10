@@ -105,18 +105,33 @@ function fresh(){
   assert.equal(state.paperTrading.openOrders.length,0);
 }
 
+// Fail closed when execution verification, provider timestamps, or source freshness are missing.
+{
+  const {state}=fresh();
+  const base={agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000};
+  const noMetadata=core.preTradeCheck(state,base);
+  assert.equal(noMetadata.status,'BLOCK');
+  assert.ok(noMetadata.reasons.some(x=>x.includes('Verified live market data')));
+  const noProviderTimestamp=core.preTradeCheck(state,{...base,marketMeta:{verified:true,available:true,executionEligible:true,providerCount:2,receivedAt:new Date().toISOString()}});
+  assert.equal(noProviderTimestamp.status,'BLOCK');
+  assert.ok(noProviderTimestamp.reasons.some(x=>x.includes('timestamp')));
+  const future=core.preTradeCheck(state,{...base,marketMeta:{verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date(Date.now()+60000).toISOString(),providerCount:2}});
+  assert.equal(future.status,'BLOCK');
+  assert.ok(future.reasons.some(x=>x.includes('timestamp')));
+  assert.throws(()=>core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'missing verification',{orderType:'MARKET',enforceRisk:true}),/Pre-trade risk block/);
+}
 // Pre-trade risk gate + fractional crypto sizing
 {
   const {state,a}=fresh();
   assert.equal(core.qtyStep('BTC'),0.0001);
   assert.equal(core.qtyStep('IRFC'),1);
-  const gate=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()}});
+  const gate=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date().toISOString(),providerCount:2,receivedAt:new Date().toISOString()}});
   assert.ok(['PASS','WARN'].includes(gate.status));
   assert.equal(gate.metrics.qty,0.1);
   assert.equal(gate.metrics.qtyStep,0.0001);
   assert.equal(gate.virtualOnly,true);
   assert.throws(()=>core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'risk',{orderType:'MARKET',enforceRisk:true,marketMeta:{verified:false,available:false}}),/Pre-trade risk block/);
-  const stale=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString()}});
+  const stale=core.preTradeCheck(state,{agentId:'a1',symbol:'BTC',side:'BUY',qty:0.1,entryPrice:80000,marketMeta:{verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date(Date.now()-31000).toISOString(),providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString()}});
   assert.equal(stale.status,'BLOCK');
   assert.ok(stale.reasons.some(x=>x.includes('stale')));
 }
@@ -136,7 +151,7 @@ function fresh(){
 /* Execution 2.0 regression coverage */
 {
   const {state,a}=fresh();
-  const marketMeta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const marketMeta={verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date().toISOString(),providerCount:2,receivedAt:new Date().toISOString()};
   const limit=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'fractional risk-gated limit','GTC',null,0,{enforceRisk:true,marketMeta,clientOrderId:'reg-btc-limit-1'});
   assert.equal(limit.status,'OPEN');
   assert.equal(limit.qty,0.1);
@@ -159,7 +174,7 @@ function fresh(){
 {
   const {state,a}=fresh();
   a.cash=10000;
-  const meta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const meta={verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date().toISOString(),providerCount:2,receivedAt:new Date().toISOString()};
   const first=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'reserve 1','GTC',null,0,{enforceRisk:true,marketMeta:meta,clientOrderId:'reserve-1'});
   assert.equal(first.status,'OPEN');
   assert.throws(()=>core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'reserve 2','GTC',null,0,{enforceRisk:true,marketMeta:meta,clientOrderId:'reserve-2'}),/buying power|Insufficient/);
@@ -183,7 +198,7 @@ function fresh(){
 }
 {
   const {state,a}=fresh();
-  const marketMeta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString()};
+  const marketMeta={verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date().toISOString(),providerCount:2,receivedAt:new Date().toISOString()};
   const id='idempotent-market-1';
   const a1=core.placeOrder(state,'a1','BTC','BUY',0.1,'MARKET',80000,null,null,'idempotent','GTC',null,0,{enforceRisk:true,marketMeta,clientOrderId:id});
   const cashAfter=a.cash;
@@ -197,7 +212,7 @@ function fresh(){
 /* Execution 3.0 regression coverage: lifecycle, stale quote guard, replace/cancel, reduce-only */
 {
   const {state,a}=fresh();
-  const meta={verified:true,available:true,providerCount:2,receivedAt:new Date().toISOString(),seq:'exec3-1'};
+  const meta={verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date().toISOString(),providerCount:2,receivedAt:new Date().toISOString(),seq:'exec3-1'};
   const o=core.placeOrder(state,'a1','BTC','BUY',0.1,'LIMIT',80000,null,null,'execution 3','GTC',null,0,{enforceRisk:true,marketMeta:meta});
   assert.equal(o.status,'OPEN');
   core.processOpenOrders(state,{BTC:79900},meta);
@@ -216,7 +231,7 @@ function fresh(){
 }
 {
   const {state}=fresh();
-  const stale={verified:true,available:true,providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString(),seq:'exec3-stale'};
+  const stale={verified:true,available:true,executionEligible:false,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date(Date.now()-31000).toISOString(),providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString(),seq:'exec3-stale'};
   core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'entry');
   const o=core.placeOrder(state,'a1','BTC','SELL',0.1,'LIMIT',79000,null,null,'stale');
   core.processOpenOrders(state,{BTC:79000},stale);
@@ -230,24 +245,24 @@ function fresh(){
 /* Execution 4.0: tick-aware bid/ask, realistic spread/impact, deduped ticks */
 {
   const {state,a}=fresh();
-  const meta={verified:true,executionEligible:true,providerCount:2,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'tick-limit-1',bid:99.2,ask:99.5};
+  const meta={verified:true,executionEligible:true,available:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'tick-limit-1',bid:99.2,ask:99.5};
   const o=core.placeOrder(state,'a1','IRFC','BUY',10,'LIMIT',100,null,null,'bid/ask limit');
   assert.equal(o.status,'OPEN');
-  const tick=core.processMarketTick(state,{symbol:'IRFC',price:99.35,bid:99.2,ask:99.5,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,providerCount:2});
+  const tick=core.processMarketTick(state,{symbol:'IRFC',price:99.35,bid:99.2,ask:99.5,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2});
   assert.equal(tick.ok,true);
   assert.equal(o.status,'FILLED');
   assert.equal(a.positions[0].qty,10);
   assert.ok(Number(o.quoteAsk)>0);
   assert.ok(Number(o.spreadBps)>0);
   const beforeOrders=state.paperTrading.orders.length;
-  const again=core.processMarketTick(state,{symbol:'IRFC',price:99.3,bid:99.1,ask:99.4,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,providerCount:2});
+  const again=core.processMarketTick(state,{symbol:'IRFC',price:99.3,bid:99.1,ask:99.4,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2});
   assert.equal(again.fills.length,0);
   assert.equal(state.paperTrading.orders.length,beforeOrders);
 }
 {
   const {state,a}=fresh();
   const now=new Date().toISOString();
-  const marketMeta={verified:true,available:true,executionEligible:true,providerCount:2,receivedAt:now,sourceAsOf:now,bid:99,ask:101};
+  const marketMeta={verified:true,available:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2,receivedAt:now,sourceAsOf:now,bid:99,ask:101};
   const o=core.paperOrder(state,'a1','IRFC','BUY',10,100,'realistic market',{orderType:'MARKET',realistic:true,marketMeta});
   assert.equal(o.status,'FILLED');
   assert.ok(o.fillPrice>100);
@@ -263,7 +278,7 @@ function fresh(){
   const staleTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date(Date.now()-31000).toISOString(),seq:'stale-1',status:'STALE',verified:true,executionEligible:false});
   assert.equal(staleTick.fills.length,0);
   assert.equal(a.positions[0].last,baseLast);
-  const liveTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'live-1',status:'LIVE',verified:true,executionEligible:true});
+  const liveTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'live-1',status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP'});
   assert.equal(liveTick.ok,true);
   assert.equal(a.positions[0].last,120);
   assert.ok(state.paperTrading.journal.some(x=>x.type==='MARKET_TICK'&&x.seq==='live-1'));
