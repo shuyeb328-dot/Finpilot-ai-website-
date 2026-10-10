@@ -4,6 +4,7 @@ import fs from 'node:fs';
 const ui=fs.readFileSync(new URL('../public/agent-evaluation-console.js',import.meta.url),'utf8');
 const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
 const api=fs.readFileSync(new URL('../server/server.mjs',import.meta.url),'utf8');
+const ledger=fs.readFileSync(new URL('../server/agent-memory-ledger.mjs',import.meta.url),'utf8');
 
 assert.match(html,/agent-evaluation-console\.js/, 'learning console is included in the deployed web page');
 assert.match(ui,/\/api\/agent-evaluation\/status/, 'console reads the evaluation status endpoint');
@@ -21,7 +22,7 @@ assert.match(ui,/\/api\/ai-os\/training\/status/, 'console displays verified-onl
 assert.match(ui,/\/api\/agent-memory/, 'console displays agent memory status');
 assert.match(ui,/EPISODIC','SEMANTIC','PROCEDURAL','OUTCOME/, 'console distinguishes four memory layers');
 assert.match(ui,/UNVERIFIED CLIENT/, 'console labels client-reported telemetry separately');
-assert.match(api,/finpilot_agent_memory_ledger/, 'server stores memory in the existing database when configured');
+assert.match(ledger,/finpilot_agent_memory_ledger/, 'server stores memory in the existing database when configured');
 assert.match(api,/CLIENT_REPORTED_UNVERIFIED/, 'client-provided telemetry remains explicitly unverified');
 assert.match(ui,/data\.manualCycleAllowed===true/, 'market-training cycles stay disabled until explicitly permitted by server configuration');
 assert.match(api,/manualCycleAllowed:String\(process\.env\.FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED\|\|'false'\)\.toLowerCase\(\)==='true'/, 'market-training status truthfully discloses the manual cycle configuration');
