@@ -180,7 +180,7 @@ function buildCases(nowMs) {
       const x=normalizeMarketTick({...baseTick,high:82000},nowMs);assert.equal(x.ok,false);assert.equal(x.error,'HIGH_BELOW_LAST_PRICE');
     }),
     checkCase('TICK-08','ingestion','Low above last price is rejected',()=>{
-      const x=normalizeMarketTick({...baseTick,low:84000},nowMs);assert.equal(x.ok,false);assert.equal(x.error,'LOW_ABOVE_LAST_PRICE');
+      const x=normalizeMarketTick({...baseTick,high:85000,low:84000},nowMs);assert.equal(x.ok,false);assert.equal(x.error,'LOW_ABOVE_LAST_PRICE');
     }),
     checkCase('TICK-09','ingestion','Implausible percentage change is rejected',()=>{
       const x=normalizeMarketTick({...baseTick,changePct:10001},nowMs);assert.equal(x.ok,false);assert.equal(x.error,'INVALID_CHANGE_PCT');
