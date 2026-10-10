@@ -69,7 +69,7 @@ function forecastProbabilities(history){
  const avgAbsStep=returns.length?returns.reduce((n,x)=>n+Math.abs(x),0)/returns.length:0;
  const threshold=Math.max(0.08,avgAbsStep*0.65),absMove=Math.abs(momentumPct);
  if(absMove<threshold)return {up:30,down:30,hold:40,signal:'NEUTRAL',momentumPct,sampleCount:prices.length};
- const conviction=clamp(38+(absMove-threshold)*3,38,52),signal=momentumPct>0?'UP':'DOWN';
+ const conviction=clamp(42+(absMove-threshold)*3,42,55),signal=momentumPct>0?'UP':'DOWN';
  return {up:signal==='UP'?conviction:100-conviction-20,down:signal==='DOWN'?conviction:100-conviction-20,hold:20,signal,momentumPct,sampleCount:prices.length};
 }
 function outcomeForReturn(actualReturnPct){return actualReturnPct>MOVE_DEADBAND_PCT?'UP':actualReturnPct< -MOVE_DEADBAND_PCT?'DOWN':'HOLD';}
