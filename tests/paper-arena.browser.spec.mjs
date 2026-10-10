@@ -52,7 +52,8 @@ test('production Paper Arena renders charts and only fills when market data is v
   expect(cryptoPlan.assetClass).toBe('CRYPTO');
   expect(cryptoPlan.sources).toContain('coinbase');
   expect(cryptoPlan.sources).toContain('kraken');
-  expect(cryptoPlan.sources).toContain('binance');
+  expect(cryptoPlan.sources).toContain('yahoo');
+  expect(cryptoPlan.sources).not.toContain('binance');
   expect(optionsPlan.assetClass).toBe('OPTIONS');
   expect(optionsPlan.taskType).toBe('DERIVATIVES_ANALYSIS');
   expect(optionsPlan.requiredData).toContain('contract_specification');
@@ -62,7 +63,7 @@ test('production Paper Arena renders charts and only fills when market data is v
   const supplemental = await page.evaluate(async () => {
     const cases = [
       {key:'indian',query:'Analyse IRFC for intraday trading with ₹1,000',expectedHint:'NSE BSE'},
-      {key:'crypto',query:'Analyse BTC/USDT live',expectedHint:'Coinbase Kraken Binance'}
+      {key:'crypto',query:'Analyse BTC/USDT live',expectedHint:'Kraken Coinbase'}
     ];
     return await Promise.all(cases.map(async c => {
       try {
@@ -92,7 +93,8 @@ test('production Paper Arena renders charts and only fills when market data is v
   expect(indianResearch.executionEligible).toBe(false);
   expect(indianResearch.resultsAreDiscoveryOnly).toBe(true);
   expect(cryptoResearch.sourceRole).toBe('TASK_SPECIFIC_DISCOVERY');
-  expect(cryptoResearch.query).toContain('Coinbase Kraken Binance');
+  expect(cryptoResearch.query).toContain('Kraken Coinbase');
+  expect(cryptoResearch.query.toLowerCase()).not.toContain('binance');
   expect(cryptoResearch.quoteEligible).toBe(false);
   expect(cryptoResearch.resultsAreDiscoveryOnly).toBe(true);
 
