@@ -715,7 +715,7 @@ const INSTRUMENT_NAME_ALIASES=new Map([
 const INSTRUMENT_DISPLAY_NAMES={
  AAPL:'Apple Inc.',MSFT:'Microsoft Corporation',TSLA:'Tesla, Inc.',NVDA:'NVIDIA Corporation',
  AMZN:'Amazon.com, Inc.',GOOGL:'Alphabet Inc.',GOOG:'Alphabet Inc.',META:'Meta Platforms, Inc.',
- ADBE:'Adobe Inc.',BRK-B:'Berkshire Hathaway Inc.',AMD:'Advanced Micro Devices, Inc.',
+ ADBE:'Adobe Inc.','BRK-B':'Berkshire Hathaway Inc.',AMD:'Advanced Micro Devices, Inc.',
  INTC:'Intel Corporation',ORCL:'Oracle Corporation',CRM:'Salesforce, Inc.',NFLX:'Netflix, Inc.',
  AVGO:'Broadcom Inc.',JPM:'JPMorgan Chase & Co.',V:'Visa Inc.',MA:'Mastercard Incorporated',
  KO:'The Coca-Cola Company',PEP:'PepsiCo, Inc.',COST:'Costco Wholesale Corporation',
