@@ -50,6 +50,15 @@ const usRow = {
   ...staleMicrosoft,ticker:'AAPL',symbol:'AAPL',exchange:'NMS',listingExchange:'NASDAQ',
   asOf:new Date(now - 1000).toISOString(),live:true,executionEligible:false
 };
+const genericExchangeUsRow = {...usRow,ticker:'MSFT',symbol:'MSFT',exchange:'GLOBAL',listingExchange:'',live:false};
+const genericExchangeResult = buildMarketPicksEnvelope([indiaRow,genericExchangeUsRow], {
+  market:'US',nowMs:now,maxAgeMs:90000,usTickers:['AAPL','MSFT','NVDA']
+});
+assert.deepEqual(genericExchangeResult.candidates.map(row => row.ticker), ['MSFT'],
+  'known US registry symbols must survive a provider that labels the exchange generically');
+assert.equal(genericExchangeResult.market, 'GLOBAL_EQUITY');
+assert.equal(genericExchangeResult.live, false, 'known US symbol must still be stale when its source time is stale');
+
 const usOnly = buildMarketPicksEnvelope([indiaRow, usRow], {market:'US',nowMs:now,maxAgeMs:90000});
 assert.deepEqual(usOnly.candidates.map(row => row.ticker), ['AAPL'], 'US filter must reject Indian candidates');
 assert.equal(usOnly.market, 'GLOBAL_EQUITY');
