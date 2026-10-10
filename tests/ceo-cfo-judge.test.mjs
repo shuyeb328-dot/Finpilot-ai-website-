@@ -59,7 +59,7 @@ const cases=[
 for(const [name,result,check] of cases){
  check(result);
  assert.equal(result.debate?.mode,'DETERMINISTIC_EVIDENCE_RULES',name+' must produce an honest deterministic debate trace');
- assert.equal(result.debate?.initialPositions?.length,7,name+' must record all seven decision roles');
+ assert.equal(result.debate?.initialPositions?.length,8,name+' must record all eight decision roles');
  assert.equal(result.debate?.rounds?.length,3,name+' must include initial positions, cross-examination and veto reconciliation');
  assert.ok(result.debate.initialPositions.every(p=>p.challenge&&p.response&&Array.isArray(p.evidence)),name+' must include each role\'s challenge, response and evidence basis');
  assert.equal(result.debate.finalResolution.automaticExecution,false,name+' must never auto-execute a financial action');
