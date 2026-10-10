@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import pg from 'pg';
+import {recordAgentMemory} from './agent-memory-ledger.mjs';
 const { Pool } = pg;
 
 const VERSION='AIOS-MARKET-TRAINING-1.0';
@@ -35,7 +36,7 @@ function event(type,details={}){state.events.unshift({type,at:nowIso(),...detail
 function average(rows,key){const values=rows.map(x=>Number(x[key])).filter(Number.isFinite);return values.length?values.reduce((a,b)=>a+b,0)/values.length:null;}
 function finiteOrNull(value){return value!==null&&value!==undefined&&String(value).trim()!==''&&Number.isFinite(Number(value))?Number(value):null;}
 
-function normalizeSnapshot(requestedTicker,snapshot,nowMs=Date.now()){
+export function normalizeSnapshot(requestedTicker,snapshot,nowMs=Date.now()){
  if(!snapshot||typeof snapshot!=='object')return {ok:false,reasons:['NO_SNAPSHOT']};
  const ticker=safeText(snapshot.ticker||requestedTicker,32).toUpperCase();
  const price=positive(snapshot.price);
@@ -51,6 +52,7 @@ function normalizeSnapshot(requestedTicker,snapshot,nowMs=Date.now()){
  else {if(ageMs < -FUTURE_TOLERANCE_MS)reasons.push('PROVIDER_TIMESTAMP_IN_FUTURE');if(ageMs>MAX_QUOTE_AGE_MS)reasons.push('QUOTE_TOO_OLD');}
  if(!provider)reasons.push('PROVIDER_NAME_REQUIRED');
  if(timestampType==='UNKNOWN_TIMESTAMP')reasons.push('UNKNOWN_TIMESTAMP_TYPE');
+ if(timestampType!=='PROVIDER_TIMESTAMP')reasons.push('PROVIDER_TIMESTAMP_PROVENANCE_REQUIRED');
  return {ok:reasons.length===0,reasons,observation:{
   ticker,price,
   changePct:Number.isFinite(Number(snapshot.changePct))?Number(snapshot.changePct):null,
@@ -150,6 +152,25 @@ async function settleDue(ticker,o){
   }else{
    Object.assign(row,{status:'RESOLVED',outcome,actualReturnPct,brierScore:scored.brierScore,logLoss:scored.logLoss,predictedOutcome:scored.predictedOutcome,correctTopClass:scored.correctTopClass,settledAt,settlementSourceAsOf:o.sourceAsOf,settlementProvider:o.provider});
   }
+  try{
+   const horizonMinutes=Number(row.horizon_minutes??row.horizonMinutes);
+   await recordAgentMemory({
+    agent:'Forecast Outcome Evaluator',
+    layer:'OUTCOME',
+    source:'VERIFIED_OUTCOME',
+    content:`${ticker} ${horizonMinutes}-minute baseline forecast resolved as ${outcome}; actual return ${actualReturnPct.toFixed(4)}% from ${o.provider} timestamped data.`,
+    decision:`Predicted class ${scored.predictedOutcome}; realized class ${outcome}; Brier ${scored.brierScore}; log loss ${scored.logLoss}.`,
+    observedAt:settledAt,
+    metadata:{
+     domain:'forecast calibration',outcome,horizonMinutes,
+     provider:o.provider,sourceAsOf:o.sourceAsOf,settledAt,
+     decisionId:String(row.id),modelVersion:String(row.model_name??row.modelName??MODEL),
+     referencePrice:refPrice,actualReturnPct,
+     brierScore:scored.brierScore,logLoss:scored.logLoss,
+     pUp:Number(row.p_up??row.pUp),pDown:Number(row.p_down??row.pDown),pHold:Number(row.p_hold??row.pHold)
+    }
+   });
+  }catch{}
   settled++;
  }
  state.counters.forecastsSettled+=settled;return settled;
