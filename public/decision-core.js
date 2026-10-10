@@ -24,16 +24,38 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  // Market-sensitive decisions must be backed by a fresh, matching provider-timestamped quote.
  // Search sentiment is not a substitute for verified price evidence.
  const queryText=String(web?.query||state?.query||state?.ticker||'').trim();
- const symbolToken=(queryText.toUpperCase().match(/\b[A-Z][A-Z0-9.^-]{1,11}\b/g)||[])
-   .find(token=>!new Set(['ANALYSE','ANALYZED','ANALYZING','ANALYZE','ANALYSIS','SHARE','PRICE','TODAY','STOCK','STOCKS','MARKET','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','REPORT','CHART','NOW','BEST','FOR','THE','WITH','GLOBAL','INDIA','NSE','NASDAQ','USA','US','ABOUT','OUTLOOK','PREDICT','FORECAST','TARGET','RISK','RETURN','PROBABILITY','PROBABILITIES','NEXT','WEEK','MONTH','SHORT','LONG','TERM','HORIZON','GIVE','ME','CAN','YOU','PLEASE','WHAT','WHETHER','SHOULD','IN','OF','ON','UNDER','OVER','LOW','TOP','EXPLORE','COMPANY','LATEST','NEWS','LIVE','QUOTE','CHECK','LOOK','UP','FIND','COMPARE','FROM','TODAY','TICKER','AND','OR','HELP','INVEST','INVESTING','AN','A','IS','TO','DO','FOR','IT','MY','YOUR','WITHIN','INTRADAY','SWING','TRADER','INVESTOR','INVESTMENT','INVESTMENTS','STOCK MARKET','ASSET','ASSETS','PORTFOLIO','HOW','WHY','WHEN','WHICH','CAN YOU','KINDLY','SHOW','TELL','ME','PLEASE','ANALYSIS','RECOMMEND','RECOMMENDATION','RECOMMENDATIONS','SIGNAL','SIGNALS','SUGGEST','SUGGESTION','SUGGESTIONS','FIND OUT','SEARCH','QUERY','CURRENT','LATEST PRICE','COMPARE','VERSUS','VS','OF THE','THE MARKET']).has(token))||'';
+ const normalizeSymbol=value=>String(value||'').trim().toUpperCase()
+  .replace(/\.(?:NS|BO)$/,'').replace(/\s+/g,'')
+  .replace(/[-/](?:USDT|USDC|USD|INR|EUR)$/,'');
+ const ignoredTokens=new Set([
+  'A','AN','AND','OR','TO','DO','IS','IT','ME','MY','YOU','CAN','HOW','WHY','WHEN','WHAT','WHICH','WITH','FROM','FOR','OF','ON','IN','THE','THIS','THAT','PLEASE','KINDLY','SHOW','TELL','HELP','LOOK','FIND','SEARCH','COMPARE','VERSUS','VS','ABOUT','OUTLOOK','LATEST','NEWS','PRICE','QUOTE','TODAY','CURRENT','LIVE','NOW','STOCK','STOCKS','MARKET','SHARE','OPTIONS','OPTION','FUTURES','FUTURE','BUY','SELL','TRADE','TRADING','INTRADAY','SWING','REPORT','CHART','TARGET','RISK','RETURN','PROBABILITY','PROBABILITIES','FORECAST','PREDICT','ANALYSE','ANALYZED','ANALYZING','ANALYZE','ANALYSIS','RECOMMEND','RECOMMENDATION','RECOMMENDATIONS','SUGGEST','SUGGESTION','SUGGESTIONS','SIGNAL','SIGNALS','INVEST','INVESTING','INVESTOR','INVESTMENT','INVESTMENTS','PORTFOLIO','ASSET','ASSETS','GLOBAL','INDIA','NSE','BSE','NASDAQ','NYSE','USA','US','USD','INR','USDT','EUR','BANK','COMPANY','BEST','TOP','NEXT','WEEK','MONTH','SHORT','LONG','TERM','HORIZON','GIVE','UNDER','OVER','LOW','EXPLORE','TICKER','NIFTY','SENSEX'
+ ]);
+ const explicitTickerTokens=[...new Set((queryText.match(/\b[A-Z][A-Z0-9.^-]{1,11}\b/g)||[])
+  .map(normalizeSymbol).filter(token=>!ignoredTokens.has(token)))];
+ const aliases=[
+  [/\bTESLA\b/i,'TSLA'],[/\bAPPLE\b/i,'AAPL'],[/\bMICROSOFT\b/i,'MSFT'],
+  [/\bNVIDIA\b/i,'NVDA'],[/\bAMAZON\b/i,'AMZN'],[/\b(?:GOOGLE|ALPHABET)\b/i,'GOOGL'],
+  [/\bMETA(?:\s+PLATFORMS)?\b/i,'META'],[/\bINFOSYS\b/i,'INFY'],
+  [/\bTATA\s+MOTORS\b/i,'TATAMOTORS'],[/\bTATA\s+STEEL\b/i,'TATASTEEL'],
+  [/\bRELIANCE(?:\s+INDUSTRIES)?\b/i,'RELIANCE'],[/\bIRFC\b/i,'IRFC'],[/\bSBC\s+EXPORTS?\b/i,'SBC'],
+  [/\bHDFC\s+BANK\b/i,'HDFCBANK'],[/\bICICI\s+BANK\b/i,'ICICIBANK'],
+  [/\b(?:STATE\s+BANK\s+OF\s+INDIA|SBI)\b/i,'SBIN'],
+  [/\bBANK\s+NIFTY\b/i,'BANKNIFTY'],[/\bNIFTY(?:\s+50)?\b/i,'NIFTY'],[/\bSENSEX\b/i,'SENSEX'],
+  [/\bBITCOIN\b/i,'BTC'],[/\bETHEREUM\b/i,'ETH'],[/\bETHER\b/i,'ETH'],[/\bSOLANA\b/i,'SOL'],[/\bRIPPLE\b/i,'XRP']
+ ];
+ const aliasSymbols=[...new Set(aliases.filter(([pattern])=>pattern.test(queryText)).map(([,ticker])=>ticker))];
+ const querySymbols=[...new Set([...explicitTickerTokens,...aliasSymbols])];
+ const symbolToken=explicitTickerTokens[0]||aliasSymbols[0]||'';
  const requestedSymbol=String(state?.marketSymbol||state?.ticker||state?.searchTicker||web?.ticker||symbolToken||'').trim().toUpperCase();
+ const isComparisonQuery=/\b(compare|comparison|versus|vs|between)\b/i.test(queryText);
+ const multiInstrumentRequest=isComparisonQuery&&querySymbols.length>1;
  const marketSensitive=Boolean(requestedSymbol)||['market','portfolio','equity','crypto','options','futures','trading'].includes(String(quantum.intent||'').toLowerCase());
 
  const snapshots=[state?.marketSnapshot,state?.latestMarketSnapshot,window.__fpMarketSnapshot].filter(x=>x&&typeof x==='object');
  const snapshot=snapshots[0]||null;
  const quoteObjects=snapshot?[snapshot,snapshot.report,snapshot.instrument,snapshot.quote,snapshot.marketDataOS,snapshot.snapshot,snapshot.snapshot?.instrument,snapshot.snapshot?.quote].filter(x=>x&&typeof x==='object'):[];
  const firstValue=(keys)=>{for(const row of quoteObjects){for(const key of keys){if(row[key]!==undefined&&row[key]!==null&&row[key]!=='')return row[key];}}return undefined;};
- const normalizeSymbol=value=>String(value||'').trim().toUpperCase().replace(/\.(?:NS|BO)$/,'').replace(/\s+/g,'');
+
  const equivalentSymbols={
   BITCOIN:['BTC'],ETHEREUM:['ETH'],ETHER:['ETH'],SOLANA:['SOL'],RIPPLE:['XRP'],
   NIFTY:['^NSEI','NIFTY50'],NIFTY50:['^NSEI','NIFTY'],SENSEX:['^BSESN'],BANKNIFTY:['^NSEBANK']
@@ -60,11 +82,11 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  for(const url of (Array.isArray(web?.urls)?web.urls:[]))addDomain(url);
  for(const row of live)addDomain(row?.url);
  const independentSourceCount=domains.size;
- const quoteBlock= !marketSensitive?'NOT_REQUIRED':!requestedSymbol?'REQUESTED_SYMBOL_UNRESOLVED':!snapshot?'NO_VERIFIED_QUOTE':!quoteSymbol?'SYMBOL_UNKNOWN':!symbolMatches?'SYMBOL_MISMATCH':timestampType!=='PROVIDER_TIMESTAMP'?'PROVIDER_TIMESTAMP_REQUIRED':!Number.isFinite(ageMs)||ageMs < -30000||ageMs>90000?'QUOTE_STALE_OR_TIMESTAMP_INVALID':!eligible?'QUOTE_NOT_EXECUTION_ELIGIBLE':'PASS';
+ const quoteBlock= !marketSensitive?'NOT_REQUIRED':multiInstrumentRequest?'MULTIPLE_INSTRUMENTS_REQUIRE_COMPARATIVE_EVIDENCE':!requestedSymbol?'REQUESTED_SYMBOL_UNRESOLVED':!snapshot?'NO_VERIFIED_QUOTE':!quoteSymbol?'SYMBOL_UNKNOWN':!symbolMatches?'SYMBOL_MISMATCH':timestampType!=='PROVIDER_TIMESTAMP'?'PROVIDER_TIMESTAMP_REQUIRED':!Number.isFinite(ageMs)||ageMs < -30000||ageMs>90000?'QUOTE_STALE_OR_TIMESTAMP_INVALID':!eligible?'QUOTE_NOT_EXECUTION_ELIGIBLE':'PASS';
  const quotePassed=!marketSensitive||quoteBlock==='PASS';
  const sourceBlock=!marketSensitive||independentSourceCount>=2?'PASS':'INSUFFICIENT_INDEPENDENT_SOURCES';
  const sourcePassed=sourceBlock==='PASS';
- const marketGateBlocked=marketSensitive&&(!quotePassed||!sourcePassed);
+ const marketGateBlocked=marketSensitive&&(!quotePassed||!sourcePassed||multiInstrumentRequest);
  const marketEvidence={
   required:marketSensitive,quoteStatus:quotePassed?(marketSensitive?'VERIFIED_MATCHING_FRESH':'NOT_REQUIRED'):quoteBlock,
   ticker:quoteSymbol||null,requestedTicker:requestedSymbol||null,provider:firstValue(['provider','exchange'])||null,
