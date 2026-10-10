@@ -231,7 +231,7 @@ function fresh(){
 }
 {
   const {state}=fresh();
-  const stale={verified:true,available:true,providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString(),seq:'exec3-stale'};
+  const stale={verified:true,available:true,executionEligible:false,sourceTimestampType:'PROVIDER_TIMESTAMP',sourceAsOf:new Date(Date.now()-31000).toISOString(),providerCount:2,receivedAt:new Date(Date.now()-31000).toISOString(),seq:'exec3-stale'};
   core.paperOrder(state,'a1','BTC','BUY',0.1,80000,'entry');
   const o=core.placeOrder(state,'a1','BTC','SELL',0.1,'LIMIT',79000,null,null,'stale');
   core.processOpenOrders(state,{BTC:79000},stale);
@@ -245,17 +245,17 @@ function fresh(){
 /* Execution 4.0: tick-aware bid/ask, realistic spread/impact, deduped ticks */
 {
   const {state,a}=fresh();
-  const meta={verified:true,executionEligible:true,providerCount:2,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'tick-limit-1',bid:99.2,ask:99.5};
+  const meta={verified:true,executionEligible:true,available:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'tick-limit-1',bid:99.2,ask:99.5};
   const o=core.placeOrder(state,'a1','IRFC','BUY',10,'LIMIT',100,null,null,'bid/ask limit');
   assert.equal(o.status,'OPEN');
-  const tick=core.processMarketTick(state,{symbol:'IRFC',price:99.35,bid:99.2,ask:99.5,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,providerCount:2});
+  const tick=core.processMarketTick(state,{symbol:'IRFC',price:99.35,bid:99.2,ask:99.5,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2});
   assert.equal(tick.ok,true);
   assert.equal(o.status,'FILLED');
   assert.equal(a.positions[0].qty,10);
   assert.ok(Number(o.quoteAsk)>0);
   assert.ok(Number(o.spreadBps)>0);
   const beforeOrders=state.paperTrading.orders.length;
-  const again=core.processMarketTick(state,{symbol:'IRFC',price:99.3,bid:99.1,ask:99.4,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,providerCount:2});
+  const again=core.processMarketTick(state,{symbol:'IRFC',price:99.3,bid:99.1,ask:99.4,receivedAt:meta.receivedAt,sourceAsOf:meta.sourceAsOf,seq:meta.seq,status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP',providerCount:2});
   assert.equal(again.fills.length,0);
   assert.equal(state.paperTrading.orders.length,beforeOrders);
 }
@@ -278,7 +278,7 @@ function fresh(){
   const staleTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date(Date.now()-31000).toISOString(),seq:'stale-1',status:'STALE',verified:true,executionEligible:false});
   assert.equal(staleTick.fills.length,0);
   assert.equal(a.positions[0].last,baseLast);
-  const liveTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'live-1',status:'LIVE',verified:true,executionEligible:true});
+  const liveTick=core.processMarketTick(state,{symbol:'IRFC',price:120,bid:119.9,ask:120.1,receivedAt:new Date().toISOString(),sourceAsOf:new Date().toISOString(),seq:'live-1',status:'LIVE',verified:true,executionEligible:true,sourceTimestampType:'PROVIDER_TIMESTAMP'});
   assert.equal(liveTick.ok,true);
   assert.equal(a.positions[0].last,120);
   assert.ok(state.paperTrading.journal.some(x=>x.type==='MARKET_TICK'&&x.seq==='live-1'));
