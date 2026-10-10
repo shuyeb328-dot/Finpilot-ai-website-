@@ -18,9 +18,9 @@ const run=(args)=>{
  return compute(state,args.findings||[],args.web||null,money,fresh);
 };
 
-const goodQuote=()=>({
+const goodQuote=(overrides={})=>({
  ticker:'IRFC',symbol:'IRFC',price:103,asOf:new Date().toISOString(),
- sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',executionEligible:true
+ sourceTimestampType:'PROVIDER_TIMESTAMP',provider:'NSE public',executionEligible:true,...overrides
 });
 const corroboratedWeb={query:'IRFC',provider:'public research',count:3,stance:'Positive',confidence:80,
  urls:['https://www.nseindia.com/example','https://www.screener.in/company/IRFC/','https://www.bseindia.com/example']};
@@ -35,7 +35,9 @@ const cases=[
  ['Stale quote is blocked',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),asOf:new Date(Date.now()-180000).toISOString()},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_STALE_OR_TIMESTAMP_INVALID');assert.match(d.decision,/WAIT/)}],
  ['Natural-language query extracts ticker after “Analyse”',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:{...corroboratedWeb,query:'Analyse IRFC for intraday trading with ₹1,000'}}),d=>{assert.equal(d.marketEvidence.requestedTicker,'IRFC');assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH')}],
  ['Generic market request cannot use an unrelated cached quote',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote(),web:{...corroboratedWeb,query:'Can you analyse the market and help me invest?'}}),d=>{assert.equal(d.marketEvidence.requestedTicker,null);assert.equal(d.marketEvidence.quoteStatus,'REQUESTED_SYMBOL_UNRESOLVED');assert.match(d.decision,/WAIT/)}],
- ['Explicit false eligibility cannot be overridden by nested allow status',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),executionEligible:false,forecastEligible:true,marketDataOS:{decision:'ALLOW_ANALYSIS_AND_PAPER'}},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_NOT_EXECUTION_ELIGIBLE');assert.match(d.decision,/WAIT/)}]
+ ['Explicit false eligibility cannot be overridden by nested allow status',run({emergency:300000,spending:50000,income:90000,marketSnapshot:{...goodQuote(),executionEligible:false,forecastEligible:true,marketDataOS:{decision:'ALLOW_ANALYSIS_AND_PAPER'}},web:corroboratedWeb}),d=>{assert.equal(d.marketEvidence.quoteStatus,'QUOTE_NOT_EXECUTION_ELIGIBLE');assert.match(d.decision,/WAIT/)}],
+ ['Known company alias resolves Tesla to TSLA',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote({ticker:'TSLA',symbol:'TSLA',provider:'Yahoo Finance'}),web:{...corroboratedWeb,query:'Analyse Tesla stock for next 30 days'}}),d=>{assert.equal(d.marketEvidence.requestedTicker,'TSLA');assert.equal(d.marketEvidence.quoteStatus,'VERIFIED_MATCHING_FRESH')}],
+ ['Multi-instrument comparison is blocked until comparative evidence exists',run({emergency:300000,spending:50000,income:90000,marketSnapshot:goodQuote({ticker:'TCS',symbol:'TCS'}),web:{...corroboratedWeb,query:'Compare TCS versus Infosys'}}),d=>{assert.equal(d.marketEvidence.quoteStatus,'MULTIPLE_INSTRUMENTS_REQUIRE_COMPARATIVE_EVIDENCE');assert.match(d.decision,/WAIT/) }]
 ];
 
 for(const [name,result,check] of cases){check(result);console.log('PASS:',name)}
