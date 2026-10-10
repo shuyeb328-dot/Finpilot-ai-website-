@@ -2280,7 +2280,7 @@ const server=http.createServer(async(req,res)=>{
     if(!result.ok)return send(res,result.statusCode||401,result);
     return send(res,200,result);
    }
-   if(!/^application\\/json(?:\\s*;|$)/i.test(String(req.headers['content-type']||'')))return send(res,415,{ok:false,error:'JSON_CONTENT_TYPE_REQUIRED'});
+   if(String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()!=='application/json')return send(res,415,{ok:false,error:'JSON_CONTENT_TYPE_REQUIRED'});
    const input=await body(req);
    if(Buffer.byteLength(req._bodyCache||'','utf8')>8192)return send(res,413,{ok:false,error:'TRADINGVIEW_ALERT_TOO_LARGE',maxBytes:8192});
    const result=TRADINGVIEW_ALERT_INBOX.ingest(input);
