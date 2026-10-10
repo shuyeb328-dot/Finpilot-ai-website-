@@ -73,3 +73,14 @@ const unknownSourceTime = buildMarketPicksEnvelope([{...usRow,asOf:null}], {mark
 assert.equal(unknownSourceTime.asOf, null, 'unknown source timestamps must not be replaced with retrieval time');
 assert.equal(unknownSourceTime.live, false);
 console.log('market-picks-contract: market filtering, source freshness, and metadata checks passed');
+
+
+const wronglyEligibleButStale = buildMarketPicksEnvelope([{
+  ...staleMicrosoft,
+  live:true,
+  executionEligible:true,
+  asOf:'2026-10-09T20:00:01.000Z'
+}], {market:'US',limit:5,nowMs:now,maxAgeMs:90000});
+assert.equal(wronglyEligibleButStale.live,false);
+assert.equal(wronglyEligibleButStale.verified,false,'stale source timestamps must override a caller/provider executionEligible claim');
+assert.equal(wronglyEligibleButStale.executionEligible,false,'stale market picks cannot pass execution eligibility');
