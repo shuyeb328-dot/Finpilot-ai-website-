@@ -11,8 +11,8 @@ assert.match(ui,/\/api\/agent-evaluation\/history/, 'console shows evaluation hi
 assert.match(ui,/\/api\/agent-evaluation\/run/, 'console can run the test suite when clicked');
 assert.match(ui,/runButton=button\('Run offline evaluation','primary',run\)/, 'evaluation must be started from an explicit user action');
 assert.match(ui,/No live market or external AI requests are made/, 'evaluation behavior is described accurately');
-assert.match(ui,//no automatic promotion/i/, 'console makes promotion safeguards visible');
-assert.match(ui,//no real-money execution/i/, 'console makes the non-execution boundary visible');
+assert.match(ui,/no automatic promotion/i, 'console makes promotion safeguards visible');
+assert.match(ui,/no real-money execution/i, 'console makes the non-execution boundary visible');
 assert.doesNotMatch(ui,/setInterval\(/, 'the console must not start a recurring learning timer');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/run'/, 'server exposes the controlled evaluation runner');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/grade'/, 'server exposes decision output grading');
