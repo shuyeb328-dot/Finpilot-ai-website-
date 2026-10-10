@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
 resetAutonomousCoreForTests();
-assert.equal(OS_REGISTRY.length,19);
+assert.equal(OS_REGISTRY.length,20);
 assert.ok(OS_REGISTRY.some(x=>x.id==='ai-security-os'));
 assert.ok(OS_REGISTRY.some(x=>x.id==='main-core'));
-for (const id of ['forecast-learning-os','training-fabric-os','autonomous-research-os','market-stream-hub-os','agent-factory-os','decision-memory-os','unified-workspace-os']) {
+for (const id of ['forecast-learning-os','training-fabric-os','autonomous-research-os','market-stream-hub-os','agent-factory-os','decision-memory-os','unified-workspace-os','market-training-os']) {
  assert.ok(OS_REGISTRY.some(x=>x.id===id), 'central registry must include '+id);
 }
 
@@ -49,9 +49,17 @@ assert.equal(snap.os.find(x=>x.id==='quantum-os').status,'PARTIAL');
 const unified = await getOSControlPlaneSnapshot({
  ...observations,
  marketStream:{ok:true,channels:2,subscribers:3,polling:0,pollMs:5000,heartbeatMs:15000},
- agentFactory:{ok:true,count:2,maxAgents:100,persistence:'POSTGRES',persistent:true,detail:'persisted'}
+ agentFactory:{ok:true,count:2,maxAgents:100,persistence:'POSTGRES',persistent:true,detail:'persisted'},
+ marketTraining:{ok:true,enabled:false,requestedEnabled:false,persistence:'PROCESS_MEMORY',persistent:false,blockedReason:null,observationCount:3,forecastCount:1,pendingForecastCount:1,resolvedForecastCount:0,meanBrierScore:null,meanLogLoss:null,lastError:null,intervalMs:900000,watchlist:['BTC'],requiresAlwaysOnWorkerFor24x7:true,foundationModelTraining:false,automaticPromotion:false,realMoneyExecution:false}
 });
 assert.equal(unified.os.find(x=>x.id==='market-stream-hub-os').status,'READY');
+assert.equal(unified.os.find(x=>x.id==='market-training-os').status,'PARTIAL','worker must remain partial until durable storage and opt-in scheduling are ready');
+assert.equal(unified.os.find(x=>x.id==='market-training-os').metrics.foundationModelTraining,false);
+assert.equal(unified.os.find(x=>x.id==='market-training-os').metrics.realMoneyExecution,false);
+const trained=await getOSControlPlaneSnapshot({...observations,marketTraining:{...unified.os.find(x=>x.id==='market-training-os').metrics,ok:true,enabled:true,requestedEnabled:true,persistent:true,persistence:'POSTGRES',observationCount:500,forecastCount:400,pendingForecastCount:20,resolvedForecastCount:380,lastError:null,intervalMs:900000,watchlist:['BTC','SPY']}});
+assert.equal(trained.os.find(x=>x.id==='market-training-os').status,'ACTIVE');
+assert.equal(trained.os.find(x=>x.id==='market-training-os').metrics.automaticPromotion,false);
+
 assert.equal(unified.os.find(x=>x.id==='agent-factory-os').status,'ACTIVE');
 assert.equal(unified.os.find(x=>x.id==='agent-factory-os').metrics.automaticExecution,false);
 assert.equal(unified.os.find(x=>x.id==='forecast-learning-os').status,'PARTIAL','client-local forecast training must not be reported server-durable');
