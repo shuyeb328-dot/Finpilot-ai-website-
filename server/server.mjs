@@ -26,6 +26,7 @@ import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
 import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
+import {createTradingViewAlertBridge} from './tradingview-alert-bridge.mjs';
 const {Pool}=pg;
 const TRADINGVIEW_ALERT_BRIDGE=createTradingViewAlertBridge({secret:process.env.TRADINGVIEW_WEBHOOK_SECRET||''});
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
