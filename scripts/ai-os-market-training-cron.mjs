@@ -15,7 +15,7 @@ try{
   const response=await fetch(base+'/api/ai-os/market-training/cycle',{
     method:'POST',
     headers:{'content-type':'application/json','accept':'application/json','x-finpilot-worker-token':token},
-    body:JSON.stringify({source:'render-cron'}),
+    body:JSON.stringify({source:'github-actions-scheduled-worker'}),
     signal:controller.signal
   });
   const text=await response.text();
