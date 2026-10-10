@@ -92,7 +92,7 @@ const fakePool={
         'legacy forecasts must have provider-timestamped reference and settlement observations');
       assert.match(sql,/JOIN finpilot_ai_os_market_observations so/);
       assert.match(sql,/JOIN finpilot_ai_os_market_observations ro/);
-      return {rows:[legacyForecast],rowCount:1};
+      return {rows:[legacyForecast,{...legacyForecast,id:'legacy-bad-probability-vector',p_hold:10}],rowCount:2};
     }
     if(sql.startsWith('INSERT INTO finpilot_agent_memory_ledger')){
       const [id,fingerprint,agent,layer,source,content,decision,sourceUrl,observedAt,expiresAt,verificationStatus,metadata]=args;
