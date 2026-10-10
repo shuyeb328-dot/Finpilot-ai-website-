@@ -22,7 +22,7 @@ const watchlistFor=env=>[...new Set(String(env.FINPILOT_AI_OS_TRAINING_WATCHLIST
 const intervalFor=env=>clamp(Number(env.FINPILOT_AI_OS_TRAINING_INTERVAL_MS||900000),300000,3600000);
 
 const state={
- env:process.env, loadSnapshot:null, pool:null, schemaReady:false, initPromise:null, timer:null,
+ env:process.env, loadSnapshot:null, clock:()=>Date.now(), pool:null, schemaReady:false, initPromise:null, timer:null,
  running:false, requestedEnabled:false, enabled:false, persistence:'UNINITIALIZED', persistent:false,
  persistenceDetail:'Market-learning storage has not initialized.', blockedReason:null, intervalMs:900000,
  watchlist:['BTC','ETH','SPY','NIFTY'], lastStartedAt:null, lastCompletedAt:null, lastSuccessAt:null,
@@ -196,6 +196,7 @@ async function processTicker(ticker,snapshot,nowMs){
 
 export async function initializeAIOSMarketTrainingDirector(options={}){
  if(typeof options.loadSnapshot==='function')state.loadSnapshot=options.loadSnapshot;
+ if(typeof options.clock==='function')state.clock=options.clock;
  if(options.env&&typeof options.env==='object')state.env=options.env;
  state.requestedEnabled=isRequested(state.env);state.intervalMs=intervalFor(state.env);state.watchlist=watchlistFor(state.env);
  await initializeStorage();
@@ -218,7 +219,7 @@ export async function runAIOSMarketTrainingCycle(options={}){
  try{
   for(const ticker of state.watchlist){
    if(state.persistence==='DATABASE_ERROR'){result.symbols.push({ticker,accepted:false,error:'TRAINING_STORAGE_UNAVAILABLE'});continue;}
-   try{const snapshot=await state.loadSnapshot(ticker);result.symbols.push(await processTicker(ticker,snapshot,Date.now()));}
+   try{const snapshot=await state.loadSnapshot(ticker);result.symbols.push(await processTicker(ticker,snapshot,Number(state.clock())));}
    catch(error){state.counters.failedSymbols++;state.lastError=safeText(error?.message||error,160);result.symbols.push({ticker,accepted:false,error:state.lastError});}
   }
   const successful=result.symbols.filter(x=>x.accepted===true&&!x.duplicate).length;
@@ -265,5 +266,5 @@ export async function getAIOSMarketTrainingStatus(){
 
 export async function resetAIOSMarketTrainingForTests(){
  if(state.timer)clearInterval(state.timer);try{await state.pool?.end();}catch{}
- Object.assign(state,{env:{},loadSnapshot:null,pool:null,schemaReady:false,initPromise:null,timer:null,running:false,requestedEnabled:false,enabled:false,persistence:'UNINITIALIZED',persistent:false,persistenceDetail:'Test registry reset.',blockedReason:null,intervalMs:900000,watchlist:['BTC','ETH','SPY','NIFTY'],lastStartedAt:null,lastCompletedAt:null,lastSuccessAt:null,lastError:null,cycleCount:0,counters:{observationsStored:0,duplicateObservations:0,rejectedSnapshots:0,forecastsCreated:0,forecastsSettled:0,failedSymbols:0},observationKeys:new Set(),observations:[],forecasts:[],events:[]});
+ Object.assign(state,{env:{},loadSnapshot:null,clock:()=>Date.now(),pool:null,schemaReady:false,initPromise:null,timer:null,running:false,requestedEnabled:false,enabled:false,persistence:'UNINITIALIZED',persistent:false,persistenceDetail:'Test registry reset.',blockedReason:null,intervalMs:900000,watchlist:['BTC','ETH','SPY','NIFTY'],lastStartedAt:null,lastCompletedAt:null,lastSuccessAt:null,lastError:null,cycleCount:0,counters:{observationsStored:0,duplicateObservations:0,rejectedSnapshots:0,forecastsCreated:0,forecastsSettled:0,failedSymbols:0},observationKeys:new Set(),observations:[],forecasts:[],events:[]});
 }
