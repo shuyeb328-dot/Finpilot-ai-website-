@@ -303,3 +303,11 @@ assert.match(decisionCore,/INSUFFICIENT_INDEPENDENT_SOURCES/,'market recommendat
 assert.match(decisionCore,/decisionGates,marketEvidence/,'the decision core must return explainable decision gates and market evidence status');
 assert.match(pageText,/Decision Safety Gates/,'Round Table must visibly show pass/review/block gate results');
 assert.match(pageText,/decisionGates:core\.decisionGates/,'Round Table must preserve gate outputs in the decision record');
+assert.match(decisionCore,/ROUND-TABLE-DEBATE-1\.0\.0/,'decision core must version the auditable debate trace');
+assert.match(decisionCore,/DETERMINISTIC_EVIDENCE_RULES/,'the debate mode must not be misrepresented as independent foundation-model reasoning');
+assert.match(decisionCore,/hardVetoes:blockingGates\.map/,'hard blockers must be preserved for auditing');
+assert.match(decisionCore,/rounds:\[/,'the result must include multiple ordered debate stages');
+assert.match(pageText,/Auditable Debate Ledger/,'Round Table must visibly show per-role debate records');
+assert.match(pageText,/debate:core\.debate/,'Round Table must persist the full debate trace in its decision record');
+assert.match(pageText,/Final reconciliation/,'Round Table must expose the final gate-aware reconciliation');
+assert.match(pageText,/Risk Guardian/,'the interface must label the Risk Guardian veto role');
