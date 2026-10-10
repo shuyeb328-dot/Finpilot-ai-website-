@@ -1,15 +1,25 @@
 import assert from 'node:assert/strict';
 import {OS_REGISTRY,getOSControlPlaneSnapshot,runAutonomousCoreCycle,recordOSControlFeedback,setAutonomousCoreMode,evaluateSecurityRequest,evaluateShadowCandidate,getShadowEvaluationStatus,getAutonomousCoreMode,resetAutonomousCoreForTests} from '../server/autonomous-core.mjs';
 resetAutonomousCoreForTests();
-assert.equal(OS_REGISTRY.length,12);
+assert.equal(OS_REGISTRY.length,19);
 assert.ok(OS_REGISTRY.some(x=>x.id==='ai-security-os'));
 assert.ok(OS_REGISTRY.some(x=>x.id==='main-core'));
+for (const id of ['forecast-learning-os','training-fabric-os','autonomous-research-os','market-stream-hub-os','agent-factory-os','decision-memory-os','unified-workspace-os']) {
+ assert.ok(OS_REGISTRY.some(x=>x.id===id), 'central registry must include '+id);
+}
+
 const unknown=await getOSControlPlaneSnapshot({});
 assert.equal(unknown.ok,true);
 assert.equal(unknown.mode,'MONITOR_ONLY');
 assert.ok(unknown.os.every(x=>['UNKNOWN','PARTIAL','REVIEW_REQUIRED'].includes(x.status)),'missing telemetry must never appear healthy; missing safety policy must force review');
 assert.equal(unknown.os.find(x=>x.id==='trading-risk-os').status,'REVIEW_REQUIRED');
 assert.equal(unknown.policy.realMoneyExecution,'BLOCKED');
+assert.equal(unknown.operatingLayer.version,'AI-OS-1.0');
+assert.equal(unknown.operatingLayer.singleRegistry,true);
+assert.equal(unknown.operatingLayer.planes.length,5);
+assert.equal(unknown.operatingLayer.automaticPromotion,false);
+assert.equal(unknown.operatingLayer.liveTrading,false);
+
 const observations={
  health:{ok:true,frontendSyntax:{ok:true},search:{providerMode:'auto',freeFirst:true}},
  core:{ok:true,uptimeMs:1000,evidenceLedger:10,memoryAgents:12},
