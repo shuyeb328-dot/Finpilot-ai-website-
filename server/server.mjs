@@ -2262,7 +2262,12 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/ai-os/agents')return send(res,200,await listManagedAgents());
   if(req.method==='POST'&&u.pathname==='/api/ai-os/agents'){await body(req);const r=await createManagedAgent(req._parsedBody||{});return send(res,r.ok?201:(r.status||400),r);}
   if(req.method==='GET'&&u.pathname==='/api/ai-os/market-training/status')return send(res,200,await getAIOSMarketTrainingStatus());
-  if(req.method==='POST'&&u.pathname==='/api/ai-os/market-training/cycle'){await body(req);const r=await runAIOSMarketTrainingCycle({trigger:'operator'});audit('AIOS_MARKET_TRAINING_MANUAL_CYCLE',{ok:r.ok,cycle:r.cycle,summary:r.summary});return send(res,r.ok?200:503,r);}
+  if(req.method==='POST'&&u.pathname==='/api/ai-os/market-training/cycle'){
+   const workerToken=String(process.env.FINPILOT_AI_OS_WORKER_TOKEN||'');
+   const suppliedToken=String(req.headers['x-finpilot-worker-token']||'');
+   if(!workerToken||suppliedToken!==workerToken)return send(res,403,{ok:false,error:'WORKER_AUTH_REQUIRED'});
+   await body(req);const r=await runAIOSMarketTrainingCycle({trigger:'scheduled-worker'});audit('AIOS_MARKET_TRAINING_WORKER_CYCLE',{ok:r.ok,cycle:r.cycle,summary:r.summary});return send(res,r.ok?200:503,r);
+  }
   if(req.method==='GET'&&u.pathname==='/api/os-control-plane')return osControlPlaneSnapshot(req,res);
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/cycle'){await body(req);return osControlPlaneCycle(req,res);}
   if(req.method==='POST'&&u.pathname==='/api/os-control-plane/feedback'){await body(req);return osControlPlaneFeedback(req,res);}
