@@ -350,9 +350,49 @@ async function braveHtml(q,count){
  }finally{clearTimeout(timer)}
 }
 
+
+async function bingWebHtml(q,count){
+ const u='https://www.bing.com/search?q='+encodeURIComponent(q)+'&setlang=en';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),FREE_SEARCH_TIMEOUT_MS);
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok)throw providerError('Bing Web search returned HTTP '+r.status,r.status);
+  const html=await r.text();
+  if(/verify you are human|captcha|unusual traffic/i.test(html))throw providerError('Bing Web search returned an automated-access challenge');
+  const starts=[...html.matchAll(/<li\b(?=[^>]*\bclass=["'][^"']*\bb_algo\b[^"']*["'])[^>]*>/gi)];
+  const items=[];
+  for(let i=0;i<starts.length&&items.length<count;i++){
+   const start=starts[i].index;
+   const end=starts[i+1]?.index??html.length;
+   const block=html.slice(start,end);
+   const anchor=block.match(/<h2\b[^>]*>\s*<a\b([^>]*)>([\s\S]*?)<\/a>/i);
+   if(!anchor)continue;
+   const rawUrl=htmlAttribute(anchor[1],'href');
+   let url='';
+   try{
+    const target=new URL(rawUrl,u);
+    if(!/^https?:$/.test(target.protocol)||target.username||target.password)continue;
+    if(/(^|\.)bing\.com$/i.test(target.hostname))continue;
+    url=target.href;
+   }catch{continue}
+   const title=cleanText(anchor[2]);
+   if(!title||title.length<3)continue;
+   const paragraphs=[...block.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(x=>cleanText(x[1])).filter(x=>x.length>25&&x!==title);
+   let source='Bing Web';
+   try{source=new URL(url).hostname.replace(/^www\./i,'')}catch{}
+   items.push({title,url,snippet:paragraphs[0]||'',source,publishedAt:null});
+  }
+  return normalize(items,'bing-html');
+ }catch(e){
+  if(e.name==='AbortError')throw providerError('Bing Web search timed out');
+  throw e;
+ }finally{clearTimeout(timer)}
+}
+
 function freeSearchLinks(q){
  const x=encodeURIComponent(q);
  return [
+  {provider:'Bing Web',url:'https://www.bing.com/search?q='+x},
   {provider:'DuckDuckGo',url:'https://duckduckgo.com/?q='+x},
   {provider:'Brave Search',url:'https://search.brave.com/search?q='+x},
   {provider:'Yahoo Search',url:'https://search.yahoo.com/search?p='+x},
@@ -362,9 +402,7 @@ function freeSearchLinks(q){
 }
 async function searchFreeMultiSource(q,count){
  const tasks=[
-  {provider:'duckduckgo-html',run:()=>duckduckgoHtml(q,count)},
-  {provider:'brave-html',run:()=>braveHtml(q,count)},
-  {provider:'yahoo-html',run:()=>yahooHtml(q,count)},
+  {provider:'bing-html',run:()=>bingWebHtml(q,count)},
   {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
   {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
  ];
