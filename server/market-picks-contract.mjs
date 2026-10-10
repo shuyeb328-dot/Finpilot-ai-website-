@@ -40,13 +40,16 @@ function candidateMarket(row) {
   return market || 'UNKNOWN';
 }
 
-function matchesMarket(row, market) {
+function matchesMarket(row, market, usTickers = []) {
   const actual = candidateMarket(row);
   if (market === 'AUTO') return true;
   if (market === 'INDIA') return actual === 'INDIA_EQUITY';
   if (market === 'GLOBAL') return actual.startsWith('GLOBAL_');
   if (market === 'US') {
     if (actual !== 'GLOBAL_EQUITY') return false;
+    const ticker = String(row?.ticker ?? row?.symbol ?? '').toUpperCase().replace(/\\.(NS|BO)$/, '');
+    const knownUsTickers = new Set(usTickers.map(x => String(x ?? '').trim().toUpperCase()));
+    if (knownUsTickers.has(ticker)) return true;
     const exchange = String(row?.listingExchange ?? row?.exchange ?? '').toUpperCase();
     return /(^|[^A-Z])(NASDAQ|NYSE|NMS|NYQ|NYS|NGM|PCX|ARCA|BATS|NCM|ASE)([^A-Z]|$)/.test(exchange)
       || ['NMS','NYQ','NYS','NGM','PCX','ARCA','BATS','NCM','ASE'].includes(exchange);
@@ -66,11 +69,12 @@ export function buildMarketPicksEnvelope(rows, {
   market = 'INDIA',
   limit = 5,
   nowMs = Date.now(),
-  maxAgeMs = 90000
+  maxAgeMs = 90000,
+  usTickers = []
 } = {}) {
   const safeLimit = Math.min(10, Math.max(3, Number.isFinite(Number(limit)) ? Math.floor(Number(limit)) : 5));
   const candidates = (Array.isArray(rows) ? rows : [])
-    .filter(row => row && typeof row === 'object' && Number.isFinite(Number(row.score)) && matchesMarket(row, market))
+    .filter(row => row && typeof row === 'object' && Number.isFinite(Number(row.score)) && matchesMarket(row, market, usTickers))
     .sort((a, b) => Number(b.score) - Number(a.score))
     .slice(0, safeLimit);
 
