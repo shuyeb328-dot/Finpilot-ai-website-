@@ -2085,7 +2085,7 @@ setInterval(()=>{if(String(process.env.FINPILOT_EXA_AUTO_REFRESH||'false').toLow
 const AUTONOMOUS_LEARNING_INIT=initAutonomousLearning({searchWeb,emitEvent,audit,getSchedulerState:()=>({running:SCHEDULER.running,maxConcurrency:SCHEDULER.maxConcurrency,queue:SCHEDULER.queue})});
 audit('AUTONOMOUS_LEARNING_INIT',{version:AUTONOMOUS_LEARNING_INIT.version,enabled:AUTONOMOUS_LEARNING_INIT.enabled,intervalMs:AUTONOMOUS_LEARNING_INIT.intervalMs});
 const AIOS_MARKET_TRAINING_INIT=initializeAIOSMarketTrainingDirector({
- loadSnapshot:ticker=>loadMarketStreamSnapshot(String(ticker)+'\\u001f1h')
+ loadSnapshot:ticker=>loadMarketStreamSnapshot(String(ticker)+'\u001f1h')
 }).then(status=>{audit('AIOS_MARKET_TRAINING_INIT',{version:status.version,enabled:status.enabled,requestedEnabled:status.requestedEnabled,persistence:status.persistence,blockedReason:status.blockedReason});return status;}).catch(error=>{audit('AIOS_MARKET_TRAINING_INIT_ERROR',{error:String(error?.message||error)});return null;});
 
 
