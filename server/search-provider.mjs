@@ -39,6 +39,7 @@ function normalize(items,provider){
    url,
    snippet:String(x.snippet||x.description||x.content||x.summary||(Array.isArray(x.snippet_highlighted_words)?x.snippet_highlighted_words.join(' '):'' )||''),
    source:String(x.source?.name||x.source||provider),
+   provider,
    publishedAt:x.publishedAt||x.published_date||x.date||null
   });
  }
@@ -152,6 +153,133 @@ async function bingNewsRss(q,count){
  finally{clearTimeout(timer)}
 }
 
+
+function htmlAttribute(attributes,name){
+ const value=String(attributes||'');
+ const double=value.match(new RegExp(name+'="([^"]*)"','i'));
+ if(double)return cleanText(double[1]);
+ const single=value.match(new RegExp(name+"='([^']*)'",'i'));
+ return cleanText(single?single[1]:'');
+}
+function resolveDuckDuckGoUrl(value){
+ const raw=String(value||'').trim();
+ try{
+  const wrapper=new URL(raw.startsWith('//')?'https:'+raw:raw,'https://html.duckduckgo.com');
+  if(!/(^|\.)duckduckgo\.com$/i.test(wrapper.hostname)||!/^\/l\/?$/i.test(wrapper.pathname))return wrapper.href;
+  const destination=wrapper.searchParams.get('uddg');
+  if(!destination)return wrapper.href;
+  const target=new URL(destination);
+  if(!/^https?:$/.test(target.protocol)||target.username||target.password||!target.hostname)return raw;
+  target.hash='';
+  return target.href;
+ }catch{return raw}
+}
+async function duckduckgoHtml(q,count){
+ const u='https://html.duckduckgo.com/html/?q='+encodeURIComponent(q);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.min(TIMEOUT_MS,7000));
+ try{
+  const r=await fetch(u,{signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0 FinPilotFreeSearch/1.0','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok)throw providerError('DuckDuckGo search returned HTTP '+r.status,r.status);
+  const html=await r.text();
+  const anchors=[...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  const titleAnchors=anchors.filter(([,attrs])=>/\bresult__a\b/i.test(htmlAttribute(attrs,'class')));
+  const snippets=anchors.filter(([,attrs])=>/\bresult__snippet\b/i.test(htmlAttribute(attrs,'class'))).map(([,attrs,body])=>cleanText(body));
+  if(!titleAnchors.length&&/captcha|anomaly detected|bots use duckduckgo/i.test(html))throw providerError('DuckDuckGo returned an automated-access challenge');
+  const items=[];
+  for(let i=0;i<titleAnchors.length&&items.length<count;i++){
+   const [,attrs,body]=titleAnchors[i];
+   const url=resolveDuckDuckGoUrl(htmlAttribute(attrs,'href'));
+   const title=cleanText(body);
+   if(!/^https?:\/\//i.test(url)||!title)continue;
+   let source='DuckDuckGo';
+   try{source=new URL(url).hostname.replace(/^www\./i,'')}catch{}
+   items.push({title,url,snippet:snippets[i]||'',source,publishedAt:null});
+  }
+  return normalize(items,'duckduckgo-html');
+ }catch(e){
+  if(e.name==='AbortError')throw providerError('DuckDuckGo search timed out');
+  throw e;
+ }finally{clearTimeout(timer)}
+}
+function canonicalSearchUrl(value){
+ try{
+  const u=new URL(value);u.hash='';
+  for(const k of [...u.searchParams.keys()])if(/^utm_/i.test(k)||['fbclid','gclid','mc_cid','mc_eid'].includes(k.toLowerCase()))u.searchParams.delete(k);
+  return u.href.replace(/\/$/,'');
+ }catch{return String(value||'').trim()}
+}
+function normalizedTitle(value){
+ return cleanText(value).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+function freeSearchLinks(q){
+ const x=encodeURIComponent(q);
+ return [
+  {provider:'DuckDuckGo',url:'https://duckduckgo.com/?q='+x},
+  {provider:'Bing News',url:'https://www.bing.com/news/search?q='+x},
+  {provider:'Google News',url:'https://news.google.com/search?q='+x}
+ ];
+}
+async function searchFreeMultiSource(q,count){
+ const tasks=[
+  {provider:'duckduckgo-html',run:()=>duckduckgoHtml(q,count)},
+  {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
+  {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
+ ];
+ const attempts=await Promise.all(tasks.map(async task=>{
+  try{return {provider:task.provider,results:await task.run(),error:null}}
+  catch(e){return {provider:task.provider,results:[],error:String(e?.message||'provider request failed').slice(0,220)}}
+ }));
+ const results=[],byUrl=new Map(),byTitle=new Map();
+ for(const attempt of attempts){
+  for(const row of attempt.results){
+   const urlKey=canonicalSearchUrl(row.url);
+   const titleKey=normalizedTitle(row.title);
+   const existing=byUrl.get(urlKey);
+   if(existing){
+    const group=byTitle.get(titleKey);
+    existing.matchingEngines=[...new Set([...(existing.matchingEngines||[]),attempt.provider])];
+    existing.engineAgreementCount=existing.matchingEngines.length;
+    if(group){
+     group.engines.add(attempt.provider);
+     for(const member of group.results){member.matchingEngines=[...group.engines];member.engineAgreementCount=group.engines.size;}
+    }
+    continue;
+   }
+   const group=byTitle.get(titleKey)||{engines:new Set(),results:[]};
+   group.engines.add(attempt.provider);
+   const item={...row,matchingEngines:[...group.engines],engineAgreementCount:group.engines.size,agreementBasis:'URL_OR_EXACT_TITLE'};
+   group.results.push(item);
+   for(const member of group.results){member.matchingEngines=[...group.engines];member.engineAgreementCount=group.engines.size;}
+   byTitle.set(titleKey,group);
+   byUrl.set(urlKey,item);
+   results.push(item);
+  }
+ }
+ const providers=attempts.filter(x=>x.results.length>0).map(x=>x.provider);
+ const providerErrors=attempts.filter(x=>x.error).map(x=>({provider:x.provider,error:x.error}));
+ if(!results.length){
+  const detail=providerErrors.length?' Search attempts: '+providerErrors.map(x=>x.provider+': '+x.error).join(' | '):'';
+  throw providerError('No live results were returned by the free multi-source search.'+detail);
+ }
+ results.sort((a,b)=>(Number(b.engineAgreementCount)||1)-(Number(a.engineAgreementCount)||1));
+ const limit=Math.min(20,Math.max(count,count*2));
+ const visible=results.slice(0,limit);
+ return {
+  provider:providers.length>1?'multi-free-search':providers[0],
+  providers,
+  attemptedProviders:tasks.map(x=>x.provider),
+  providerErrors,
+  results:visible,
+  externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),
+  externalUrls:freeSearchLinks(q),
+  message:'Free multi-source search returned '+visible.length+' result(s). Results came from '+providers.join(', ')+'. Matching engines indicate URL/title agreement only, not independent verification of the underlying claim.',
+  live:true,
+  fetchedAt:new Date().toISOString(),
+  cached:false
+ };
+}
+
+
 const configuredSearchCacheTtl=Number(process.env.SEARCH_CACHE_TTL_MS);
 const SEARCH_CACHE_TTL_MS=Number.isFinite(configuredSearchCacheTtl)
  ?Math.max(0,Math.min(60*60*1000,configuredSearchCacheTtl))
@@ -176,14 +304,23 @@ function trimSearchCache(){
 }
 async function searchWebUncached(q,count,requested){
  const allowPaidFallback=String(process.env.SEARCH_ALLOW_PAID_FALLBACK||'false').toLowerCase()==='true';
- // Free search prefers Bing RSS because its redirect URL exposes a publisher URL
- // that can be safely normalized. Google News RSS remains a fallback; paid APIs
- // are never called unless explicitly enabled.
- const freeRss=['bing-news-rss','google-news-rss'];
- const order=requested==='free'?freeRss:requested==='auto'&&!allowPaidFallback?freeRss:requested==='auto'?[...freeRss,'exa','serpapi','brave','tavily','google']:requested==='exa'?['exa',...freeRss]:requested==='serpapi'?['serpapi','exa',...freeRss]:requested==='brave'?['brave','exa',...freeRss]:requested==='tavily'?['tavily','exa',...freeRss]:requested==='google'?['google','exa',...freeRss]:freeRss;
- const errors=[];let paidProviderBlocked=false;
+ const errors=[];
+ let freeAttempted=false;
+ async function tryFree(){
+  if(freeAttempted)return null;
+  freeAttempted=true;
+  try{return await searchFreeMultiSource(q,count)}
+  catch(e){errors.push('free multi-source: '+(e?.message||'provider request failed'));return null}
+ }
+ if(requested==='free'||requested==='auto'){
+  const free=await tryFree();
+  if(free)return free;
+  if(requested==='free'||!allowPaidFallback){
+   throw providerError('No live results were returned by the configured free search providers.'+(errors.length?' Search attempts: '+errors.join(' | '):''));
+  }
+ }
+ const order=requested==='auto'?['exa','serpapi','brave','tavily','google']:[requested];
  for(const p of order){
-  if(paidProviderBlocked&&!['bing-news-rss','google-news-rss'].includes(p))continue;
   try{
    let results=[];
    if(p==='brave'&&process.env.BRAVE_SEARCH_API_KEY)results=await brave(q,count);
@@ -191,15 +328,18 @@ async function searchWebUncached(q,count,requested){
    if(p==='google'&&process.env.GOOGLE_SEARCH_API_KEY&&process.env.GOOGLE_SEARCH_ENGINE_ID)results=await google(q,count);
    if(p==='exa'&&process.env.EXA_API_KEY)results=await exa(q,count);
    if(p==='serpapi'&&process.env.SERPAPI_API_KEY)results=await serpapi(q,count);
-   if(p==='bing-news-rss')results=await bingNewsRss(q,count);
-   if(p==='google-news-rss')results=await googleNewsRss(q,count);
-   if(results.length)return {provider:p,results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
-  }catch(e){errors.push(p+': '+(e?.message||'provider request failed'));const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));if(quotaOrBilling&&p!=='google-news-rss'){paidProviderBlocked=true;}continue}
+   if(results.length)return {provider:p,providers:[p],results,externalUrl:'https://www.google.com/search?q='+encodeURIComponent(q),externalUrls:freeSearchLinks(q),message:results.length+' live result(s) returned by '+p+'.',live:true,fetchedAt:new Date().toISOString(),cached:false};
+  }catch(e){
+   errors.push(p+': '+(e?.message||'provider request failed'));
+   const quotaOrBilling=e?.status===402||e?.status===429||/quota|billing|payment required|credits exhausted|rate limit/i.test(String(e?.message||''));
+   if(quotaOrBilling)break;
+  }
  }
+ const free=await tryFree();
+ if(free)return free;
  const detail=errors.length?' Search attempts: '+errors.join(' | '):'';
  throw providerError('No live results were returned by the configured search provider.'+detail);
 }
-
 export async function searchWeb(q,{count=8,forceRefresh=false,freeOnly=false}={}){
  const query=String(q??'').replace(/\s+/g,' ').trim();
  if(!query)throw providerError('Search query is empty.');
