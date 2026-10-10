@@ -117,7 +117,7 @@
     if(busy)return;
     setBusy(true);statusMessage('Running the deterministic regression suite. No live market or external AI requests are made.','info');
     try{
-      const result=await getJson(RUN_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const result=await getJson(RUN_URL,{method:'POST'});
       renderRun(result);
       const [status,history]=await Promise.all([getJson(STATUS_URL),getJson(HISTORY_URL)]);
       renderStatus(status);renderHistory(history);
