@@ -401,16 +401,32 @@ async function bingWebRss(q,count){
   const blocks=xml.match(/<item\b[\s\S]*?<\/item>/gi)||[];
   const items=[];
   for(const block of blocks.slice(0,count)){
-   const val=tag=>{const m=block.match(new RegExp('<'+tag+'>([\\\\s\\\\S]*?)<\\\\/'+tag+'>','i'));return m?m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,'').trim():''};
+   const val=tag=>{
+    const lower=block.toLowerCase(),open='<'+tag.toLowerCase()+'>',close='</'+tag.toLowerCase()+'>';
+    const from=lower.indexOf(open);
+    if(from<0)return '';
+    const contentStart=from+open.length;
+    const to=lower.indexOf(close,contentStart);
+    if(to<0)return '';
+    return block.slice(contentStart,to).replace(/<!\[CDATA\[/gi,'').replace(/\]\]>/g,'').trim();
+   };
    const title=cleanText(val('title'));
-   const url=cleanText(val('link'));
+   const rawUrl=cleanText(val('link'));
    const snippet=cleanText(val('description'));
    const publishedAt=cleanText(val('pubDate'))||null;
    const source=cleanText(val('source'))||'Bing Web';
-   if(!title||!/^https?:\\/\\//i.test(url))continue;
+   if(!title)continue;
+   let url='';
+   try{
+    const parsed=new URL(rawUrl);
+    if(!/^https?:$/.test(parsed.protocol)||parsed.username||parsed.password)continue;
+    url=parsed.href;
+   }catch{continue}
    items.push({title,url,snippet,source,publishedAt});
   }
-  return normalize(items,'bing-web-rss');
+  const results=normalize(items,'bing-web-rss');
+  if(!results.length&&blocks.length===0)throw providerError('Bing Web RSS returned no parseable RSS items');
+  return results;
  }catch(e){
   if(e.name==='AbortError')throw providerError('Bing Web RSS timed out');
   throw e;
