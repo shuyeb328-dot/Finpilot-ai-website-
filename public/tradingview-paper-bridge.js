@@ -1,8 +1,8 @@
-/* TradingView companion for FinPilot&#39;s simulated trading workspace.
+/* TradingView companion for FinPilot's simulated trading workspace.
    Charts are display-only: the widget does not expose a quote feed or place orders. */
 (function(){
   'use strict';
-  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'''}[c]));
   function normalizeSymbol(value){
     const raw=String(value||'').trim().toUpperCase().replace(/\s+/g,'');
     if(!/^[A-Z0-9._:-]{1,24}$/.test(raw))return '';
@@ -12,11 +12,24 @@
     const s=normalizeSymbol(value);if(!s)return '';
     const m=String(market||'AUTO').toUpperCase();
     if(s.includes(':'))return s;
-    if(m==='CRYPTO'||(/USDT$/.test(s)))return 'BINANCE:'+(s.endsWith('USDT')?s:s+'USDT');
-    if(m==='INDIA'||m==='NSE')return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
+    // An explicit listing suffix wins over the market selector: .BO means BSE,
+    // while .NS means NSE. Never silently route a BSE instrument to NSE.
+    if(/\.BO$/.test(s))return 'BSE:'+s.replace(/\.BO$/,'');
+    if(/\.NS$/.test(s))return 'NSE:'+s.replace(/\.NS$/,'');
+    if(m==='CRYPTO'||/USDT$/.test(s))return 'BINANCE:'+(s.endsWith('USDT')?s:s+'USDT');
+    if(m==='INDIA'||m==='NSE')return 'NSE:'+s;
+    if(m==='BSE')return 'BSE:'+s;
     if(m==='US')return 'NASDAQ:'+s;
-    if(/\.(NS|BO)$/.test(s))return 'NSE:'+s.replace(/\.(NS|BO)$/,'');
     return 'NASDAQ:'+s;
+  }
+  function analysisSymbol(value,market){
+    const s=tvSymbol(value,market);if(!s)return '';
+    const colon=s.indexOf(':');if(colon<0)return s;
+    const venue=s.slice(0,colon).toUpperCase(),ticker=s.slice(colon+1);
+    if(venue==='BINANCE')return ticker; // Keep quote asset, e.g. BTCUSDT; "BTC" is not the same instrument.
+    if(venue==='NSE')return ticker+'.NS';
+    if(venue==='BSE')return ticker+'.BO';
+    return ticker;
   }
   function widgetUrl(symbol){
     const s=tvSymbol(symbol,'AUTO');
@@ -33,7 +46,7 @@
     host.dataset.fpTvBridgeMounted='1';
     const section=document.createElement('section');
     section.id='fpTradingViewBridge';section.className='card';section.style.cssText='margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)';
-    section.innerHTML='<div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap"><div><div class="eyebrow">Market chart companion</div><h3 style="margin:5px 0">TradingView + Paper Arena</h3><p class="muted" style="margin:0;line-height:1.5">Inspect a chart, then send the symbol to FinPilot analysis. Paper orders still require a verified FinPilot quote and risk checks.</p></div><span class="pill">SIMULATION ONLY</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0"><input id="fpTvSymbol" aria-label="Chart symbol" value="NASDAQ:AAPL" maxlength="24" placeholder="e.g. NASDAQ:AAPL or BINANCE:BTCUSDT" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><select id="fpTvMarket" aria-label="Market type" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><option value="AUTO">Auto / US</option><option value="INDIA">India (NSE)</option><option value="CRYPTO">Crypto (Binance)</option><option value="US">US equities</option></select><button id="fpTvLoad" class="btn primary" type="button">Load chart</button><button id="fpTvAnalyze" class="btn" type="button">Analyze in FinPilot</button><button id="fpTvPaper" class="btn good" type="button">Open in Paper Arena</button><a id="fpTvOpen" class="btn" target="_blank" rel="noopener noreferrer">Open TradingView ↗</a></div><div id="fpTvFrame" style="min-height:340px;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center"><div class="muted" style="padding:24px;text-align:center">Choose a symbol and tap <b>Load chart</b>. The embedded chart may be unavailable in some in-app browsers.</div></div><div class="notice" style="margin-top:12px"><b>Connection boundary:</b> TradingView&#39;s embedded chart is visual only. It does not send live prices, alerts, account data, or orders to FinPilot. FinPilot paper execution uses its own market-data verification and risk gates; no real broker orders are sent.</div>';
+    section.innerHTML='<div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap"><div><div class="eyebrow">Market chart companion</div><h3 style="margin:5px 0">TradingView + Paper Arena</h3><p class="muted" style="margin:0;line-height:1.5">Inspect a chart, then send the symbol to FinPilot analysis. Paper orders still require a verified FinPilot quote and risk checks.</p></div><span class="pill">SIMULATION ONLY</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0"><input id="fpTvSymbol" aria-label="Chart symbol" value="NASDAQ:AAPL" maxlength="24" placeholder="e.g. NASDAQ:AAPL or BINANCE:BTCUSDT" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><select id="fpTvMarket" aria-label="Market type" style="padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text)"><option value="AUTO">Auto / US</option><option value="INDIA">India (NSE)</option><option value="CRYPTO">Crypto (Binance)</option><option value="US">US equities</option></select><button id="fpTvLoad" class="btn primary" type="button">Load chart</button><button id="fpTvAnalyze" class="btn" type="button">Analyze in FinPilot</button><button id="fpTvPaper" class="btn good" type="button">Open in Paper Arena</button><a id="fpTvOpen" class="btn" target="_blank" rel="noopener noreferrer">Open TradingView ↗</a></div><div id="fpTvFrame" style="min-height:340px;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center"><div class="muted" style="padding:24px;text-align:center">Choose a symbol and tap <b>Load chart</b>. The embedded chart may be unavailable in some in-app browsers.</div></div><div class="notice" style="margin-top:12px"><b>Connection boundary:</b> TradingView's embedded chart is visual only. It does not send live prices, alerts, account data, or orders to FinPilot. FinPilot paper execution uses its own market-data verification and risk gates; no real broker orders are sent.</div>';
     const input=section.querySelector('#fpTvSymbol'),market=section.querySelector('#fpTvMarket'),frame=section.querySelector('#fpTvFrame'),open=section.querySelector('#fpTvOpen');
     function symbol(){return tvSymbol(input.value,market.value)}
     function loadChart(){
@@ -44,7 +57,8 @@
     section.querySelector('#fpTvLoad').addEventListener('click',loadChart);
     section.querySelector('#fpTvAnalyze').addEventListener('click',()=>{
       const s=symbol();if(!s)return;
-      const raw=s.split(':').pop().replace(/USDT$/,'').replace(/\.(NS|BO)$/,'');
+      const raw=analysisSymbol(s,market.value);
+      if(!raw)return;
       const q=document.getElementById('globalSearch')||document.getElementById('searchQuery');
       if(q){q.value=raw;q.dispatchEvent(new Event('input',{bubbles:true}));}
       if(typeof window.runFullStockAnalysis==='function')window.runFullStockAnalysis(raw);
@@ -78,6 +92,6 @@
     observer.observe(document.body,{childList:true,subtree:true});
     let tries=0;const timer=setInterval(()=>{tryMount();if(document.getElementById('fpTradingViewBridge')||++tries>120)clearInterval(timer)},500);
   }
-  window.FinPilotTradingViewBridge={normalizeSymbol,tvSymbol,widgetUrl,paperSymbol,mount};
+  window.FinPilotTradingViewBridge={normalizeSymbol,tvSymbol,analysisSymbol,widgetUrl,paperSymbol,mount};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
