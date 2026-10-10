@@ -20,10 +20,10 @@ const observationOnly=normalizeSnapshot('BTC',{...validSource,sourceTimestampTyp
 assert.equal(observationOnly.ok,false,'observation time must not be treated as exchange timestamp');
 assert.ok(observationOnly.reasons.includes('PROVIDER_TIMESTAMP_PROVENANCE_REQUIRED'));
 
-const forecastRow=(id,index,outcome,probabilities,spacingHours=3,settlementHours=1)=>{
+const forecastRow=(id,index,outcome,probabilities,spacingHours=3,settlementHours=1,ticker='BTC',horizonMinutes=60)=>{
   const base=Date.parse('2026-01-01T00:00:00.000Z')+index*spacingHours*60*60*1000;
   return {
-    id,ticker:'BTC',modelName:'TEST_MODEL',
+    id,ticker,modelName:'TEST_MODEL',horizonMinutes,
     referenceAsOf:new Date(base).toISOString(),
     settledAt:new Date(base+settlementHours*60*60*1000).toISOString(),
     outcome,pUp:probabilities.UP,pDown:probabilities.DOWN,pHold:probabilities.HOLD
@@ -38,6 +38,39 @@ assert.equal(benchmark.evaluatedForecasts,7);
 assert.equal(benchmark.uniformBaseline.count,7);
 assert.equal(benchmark.uniformBaseline.meanBrier,0.666667);
 assert.equal(benchmark.uniformBaseline.meanLogLoss,1.098612);
+assert.equal(benchmark.uniformBaseline.topClassAccuracyPct,null,'accuracy for a three-way probability tie must be marked not applicable');
+assert.equal(benchmark.uniformBaseline.topClassAccuracyTiedCount,7);
+assert.equal(benchmark.classCoverage.observed,3);
+assert.equal(benchmark.classCoverage.warning,null);
+
+const btcRows=['UP','UP','DOWN','UP','HOLD','DOWN','UP'].map((outcome,i)=>{
+  const probabilities={UP:10,DOWN:10,HOLD:10};probabilities[outcome]=80;
+  return forecastRow('btc-'+i,i,outcome,probabilities);
+});
+const mixedTickerRows=[
+ ...btcRows,
+ forecastRow('eth-early-1',-2,'HOLD',{UP:10,DOWN:10,HOLD:80},3,1,'ETH',60),
+ forecastRow('eth-early-2',-1,'HOLD',{UP:10,DOWN:10,HOLD:80},3,1,'ETH',60)
+];
+const perTickerBenchmark=evaluateForecastBenchmarks(mixedTickerRows,{minimumPriorOutcomes:2,minimumForModelSelection:5});
+assert.equal(perTickerBenchmark.rollingPriorBaseline.count,4,'outcomes from ETH must not enter the BTC rolling prior');
+assert.equal(perTickerBenchmark.currentVsRollingPrior.sampleCount,4);
+
+const differentHorizonRows=[
+ ...btcRows,
+ forecastRow('btc-short-1',-2,'HOLD',{UP:10,DOWN:10,HOLD:80},3,1,'BTC',15),
+ forecastRow('btc-short-2',-1,'HOLD',{UP:10,DOWN:10,HOLD:80},3,1,'BTC',15)
+];
+const perHorizonBenchmark=evaluateForecastBenchmarks(differentHorizonRows,{minimumPriorOutcomes:2,minimumForModelSelection:5});
+assert.equal(perHorizonBenchmark.rollingPriorBaseline.count,4,'15-minute outcomes must not be mixed into the 60-minute rolling prior');
+
+const holdOnlyRows=Array.from({length:30},(_,i)=>forecastRow('hold-only-'+i,i,'HOLD',{UP:30,DOWN:30,HOLD:40}));
+const holdOnlyBenchmark=evaluateForecastBenchmarks(holdOnlyRows,{minimumForModelSelection:30});
+assert.equal(holdOnlyBenchmark.classCoverage.observed,1);
+assert.equal(holdOnlyBenchmark.classCoverage.status,'ONE_CLASS_ONLY');
+assert.ok(holdOnlyBenchmark.classCoverage.warning.includes('Only 1 of 3 outcome classes'));
+assert.equal(holdOnlyBenchmark.modelSelectionStatus,'INSUFFICIENT_CLASS_DIVERSITY','even a 30-row sample is not enough when it contains one outcome class');
+assert.match(holdOnlyBenchmark.reason,/do not tune or promote/);
 assert.ok(benchmark.currentModel.meanBrier<benchmark.uniformBaseline.meanBrier);
 assert.ok(benchmark.currentModel.meanLogLoss<benchmark.uniformBaseline.meanLogLoss);
 assert.equal(benchmark.rollingPriorBaseline.count,4,'rolling prior uses only outcomes settled before each forecast timestamp and requires three prior outcomes');
