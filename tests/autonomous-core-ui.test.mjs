@@ -16,6 +16,14 @@ assert.match(ui,/trainingFabric:window\.FinPilotTrainingFabric/,'Training Fabric
 assert.match(ui,/forecast-learning/,'forecast learning must be present in unified OS status');
 assert.match(ui,/Browser Training Fabric:/,'browser-local training must be explicitly described without claiming model weight training');
 assert.match(ui,/FinPilot AI OS/,'shared control panel must be presented as the central AI OS');
+assert.match(ui,/Central Agent Factory/,'the unified control panel must show the central agent registry');
+assert.match(ui,/fpac-agent-form/,'the central AI OS must be able to register a governed specialist definition');
+assert.match(ui,/\/api\/ai-os\/agents/,'Agent Factory must use the shared server registry');
+assert.match(ui,/\/api\/ai-os\/market-training\/status/,'market training status must come from the server-side worker');
+assert.match(ui,/\/api\/ai-os\/market-training\/cycle/,'the control plane must expose a safe manual market-learning cycle');
+assert.match(ui,/No orders submitted/,'market learning must explicitly disclose its no-execution boundary');
+assert.match(ui,/restart-safe/,'Agent Factory must disclose when registry storage is not durable');
+
 
 assert.match(ui,/Browser Quantum Core:/,'Quantum UI must show observed agent and run counts');
 assert.match(ui,/Foundation benchmark:/,'Foundation status must include the benchmark evidence');
