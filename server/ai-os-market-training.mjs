@@ -322,7 +322,6 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
  const uniformScores=[];
  const priorScores=[];
  const classCounts={UP:0,DOWN:0,HOLD:0};
- const priorSampleCounts=[];
  for(const row of unique) {
   const model=scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome);
   const uniform=scoreProbabilityVector([100/3,100/3,100/3],row.outcome);
@@ -337,7 +336,6 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
    const total=prior.length+3;
    const probabilities=OUTCOME_CLASSES.map(label=>counts[label]/total*100);
    priorScores.push(scoreProbabilityVector(probabilities,row.outcome));
-   priorSampleCounts.push(prior.length);
   }
  }
  const model=aggregateBenchmarkScores(modelScores);
@@ -347,16 +345,7 @@ export function evaluateForecastBenchmarks(inputRows=[], options={}) {
  const logLossSkillPct=model.meanLogLoss===null?null:Number(((uniform.meanLogLoss-model.meanLogLoss)/uniform.meanLogLoss*100).toFixed(2));
  const modelUnderperformsUniform=model.count>0&&model.meanBrier!==null&&model.meanLogLoss!==null&&
   (model.meanBrier>uniform.meanBrier||model.meanLogLoss>uniform.meanLogLoss);
- const rollingComparison=model.count>=minimumPriorOutcomes&&rollingPrior.count>0
-  ?{
-    model:{...aggregateBenchmarkScores(unique.filter(row=>unique.some(other=>other.id!==row.id&&other.settledAt<row.referenceAt&&unique.filter(c=>c.settledAt<row.referenceAt).length>=minimumPriorOutcomes).map(row=>scoreProbabilityVector([row.pUp,row.pDown,row.pHold],row.outcome)))},
-    baseline:rollingPrior,
-    evaluatedForecasts:rollingPrior.count,
-    betterOnBrier:rollingPrior.meanBrier!==null&&aggregateBenchmarkScores(priorScores).meanBrier!==null,
-    note:'Comparison set is chronological and excludes outcomes that had not settled by each forecast reference timestamp.'
-   }
-  :{model:null,baseline:rollingPrior,evaluatedForecasts:rollingPrior.count,betterOnBrier:null,note:'Not enough previously settled outcomes for a rolling-prior comparison.'};
- // Model-vs-prior comparison is computed on exactly the same eligible forecast rows.
+ // Compare the current model to the rolling prior on exactly the same eligible forecast rows.
  const priorEligibleRows=unique.filter(row=>{
   const prior=unique.filter(other=>other.id!==row.id&&other.settledAt<row.referenceAt);
   return prior.length>=minimumPriorOutcomes;
