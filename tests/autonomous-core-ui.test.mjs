@@ -13,4 +13,5 @@ assert.match(ui,/Browser Evolution OS:/,'Evolution UI must show measured browser
 assert.match(ui,/Browser Quantum Core:/,'Quantum UI must show observed agent and run counts');
 assert.match(ui,/Foundation benchmark:/,'Foundation status must include the benchmark evidence');
 assert.doesNotMatch(ui,/t=statusTone/,'undefined status mapper must not be referenced');
+assert.match(ui,/refreshTimer=null,client=null/,'browser client state must be declared before render and evidence checks');
 console.log('Autonomous Core OS UI contract checks passed.');

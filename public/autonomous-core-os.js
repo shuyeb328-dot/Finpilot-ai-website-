@@ -9,7 +9,7 @@ const API='/api/os-control-plane';
 const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const tone=s=>({HEALTHY:'good',READY:'good',ACTIVE:'good',SAFE_GATED:'good',IDLE:'neutral',PARTIAL:'warn',DEGRADED:'bad',UNKNOWN:'neutral',REVIEW_REQUIRED:'bad'}[s]||'neutral');
 const nice=s=>String(s||'UNKNOWN').replace(/_/g,' ');
-let opened=false,lastData=null,lastCycle=null,busy=false,refreshTimer=null;
+let opened=false,lastData=null,lastCycle=null,busy=false,refreshTimer=null,client=null;
 function clientSignals(){return {
  foundation:window.FinPilotFoundation?.getReport?.()||null,
  evolution:window.FinPilotEvolution?.snapshot?.()||null,

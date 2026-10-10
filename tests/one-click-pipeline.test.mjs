@@ -262,3 +262,5 @@ assert.match(serverText, /const agent=clean\(row\?\.agent,64\)/, 'agent identifi
 assert.match(serverText, /const lesson=clean\(row\?\.lesson\|\|'',600\)/, 'client-provided telemetry lessons must be bounded before storage');
 
 console.log('one-click-pipeline: contract checks passed');
+
+assert.match(fs.readFileSync(new URL('../public/one-click-analysis.js',import.meta.url),'utf8'),/money\?\.buyProbability==null\?'—':money\.buyProbability/,'unavailable market-data probabilities must render as not calculated, not 0%');
