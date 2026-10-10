@@ -51,8 +51,8 @@ const sbcDiscovery=buildSupplementalDiscovery(bareSbc);
 assert.match(sbcDiscovery.query,/NSE BSE official exchange/i,'Indian tickers must use exchange-specific discovery hints');
 assert.doesNotMatch(sbcDiscovery.query,/SBC Exports Ltd/i,'discovery must not use a ticker-specific query override');
 assert.equal(bareSbc.forecastPolicy,'REQUIRE_VALIDATED_MARKET_DATA','stale prices must not unlock an unverified forecast');
-const globalDiscovery=buildSupplementalDiscovery(planFinancialTask('MSFT'));
-assert.match(globalDiscovery.query,/SEC filings/,'global tickers must use global issuer research hints');
+const msftSupplementalDiscovery=buildSupplementalDiscovery(planFinancialTask('MSFT'));
+assert.match(msftSupplementalDiscovery.query,/SEC filings/,'global tickers must use global issuer research hints');
 const msftResults=filterFinancialSearchResults([
  {title:'Microsoft (MSFT) Q4 earnings beat estimates',snippet:'Microsoft revenue and cloud growth topped analyst expectations.'},
  {title:'NFL scores and results',snippet:'Sports results and league news.'}
