@@ -502,23 +502,40 @@
   function agentExecutionOutcomeReport(state){
     const p=ensure(state),eq=executionQualityReport(state),rows=eq.rows||[],byOrder=new Map(rows.map(r=>[String(r.orderId),r])),filled=p.orders.filter(o=>['FILLED','PARTIALLY_FILLED'].includes(String(o.status||'').toUpperCase()));
     const groups=new Map();
-    const ensureGroup=(a)=>{const id=a?.id||'UNKNOWN';if(!groups.has(id))groups.set(id,{agentId:id,agentName:a?.name||id,role:a?.role||'Specialist',fills:0,scoredFills:0,decisionLinked:0,closedOutcomes:0,wins:0,losses:0,realizedPnl:0,unrealizedPnl:0,fees:0,slippage:0,executionScores:[],decisionAccuracy:[],symbols:new Set()});return groups.get(id)};
+    const ensureGroup=(a)=>{const id=a?.id||'UNKNOWN';if(!groups.has(id))groups.set(id,{agentId:id,agentName:a?.name||id,role:a?.role||'Specialist',fills:0,scoredFills:0,decisionLinked:0,closedOutcomes:0,wins:0,losses:0,breakeven:0,realizedPnl:0,netRealizedPnl:0,unrealizedPnl:0,fees:0,slippage:0,executionScores:[],symbols:new Set(),decisions:new Map()});return groups.get(id)};
     filled.forEach(o=>{
       const g=ensureGroup(p.agents.find(a=>a.id===o.agentId));g.fills++;g.symbols.add(o.symbol);
-      g.realizedPnl+=num(o.realizedPnl);g.fees+=num(o.fees);g.slippage+=num(o.slippage);
+      const gross=num(o.realizedPnl);const fees=num(o.fees);g.realizedPnl+=gross;g.netRealizedPnl+=gross-fees;g.fees+=fees;g.slippage+=num(o.slippage);
       const xr=byOrder.get(String(o.id));if(xr?.score!=null){g.scoredFills++;g.executionScores.push(xr.score)}
-      if(o.decisionId){g.decisionLinked++;if(num(o.realizedPnl)!==0){g.closedOutcomes++;const win=num(o.realizedPnl)>0;g.decisionAccuracy.push(win?100:0);if(win)g.wins++;else g.losses++;}}
+      if(o.decisionId){
+        g.decisionLinked++;
+        const decisionKey=String(o.decisionId);
+        const d=g.decisions.get(decisionKey)||{decisionId:decisionKey,symbol:o.symbol,firstFillAt:o.filledAt||o.time||'',lastFillAt:o.filledAt||o.time||'',grossPnl:0,fees:0,fillCount:0,actions:new Set()};
+        d.grossPnl+=gross;d.fees+=fees;d.fillCount++;d.lastFillAt=String(o.filledAt||o.time||d.lastFillAt);
+        if(o.decisionAction)d.actions.add(String(o.decisionAction));
+        g.decisions.set(decisionKey,d);
+      }
     });
     p.agents.forEach(a=>{const g=ensureGroup(a);g.unrealizedPnl+=a.positions.reduce((n,pos)=>n+(num(pos.last)-num(pos.avg))*num(pos.qty),0)});
     const agents=[...groups.values()].map(g=>{
-      const avg=arr=>arr.length?+(arr.reduce((n,x)=>n+x,0)/arr.length).toFixed(1):null;
-      const executionScore=avg(g.executionScores),decisionOutcomeScore=avg(g.decisionAccuracy),coverage=g.fills?+(g.decisionLinked/g.fills*100).toFixed(1):0;
-      const qualityParts=[];if(executionScore!=null)qualityParts.push({score:executionScore,weight:60});if(decisionOutcomeScore!=null)qualityParts.push({score:decisionOutcomeScore,weight:40});
+      const avg=arr=>arr.length?+(arr.reduce((n,x)=>n+x,0)/arr.length).toFixed(2):null;
+      const outcomes=[...g.decisions.values()].map(d=>({...d,netPnl:d.grossPnl-d.fees,actions:[...d.actions]})).sort((a,b)=>Date.parse(a.lastFillAt||0)-Date.parse(b.lastFillAt||0));
+      let equity=0,peak=0,maxDrawdown=0;
+      outcomes.forEach(d=>{equity+=d.netPnl;peak=Math.max(peak,equity);maxDrawdown=Math.max(maxDrawdown,peak-equity);if(d.netPnl>0)g.wins++;else if(d.netPnl<0)g.losses++;else g.breakeven++;});
+      g.closedOutcomes=outcomes.length;
+      const winRate=g.closedOutcomes?g.wins/g.closedOutcomes*100:null;
+      const decisionAccuracy=winRate===null?null:+winRate.toFixed(1);
+      const expectancy=outcomes.length?outcomes.reduce((n,d)=>n+d.netPnl,0)/outcomes.length:null;
+      const grossWins=outcomes.filter(d=>d.netPnl>0).reduce((n,d)=>n+d.netPnl,0);
+      const grossLosses=Math.abs(outcomes.filter(d=>d.netPnl<0).reduce((n,d)=>n+d.netPnl,0));
+      const profitFactor=grossLosses>0?grossWins/grossLosses:(grossWins>0?null:0);
+      const executionScore=avg(g.executionScores),decisionOutcomeScore=decisionAccuracy,coverage=g.fills?+(g.decisionLinked/g.fills*100).toFixed(1):0;
+      const qualityParts=[];if(executionScore!=null)qualityParts.push({score:executionScore,weight:60});if(decisionAccuracy!=null)qualityParts.push({score:decisionAccuracy,weight:40});
       const combinedScore=qualityParts.length?+(qualityParts.reduce((n,x)=>n+x.score*x.weight,0)/qualityParts.reduce((n,x)=>n+x.weight,0)).toFixed(1):null;
-      const sampleReady=g.scoredFills>=30&&g.closedOutcomes>=10&&g.decisionLinked>=10;
-      return {agentId:g.agentId,agentName:g.agentName,role:g.role,fills:g.fills,scoredFills:g.scoredFills,decisionLinked:g.decisionLinked,decisionCoverage:coverage,closedOutcomes:g.closedOutcomes,wins:g.wins,losses:g.losses,winRate:g.closedOutcomes?+(g.wins/g.closedOutcomes*100).toFixed(1):null,realizedPnl:+g.realizedPnl.toFixed(2),unrealizedPnl:+g.unrealizedPnl.toFixed(2),fees:+g.fees.toFixed(2),slippage:+g.slippage.toFixed(2),executionQualityScore:executionScore,decisionOutcomeScore,combinedOutcomeScore:combinedScore,symbols:[...g.symbols],trainingReviewEligible:sampleReady,virtualOnly:true};
+      const sampleReady=g.scoredFills>=30&&g.closedOutcomes>=30&&g.decisionLinked>=30;
+      return {agentId:g.agentId,agentName:g.agentName,role:g.role,fills:g.fills,scoredFills:g.scoredFills,decisionLinked:g.decisionLinked,decisionCoverage:coverage,closedOutcomes:g.closedOutcomes,wins:g.wins,losses:g.losses,breakeven:g.breakeven,winRate:decisionAccuracy,realizedPnl:+g.realizedPnl.toFixed(2),netRealizedPnl:+g.netRealizedPnl.toFixed(2),unrealizedPnl:+g.unrealizedPnl.toFixed(2),fees:+g.fees.toFixed(2),slippage:+g.slippage.toFixed(2),expectancyPerDecision:expectancy===null?null:+expectancy.toFixed(2),profitFactor:profitFactor===null?null:+profitFactor.toFixed(3),maxDrawdown:+maxDrawdown.toFixed(2),executionQualityScore:executionScore,decisionOutcomeScore,combinedOutcomeScore:combinedScore,symbols:[...g.symbols],trainingReviewEligible:sampleReady,trainingReviewReason:sampleReady?'MINIMUM_SAMPLE_MET':'Need 30 scored fills and 30 distinct linked decisions',virtualOnly:true};
     }).sort((a,b)=>(b.combinedOutcomeScore??b.executionQualityScore??-1)-(a.combinedOutcomeScore??a.executionQualityScore??-1));
-    return {version:'1.0',mode:'PAPER_AGENT_OUTCOMES',agents,governance:{autoPromotion:false,productionMutation:false,minimumScoredFills:30,minimumClosedOutcomes:10,minimumLinkedDecisions:10,notes:'Outcome data is evaluation telemetry only.'},virtualOnly:true};
+    return {version:'2.0',mode:'PAPER_AGENT_OUTCOMES',agents,governance:{autoPromotion:false,productionMutation:false,minimumScoredFills:30,minimumClosedOutcomes:30,minimumLinkedDecisions:30,outcomeUnit:'Distinct decisionId; partial fills are aggregated; breakeven decisions count',netPnl:'Gross realized P&L less recorded fees; slippage is already reflected in simulated fill prices and is reported separately, not subtracted twice.',notes:'Outcome data is evaluation telemetry only. This report is not proof of future profitability.'},virtualOnly:true};
   }
   window.FinPilotPaperCore={defaultPaper,ensure,ensureAgent,think,qtyStep,normalizeQty,preTradeCheck,paperOrder,placeOrder,processOpenOrders,processMarketTick,processRiskExits,amendOrder,replaceOrder,reconcileOrders,placeBracket,placeTrailingStop,placeOco,cancelOco,cancelOrder,expirePaperOrders,attachRisk,roundTable,markToMarket,leaderboard,executionPreview,accountSummary,riskReport,executionQualityReport,recordDecision,agentExecutionOutcomeReport};
 })();

@@ -270,6 +270,34 @@ function fresh(){
 }
 
 
+
+{
+  const {state}=fresh();
+  const d1=core.recordDecision(state,'a1','IRFC','BUY',{confidence:70,edge:65});
+  core.paperOrder(state,'a1','IRFC','BUY',10,100,'training entry',{decisionId:d1.id,decisionAction:'BUY'});
+  core.paperOrder(state,'a1','IRFC','SELL',10,110,'training exit',{decisionId:d1.id,decisionAction:'SELL',reduceOnly:true});
+  const d2=core.recordDecision(state,'a1','TCS','BUY',{confidence:55,edge:50});
+  core.paperOrder(state,'a1','TCS','BUY',2,100,'second entry',{decisionId:d2.id,decisionAction:'BUY'});
+  core.paperOrder(state,'a1','TCS','SELL',2,90,'second exit',{decisionId:d2.id,decisionAction:'SELL',reduceOnly:true});
+  const report=core.agentExecutionOutcomeReport(state);
+  const row=report.agents.find(x=>x.agentId==='a1');
+  assert.equal(report.version,'2.0');
+  assert.equal(report.mode,'PAPER_AGENT_OUTCOMES');
+  assert.equal(row.fills,4);
+  assert.equal(row.closedOutcomes,2,'multiple fills for one decision must be aggregated into one outcome');
+  assert.equal(row.wins,1);
+  assert.equal(row.losses,1);
+  assert.equal(row.breakeven,0);
+  assert.ok(Number.isFinite(row.expectancyPerDecision),'report decision-level expectancy');
+  assert.ok(Number.isFinite(row.netRealizedPnl),'report P&L after recorded fees');
+  assert.ok(Number.isFinite(row.maxDrawdown)&&row.maxDrawdown>=0,'report chronological equity drawdown');
+  assert.equal(row.trainingReviewEligible,false,'small samples cannot qualify for training review');
+  assert.equal(report.governance.autoPromotion,false);
+  assert.equal(report.governance.productionMutation,false);
+  assert.equal(report.virtualOnly,true);
+}
+
+
 console.log('Paper engine execution tests passed');
 
 
