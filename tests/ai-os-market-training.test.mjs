@@ -3,6 +3,7 @@ import {
  initializeAIOSMarketTrainingDirector,
  runAIOSMarketTrainingCycle,
  getAIOSMarketTrainingStatus,
+ evaluateForecastBenchmarks,
  normalizeSnapshot,
  resetAIOSMarketTrainingForTests
 } from '../server/ai-os-market-training.mjs';
@@ -18,6 +19,56 @@ assert.equal(normalizeSnapshot('BTC',validSource,Date.now()).ok,true);
 const observationOnly=normalizeSnapshot('BTC',{...validSource,sourceTimestampType:'OBSERVATION_TIMESTAMP'},Date.now());
 assert.equal(observationOnly.ok,false,'observation time must not be treated as exchange timestamp');
 assert.ok(observationOnly.reasons.includes('PROVIDER_TIMESTAMP_PROVENANCE_REQUIRED'));
+
+const forecastRow=(id,index,outcome,probabilities,spacingHours=3,settlementHours=1)=>{
+  const base=Date.parse('2026-01-01T00:00:00.000Z')+index*spacingHours*60*60*1000;
+  return {
+    id,ticker:'BTC',modelName:'TEST_MODEL',
+    referenceAsOf:new Date(base).toISOString(),
+    settledAt:new Date(base+settlementHours*60*60*1000).toISOString(),
+    outcome,pUp:probabilities.UP,pDown:probabilities.DOWN,pHold:probabilities.HOLD
+  };
+};
+const strongRows=['UP','UP','DOWN','UP','HOLD','DOWN','UP'].map((outcome,i)=>{
+  const probabilities={UP:10,DOWN:10,HOLD:10};probabilities[outcome]=80;
+  return forecastRow('strong-'+i,i,outcome,probabilities);
+});
+const benchmark=evaluateForecastBenchmarks(strongRows,{minimumPriorOutcomes:2,minimumForModelSelection:5});
+assert.equal(benchmark.evaluatedForecasts,7);
+assert.equal(benchmark.uniformBaseline.count,7);
+assert.equal(benchmark.uniformBaseline.meanBrier,0.666667);
+assert.equal(benchmark.uniformBaseline.meanLogLoss,1.098612);
+assert.ok(benchmark.currentModel.meanBrier<benchmark.uniformBaseline.meanBrier);
+assert.ok(benchmark.currentModel.meanLogLoss<benchmark.uniformBaseline.meanLogLoss);
+assert.equal(benchmark.rollingPriorBaseline.count,5,'rolling prior uses only outcomes settled before each forecast timestamp');
+assert.equal(benchmark.currentVsRollingPrior.sampleCount,5);
+assert.equal(benchmark.probabilitiesCalibrated,false);
+assert.equal(benchmark.promotionEligible,false);
+assert.equal(benchmark.automaticPromotion,false);
+assert.match(benchmark.modelSelectionStatus,/INSUFFICIENT_OUTCOMES/,'small samples must never reach model-selection review');
+
+const weakRows=['UP','DOWN','HOLD','UP','DOWN','HOLD'].map((outcome,i)=>{
+ const probabilities={UP:10,DOWN:80,HOLD:10};
+ if(outcome==='DOWN'){probabilities.UP=80;probabilities.DOWN=10;}
+ if(outcome==='HOLD'){probabilities.UP=80;probabilities.DOWN=10;probabilities.HOLD=10;}
+ return forecastRow('weak-'+i,i,outcome,probabilities);
+});
+const weak=evaluateForecastBenchmarks(weakRows);
+assert.equal(weak.currentVsUniform.underperforms,true,'bad predictions must be flagged against the uniform baseline');
+assert.equal(weak.promotionEligible,false);
+
+const noLeakage=evaluateForecastBenchmarks([
+ forecastRow('overlap-1',0,'UP',{UP:80,DOWN:10,HOLD:10},1,2),
+ forecastRow('overlap-2',1,'DOWN',{UP:10,DOWN:80,HOLD:10},1,2)
+],{minimumPriorOutcomes:1});
+assert.equal(noLeakage.rollingPriorBaseline.count,0,'an outcome that settles after the next forecast reference timestamp must not leak into its baseline');
+
+const invalidVector=evaluateForecastBenchmarks([
+ forecastRow('valid',0,'UP',{UP:80,DOWN:10,HOLD:10}),
+ {...forecastRow('invalid',1,'UP',{UP:80,DOWN:10,HOLD:10}),pHold:0}
+]);
+assert.equal(invalidVector.evaluatedForecasts,1,'invalid probability vectors must be excluded from benchmark scoring');
+
 
 let clockMs = Date.now();
 let index = 0;
@@ -95,6 +146,10 @@ assert.equal(status.pendingForecastCount, 1, 'a later observation can resolve on
 assert.ok(Number.isFinite(status.meanBrierScore));
 assert.ok(Number.isFinite(status.meanLogLoss));
 assert.equal(status.topClassAccuracyPct, 100);
+assert.equal(status.benchmark.evaluatedForecasts,1);
+assert.equal(status.benchmark.uniformBaseline.meanBrier,0.666667);
+assert.equal(status.benchmark.promotionEligible,false);
+assert.equal(status.calibrationStatus,'INSUFFICIENT_RESOLVED_OUTCOMES');
 
 repeatLast = true;
 const duplicate = await runAIOSMarketTrainingCycle({ trigger: 'test-duplicate' });
