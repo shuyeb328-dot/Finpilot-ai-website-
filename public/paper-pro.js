@@ -34,7 +34,7 @@
     host.innerHTML='<div class="fpTowerHead"><div><span class="eyebrow">EXECUTION CONTROL TOWER</span><strong class="'+tone+'">'+gate.status+'</strong></div><span class="fpTowerConfidence">DATA CONFIDENCE '+(mm.dataConfidence??0)+'%</span></div><div class="fpTowerGrid"><div><span>QUOTE AGE</span><b>'+Number(mm.quoteAgeSec||0).toFixed(1)+'s</b></div><div><span>SPREAD</span><b>'+(mm.spreadBps==null?'—':Number(mm.spreadBps).toFixed(1)+' bps')+'</b></div><div><span>SLIPPAGE</span><b>'+Number(mm.estimatedSlippage||0).toFixed(2)+'</b></div><div><span>NOTIONAL</span><b>'+money(mm.notional||0)+'</b></div><div><span>POST EXPOSURE</span><b>'+Number(mm.postTradeExposurePct||0).toFixed(1)+'%</b></div><div><span>FILLABILITY</span><b>'+esc(mm.fillability||'BLOCKED')+'</b></div><div><span>RISK / UNIT</span><b>'+money(mm.riskPerUnit||0)+'</b></div><div><span>R:R</span><b>'+(mm.riskReward==null?'—':Number(mm.riskReward).toFixed(2)+':1')+'</b></div></div>'+(reasons.length?'<div class="fpTowerReasons">'+reasons.map(function(x){return '<span>• '+esc(x)+'</span>'}).join('')+'</div>':'<div class="fpTowerReasons"><span>• Execution checks passed; order is eligible for paper routing.</span></div>')+'<small class="fpTowerNote">Risk gate is enforced by the paper engine. Market execution remains virtual only.</small>';
     return gate;
   }
-  async function paperProMarketMeta(m){
+  function paperProMarketMeta(m){
  var v=m?.verification||{};
  var sourceAsOf=m?.sourceAsOf||m?.asOf||m?.tick?.sourceAsOf||m?.tick?.asOf;
  var ageMs=sourceAsOf?Date.now()-Date.parse(sourceAsOf):NaN;
@@ -47,7 +47,7 @@
    asOf:sourceAsOf||undefined,receivedAt:m?.receivedAt||m?.tick?.receivedAt,bid:Number(m?.orderBook?.bid||0)||undefined,
    ask:Number(m?.orderBook?.ask||0)||undefined};
 }
-function paperProMarket(){
+async function paperProMarket(){
     var sym=(document.getElementById('paperSymbol')?.value||'BTC').trim().toUpperCase();
     var m=null;
     try{m=await loadPaperMarket();}catch(e){m=null}
