@@ -271,5 +271,5 @@ assert.match(analysisSource,/scenarioAvailable&&money\?\.riskReward!=null\?Numbe
 assert.match(analysisSource,/CURRENCY UNVERIFIED/,'unknown equity currency must not default to rupees');
 assert.match(analysisSource,/Chart withheld because the returned market-data symbol does not match the selected instrument/,'chart display must fail closed on symbol mismatch');
 assert.match(analysisSource,/exchangeConflict/,'market-dependent outputs must be blocked when source exchange conflicts with instrument type');
-assert.match(analysisSource,/Historical support .*no live target\\/stop/,'historical charts must not be presented as live target/stop forecasts');
+assert.ok(analysisSource.includes('Historical support ')&&analysisSource.includes('no live target/stop'),'historical charts must not be presented as live target/stop forecasts');
 
