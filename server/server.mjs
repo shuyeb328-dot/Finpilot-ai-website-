@@ -2272,7 +2272,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&u.pathname==='/api/quantum-status')return quantumStatus(req,res);
   if(req.method==='POST'&&u.pathname==='/api/quantum-optimize')return quantumOptimize(req,res);
   if(req.method==='GET'&&u.pathname==='/api/exa-status')return exaStatus(req,res);
-  if(req.method==='GET'&&u.pathname==='/api/ai-os/training/status')return send(res,200,await getAIOSMarketTrainingStatus());
+  if(req.method==='GET'&&u.pathname==='/api/ai-os/training/status'){const status=await getAIOSMarketTrainingStatus();return send(res,200,{...status,manualCycleAllowed:String(process.env.FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED||'false').toLowerCase()==='true'});}
   if(req.method==='POST'&&u.pathname==='/api/ai-os/training/cycle'){
    if(String(process.env.FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED||'false').toLowerCase()!=='true')return send(res,403,{ok:false,error:'MANUAL_TRAINING_CYCLE_DISABLED',detail:'Enable FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED only after reviewing data-provider limits.'});
    await body(req);return send(res,200,await runAIOSMarketTrainingCycle({trigger:'operator-request'}));
