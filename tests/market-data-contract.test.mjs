@@ -59,7 +59,10 @@ assert.match(server,/addProvider\('nasdaq-public',async\(\)=>fetchNasdaqEod\(sym
 assert.match(server,/id:'nasdaq-public',configured:true,role:'no-key US equity EOD fallback'/,'provider status must expose the no-key US EOD source');
 assert.match(server,/sourceTimestampType:gp\.sourceTimestampType\|\|'HISTORICAL_EOD'/,'global historical fallback must preserve source-date provenance');
 assert.match(server,/executionEligibilityReason:gp\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical fallback must remain execution-ineligible');
-assert.match(server,/report\?\.sourceTimestampType==='HISTORICAL_EOD'&&report\.live===false/,'valid global EOD context should remain visible when live quotes fail');
+assert.match(server,/report\?\.live===false&&Array\.isArray\(report\.candles\)&&report\.candles\.length>=2/,'matching delayed/EOD candles may remain visible for historical context only');
+assert.match(server,/LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED/,'EOD candles must be labelled historical and remain ineligible');
+assert.match(server,/executionEligibilityReason:historicalReport\.executionEligibilityReason\|\|'HISTORICAL_DATA_ANALYSIS_ONLY'/,'historical equity fallback must state its analysis-only execution gate');
+assert.doesNotMatch(server,/const SBC_SERVER=/,'a fixed stale SBC price snapshot must not be used as a silent fallback');
 assert.match(server,/END_OF_DAY_ANALYSIS_ONLY/,'historical context must not be labelled VERIFIED_LIVE');
 assert.match(server,/timeout\|abort\|ECONNRESET/,'timeout failures should cool down the provider and reduce duplicate requests');
 assert.match(server,/for\(const p of providers\)\{try\{return await trackedProvider\(p.id,p.run\)/,'provider cooldown/health tracking must use explicit provider IDs');

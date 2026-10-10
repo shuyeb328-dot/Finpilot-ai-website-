@@ -46,7 +46,7 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-8/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-9/, 'rebuilt one-click module must use a new asset version');
 assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
@@ -256,7 +256,7 @@ assert.match(moduleText, /agentNames\.length<Math\.min\(12,expectedFleetSize\)/,
 assert.match(moduleText, /window\.__finpilotAgentFleetStatus=\{ok:true,agentCount:agentNames\.length/, 'runtime diagnostics must disclose actual specialist count and execution source');
 assert.match(moduleText, /Specialist fleet: '\+agentNames\.length\+' browser-calculated agents; telemetry '/, 'final analysis status must display real agent and telemetry counts');
 assert.match(pageText, /deep-learning-os\.js\?v=20261010-6/, 'the page must cache-bust the specialist module version');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-6/, 'the page must reference the updated analysis module version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-9/, 'the page must reference the latest analysis module version');
 
 
 assert.match(serverText, /import \{cleanText as clean\} from '\.\/text-sanitizer\.mjs';/, 'server agent-memory routes must import the shared sanitizer used by remember()');
@@ -271,4 +271,5 @@ assert.match(analysisSource,/scenarioAvailable&&money\?\.riskReward!=null\?Numbe
 assert.match(analysisSource,/CURRENCY UNVERIFIED/,'unknown equity currency must not default to rupees');
 assert.match(analysisSource,/Chart withheld because the returned market-data symbol does not match the selected instrument/,'chart display must fail closed on symbol mismatch');
 assert.match(analysisSource,/exchangeConflict/,'market-dependent outputs must be blocked when source exchange conflicts with instrument type');
+assert.match(analysisSource,/Historical support .*no live target\\/stop/,'historical charts must not be presented as live target/stop forecasts');
 

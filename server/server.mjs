@@ -1462,18 +1462,24 @@ async function stockReport(req,res,u){
   }catch(error){liveErr=error;}
   {
    try{
-    const sourceReport=await fetchTejHqEod(t,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
+    const historicalReport=await fetchTejHqEod(t,{allowedSymbols:Object.keys(INDIA_EQUITIES)});
+    const sourceReport={
+     ...historicalReport,
+     ...(t==='SBC'?{ticker:'SBC',symbol:'SBC',name:'SBC Exports Ltd.',market:'INDIA_EQUITY',exchange:'NSE · TejHQ EOD',currency:'INR'}:{}),
+     executionEligibilityReason:historicalReport.executionEligibilityReason||'HISTORICAL_DATA_ANALYSIS_ONLY'
+    };
     const report=gateMarketReport(sourceReport,t,interval);
     const payload={ok:true,report,executionEligible:false,executionGate:report.executionGate,
-      warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_EOD_FALLBACK_USED',
-      dataDisclaimer:sourceReport.dataDisclaimer};
+      warning:'LIVE_EQUITY_QUOTE_UNAVAILABLE_HISTORICAL_CHART_USED',
+      dataDisclaimer:sourceReport.dataDisclaimer||'Historical end-of-day candles are for context only. No live quote, forecast, or paper execution is enabled.'};
     if(Array.isArray(report?.candles)&&report.candles.length>1)cached(cacheKey,payload);
     return send(res,200,payload);
    }catch(eodErr){
     if(t==='SBC'){
-     const sourceReport={...SBC_SERVER,live:false,executionEligible:false,sourceTimestampType:'HISTORICAL_SNAPSHOT',provider:'FinPilot verified snapshot fallback',warning:'Live market provider unavailable; snapshot shown instead of inventing a price.'};
+     const dataDisclaimer='No verified live quote or historical candle series was available. FinPilot withholds the prior fixed snapshot rather than displaying an unverified price.';
+     const sourceReport={ticker:'SBC',symbol:'SBC',name:'SBC Exports Ltd.',market:'INDIA_EQUITY',exchange:'NSE',currency:'INR',price:null,asOf:null,sourceTimestampType:'UNKNOWN_TIMESTAMP',live:false,executionEligible:false,executionEligibilityReason:'NO_VERIFIED_MARKET_DATA',dataFreshness:'UNAVAILABLE',candles:[],dataDisclaimer};
      const report=gateMarketReport(sourceReport,t,interval);
-     return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate});
+     return send(res,200,{ok:true,report,executionEligible:false,executionGate:report.executionGate,warning:'NO_VERIFIED_MARKET_DATA',dataDisclaimer});
     }
     throw new Error('Live equity provider failed ('+String(liveErr?.message||liveErr)+'); TejHQ EOD fallback failed ('+String(eodErr?.message||eodErr)+')');
    }
@@ -1486,10 +1492,6 @@ async function stockReport(req,res,u){
   return send(res,502,{ok:false,error:'Live market provider unavailable for '+t+': '+e.message,executionEligible:false});
  }
 }
-const SBC_SERVER={ticker:'SBC',name:'SBC Exports Ltd.',exchange:'NSE',asOf:'2026-10-05',price:62.04,previous:58.54,week52High:63.10,week52Low:21.50,support:45.38,rsi:89.96,adx:43.84,vwap20:52.69,vwap50:46.95,volumeMultiple:2.33,pe:77.2,roce:18.4,roe:37.2,riskScore:86,trend:'Strong uptrend',posture:'WATCH / MOMENTUM',conclusion:'Trend and participation are strong, but the evidence set also shows extreme momentum extension and valuation risk. The engine therefore prioritizes confirmation and risk control over chasing strength.',targets:[{label:'Immediate breakout zone',price:63.10,logic:'52-week high; sustained acceptance above it would indicate price discovery.'},{label:'Extension checkpoint',price:66.00,logic:'Illustrative scenario level above the prior high; requires fresh evidence and volume confirmation.'},{label:'Deeper value / reset zone',price:52.69,logic:'20-day VWAP; loss of this zone would weaken the short-term momentum thesis.'}],risks:[{label:'Momentum exhaustion',level:'HIGH'},{label:'Valuation / expectation risk',level:'HIGH'},{label:'Pullback to VWAP',level:'MEDIUM'},{label:'Trend breakdown',level:'MEDIUM'}],sources:[{name:'NSE',url:'https://www.nseindia.com/get-quotes/equity?symbol=SBC',use:'Price, range, volume and market statistics',freshness:'5 Oct 2026 snapshot'},{name:'Screener',url:'https://www.screener.in/company/SBC/',use:'Valuation and return metrics',freshness:'5 Oct 2026 snapshot'},{name:'Flash Finance',url:'https://flashfinance.in/technical-analysis/SBC/',use:'RSI, ADX, VWAP and momentum context',freshness:'5 Oct 2026 snapshot'}]};
-
-
-
 function optionScore(o, spot){
   const mid=(Number(o.bidPrice||0)+Number(o.askPrice||0))/2 || Number(o.markPrice||o.lastPrice||0);
   const spread=mid>0 && o.bidPrice!=null && o.askPrice!=null ? Math.max(0,(Number(o.askPrice)-Number(o.bidPrice))/mid) : null;
