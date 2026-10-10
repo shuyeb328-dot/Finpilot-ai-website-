@@ -1,6 +1,13 @@
 name: FinPilot production smoke
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/finpilot-production-smoke.yml"
+      - "public/index.html"
+      - "public/one-click-analysis.js"
+      - "public/deep-learning-os.js"
+      - "server/**"
   workflow_dispatch:
   schedule:
     - cron: "17,47 * * * *"
