@@ -541,11 +541,12 @@ async function decisionStream(req,res,u){
 }
 
 async function fetchJson(url){
- return PROVIDER_RESPONSE_CACHE.get(url,async()=>{
-  const r=await resilientFetch(url,'binance');
-  if(!r.ok)throw new Error(`provider ${r.status}`);
-  return r.json();
- });
+ // Binance connector intentionally disabled. No request is made, even if a legacy
+ // derivatives/stream route still calls this helper; callers must fail closed.
+ let host='';
+ try{host=new URL(url).hostname.toLowerCase()}catch{}
+ if(host==='binance.com'||host.endsWith('.binance.com'))throw new Error('BINANCE_CONNECTOR_DISABLED');
+ throw new Error('LEGACY_MARKET_CONNECTOR_DISABLED');
 }
 function sma(a,n){return a.length<n?null:a.slice(-n).reduce((x,y)=>x+y,0)/n}
 function ema(a,n){if(a.length<n)return null;let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n,k=2/(n+1);for(let i=n;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
@@ -1364,7 +1365,6 @@ async function marketDataOS(req,res,u){
   const symbol=CRYPTO_ASSETS[raw];
   const providerSymbols=cryptoProviderSymbols(raw,symbol);
   if(!providerSymbols)return send(res,400,{ok:false,error:'CRYPTO_PAIR_UNSUPPORTED',ticker:raw});
-  await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');const asOf=Number(x.closeTime)>0?new Date(Number(x.closeTime)).toISOString():x?._finpilotCache?.observedAt||null;return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf,timestampType:Number(x.closeTime)>0?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Kraken public',async()=>{const pair=providerSymbols.krakenPair;const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Gate.io public',async()=>{
   const pair=providerSymbols.base+'_'+providerSymbols.quote;
@@ -1909,14 +1909,14 @@ async function globalMarketTest(req,res,u){
  const passed=rows.filter(x=>x.ok).length,failed=rows.length-passed;
  return send(res,200,{ok:true,type,total:rows.length,passed,failed,coveragePct:rows.length?Math.round(passed/rows.length*100):0,testedAt:new Date().toISOString(),rows,disclaimer:'Coverage test only. A pass means a provider response was received; it does not imply the quote is exchange-authoritative or suitable for trading.'});
 }
-function marketUniverse(req,res){return send(res,200,{ok:true,crypto:Object.keys(CRYPTO_ASSETS).filter(x=>!x.endsWith('USDT')),equities:Object.keys(INDIA_EQUITIES),globalIndexes:GLOBAL_INDEXES,timeframes:Object.keys(TIMEFRAMES),globalStockResolver:true,providers:[{name:'Binance public market data',status:'public-adapter',coverage:'Supported crypto pairs'},{name:'Yahoo Finance chart + symbol resolver',status:'unofficial-recent',coverage:'Global Yahoo-listed equities, ETFs and indexes subject to provider availability'},{name:'NSE India market-data page',status:'exchange-page-adapter',coverage:'NIFTY/BANKNIFTY/FINNIFTY/SENSEX'}],note:'Global coverage is provider-dependent; FinPilot must label delayed/unavailable data rather than inventing it.'})}
+function marketUniverse(req,res){return send(res,200,{ok:true,crypto:Object.keys(CRYPTO_ASSETS).filter(x=>!x.endsWith('USDT')),equities:Object.keys(INDIA_EQUITIES),globalIndexes:GLOBAL_INDEXES,timeframes:Object.keys(TIMEFRAMES),globalStockResolver:true,providers:[{name:'Kraken public market data',status:'public-adapter',coverage:'Supported crypto spot pairs'},{name:'Coinbase Exchange public market data',status:'public-adapter',coverage:'Supported crypto spot pairs'},{name:'Yahoo Finance chart + symbol resolver',status:'unofficial-recent',coverage:'Global Yahoo-listed equities, ETFs and indexes subject to provider availability'},{name:'NSE India market-data page',status:'exchange-page-adapter',coverage:'NIFTY/BANKNIFTY/FINNIFTY/SENSEX'}],note:'Global coverage is provider-dependent; FinPilot must label delayed/unavailable data rather than inventing it.'})}
 function compliance(req,res){return send(res,200,{ok:true,policyVersion:'2026-10-07',jurisdiction:'India',productMode:'Financial information & decision support',regulatedAdvice:false,controls:{transactionExecution:false,guaranteedReturns:false,riskProfilingRequiredForRegulatedAdvice:true,suitabilityRequiredForRegulatedAdvice:true,evidenceRequiredForMarketSensitiveClaims:true,humanApprovalForHighImpactActions:true},sources:[{name:'SEBI Investment Advisers Regulations',url:'https://www.sebi.gov.in/sebi_data/attachdocs/feb-2025/1740726382475.pdf',freshness:'verified against official SEBI source'},{name:'SEBI Master Circular for Investment Advisers',url:'https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=6',freshness:'official SEBI listing'}]})}
 function staticFile(req,res,u){
  let p=u.pathname==='/'?'/index.html':u.pathname;
  p=path.normalize(p).replace(/^\.{2}(\/|\\)/,'');
  const file=path.join(ROOT,p);
  if(!file.startsWith(ROOT))return send(res,403,{error:'Forbidden'});
- fs.stat(file,(e,s)=>{if(e||!s.isFile())return send(res,404,'Not found','text/plain'); const ext=path.extname(file);res.writeHead(200,{'Content-Type':MIME[ext]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self' https://api.binance.com https://fapi.binance.com https://eapi.binance.com; img-src 'self' data: https://www.tradingview.com https://s3.tradingview.com; style-src 'self' 'unsafe-inline' https://www.tradingview.com; script-src 'self' 'unsafe-inline' https://s3.tradingview.com https://www.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});fs.createReadStream(file).pipe(res);});
+ fs.stat(file,(e,s)=>{if(e||!s.isFile())return send(res,404,'Not found','text/plain'); const ext=path.extname(file);res.writeHead(200,{'Content-Type':MIME[ext]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(),microphone=(),geolocation=(),payment=()','Content-Security-Policy':"default-src 'self'; connect-src 'self'; img-src 'self' data: https://www.tradingview.com https://s3.tradingview.com; style-src 'self' 'unsafe-inline' https://www.tradingview.com; script-src 'self' 'unsafe-inline' https://s3.tradingview.com https://www.tradingview.com; frame-src 'self' https://www.tradingview.com https://in.tradingview.com; child-src 'self' https://www.tradingview.com https://in.tradingview.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});fs.createReadStream(file).pipe(res);});
 }
 
 // FinPilot 5.1 Security + Real-Time Automation layer
@@ -1947,7 +1947,7 @@ function marketStream(req,res,u){
  const ticker=(u.searchParams.get('ticker')||'BTC').toUpperCase(); const symbol=CRYPTO_ASSETS[ticker]||'BTCUSDT';
  res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no','X-FinPilot-Version':'8.6'});
  let closed=false, timer; req.on('close',()=>{closed=true;clearInterval(timer);});
- const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'Binance spot',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
+ const push=async()=>{if(closed)return;try{const d=await fetchJson(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`); SECURITY.lastRefresh=new Date().toISOString();const payload={ticker,symbol,price:Number(d.lastPrice),changePct:Number(d.priceChangePercent),volume:Number(d.volume),high:Number(d.highPrice),low:Number(d.lowPrice),source:'public crypto market adapter',live:true,time:SECURITY.lastRefresh};const cloudStored=await storeMarketTick(payload);payload.cloudStored=cloudStored;emitEvent('MARKET_TICK',payload,90);res.write(`event: market\ndata: ${JSON.stringify(payload)}\n\n`)}catch(e){res.write(`event: market\ndata: ${JSON.stringify({ticker,symbol,live:false,error:'LIVE_PROVIDER_UNAVAILABLE',time:new Date().toISOString()})}\n\n`)}}
  push(); timer=setInterval(push,AUTO.marketRefreshMs);
 }
 
