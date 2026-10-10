@@ -499,7 +499,9 @@ async function searchFreeMultiSource(q,count){
  const tasks=[
   {provider:'bing-web-rss',run:()=>bingWebRss(q,count)},
   {provider:'bing-news-rss',run:()=>bingNewsRss(q,count)},
-  {provider:'google-news-rss',run:()=>googleNewsRss(q,count)}
+  {provider:'google-news-rss',run:()=>googleNewsRss(q,count)},
+  {provider:'duckduckgo-html',run:()=>duckduckgoHtml(q,count)},
+  {provider:'yahoo-html',run:()=>yahooHtml(q,count)}
  ];
  const attempts=await Promise.all(tasks.map(async task=>{
   try{return {provider:task.provider,results:await task.run(),error:null}}
