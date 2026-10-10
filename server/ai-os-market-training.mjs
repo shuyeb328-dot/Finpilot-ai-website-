@@ -426,7 +426,6 @@ export async function getAIOSMarketTrainingStatus(){
   pendingForecastCount:Number(totals.pending||0),resolvedForecastCount:resolved,
   meanBrierScore:finiteOrNull(totals.mean_brier),meanLogLoss:finiteOrNull(totals.mean_log_loss),
   topClassAccuracyPct:resolved?Number((Number(totals.correct||0)/resolved*100).toFixed(2)):null,
-  calibrationStatus:resolved<100?'INSUFFICIENT_RESOLVED_OUTCOMES':'READY_FOR_HELD_OUT_REVIEW',
   benchmark,calibrationStatus:resolved<100?'INSUFFICIENT_RESOLVED_OUTCOMES':benchmark.modelSelectionStatus,
   probabilitiesCalibrated:false,foundationModelTraining:false,realMoneyExecution:false,automaticPromotion:false,
   nextRunAt:state.enabled&&state.lastCompletedAt?new Date(Date.parse(state.lastCompletedAt)+state.intervalMs).toISOString():state.enabled?new Date(Date.now()+state.intervalMs).toISOString():null,
