@@ -46,12 +46,14 @@ assert.match(pageText, /async function fpFetchJson\(/, 'search endpoint must bou
 assert.match(pageText, /window\.__fpSearchSequence/, 'searches need monotonically increasing sequence IDs');
 assert.match(pageText, /searchSequence!==window\.__fpSearchSequence/, 'stale search responses must not overwrite newer results');
 assert.match(pageText, /markFinpilotSearchDirty\(this\.value\)/, 'editing/clearing the query must invalidate stale results');
-assert.match(pageText, /one-click-analysis\.js\?v=20261010-6/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /one-click-analysis\.js\?v=20261010-8/, 'rebuilt one-click module must use a new asset version');
+assert.match(pageText, /autonomous-core-os\.js\?v=20261010-3/, 'OS control panel must use its cache-busted version');
 assert.doesNotMatch(launcher, /finpilotDirectOneClick\(/, 'launcher must not fall back to a separate, unbounded analysis implementation');
 assert.match(launcher, /finally\s*\{\s*restore\(\)/, 'launcher controls must always be restored');
 
 assert.match(moduleText, /Exposure gate:/, 'P/L scenario must distinguish hypothetical outcomes from approved exposure');
-assert.match(moduleText, /market\.currency\|\|\(String\(market\.market\|\|''\)\.toUpperCase\(\)==='CRYPTO'\?'USD':'INR'\)/, 'quote display must default to USD for crypto and INR for equities');
+assert.match(moduleText, /const chartCurrency=String\(report\.chartAnalysis\?\.currency\|\|'UNKNOWN'\)/, 'quote currency must remain unknown until the selected exchange or provider identifies it');
+assert.match(moduleText, /CURRENCY UNVERIFIED/, 'unknown currencies must be marked rather than defaulted to INR');
 assert.match(moduleText, /BINANCE:'\+ticker\.replace\(/, 'crypto chart fallback must use Binance symbol rather than NSE symbol');
 assert.match(moduleText, /LATEST MARKET DATA/, 'snapshot card must not label crypto data as equity-only');
 assert.match(moduleText, /hypothetical outcomes on the full ₹1,000 example/, 'P/L cards must explain the assumed scenario amount');
