@@ -23,6 +23,7 @@ import {buildMarketSnapshot} from './market-snapshot.mjs';
 import {selectPrimaryMarketQuote} from './market-data-verification.mjs';
 import {createMarketStreamHub} from './market-stream-hub.mjs';
 import {createProviderResponseCache} from './provider-response-cache.mjs';
+import {normalizeMarketPicksMarket,resolveMarketPicksUniverse,buildMarketPicksEnvelope} from './market-picks-contract.mjs';
 import {activeProviderCooldowns,providerCooldownStatus,recordProviderFailure,recordProviderSuccess,claimProviderRequest} from './provider-cooldown.mjs';
 const {Pool}=pg;
 let MARKET_POOL=null, MARKET_SCHEMA_READY=false;
@@ -1147,11 +1148,24 @@ async function liveEquity(ticker){
 }
 async function marketPicks(req,res,u){
  const limit=Math.min(10,Math.max(3,Number(u.searchParams.get('limit')||5)));
- const requested=(u.searchParams.get('tickers')||'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
- const universe=requested.length?requested:[...new Set(Object.keys(INDIA_EQUITIES))];
+ const rawTickers=(u.searchParams.get('tickers')||'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
+ const normalizedMarket=normalizeMarketPicksMarket(u.searchParams.get('market')||'',rawTickers.length>0);
+ if(!normalizedMarket.ok)return send(res,400,{ok:false,error:normalizedMarket.error,supported:normalizedMarket.supported});
+ const requested=[...new Set(rawTickers)];
+ const universe=resolveMarketPicksUniverse({
+  market:normalizedMarket.market,
+  requestedTickers:requested,
+  indiaTickers:Object.keys(INDIA_EQUITIES),
+  globalStockTestSet:GLOBAL_STOCK_TEST_SET
+ });
+ if(!universe.length)return send(res,400,{ok:false,error:'NO_MARKET_PICK_UNIVERSE',market:normalizedMarket.market});
  const rows=await Promise.all(universe.map(async t=>{try{return await liveEquity(t)}catch(e){return null}}));
- const ranked=rows.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,limit);
- return send(res,200,{ok:true,live:ranked.length>0,market:'INDIA_EQUITY',count:ranked.length,asOf:new Date().toISOString(),candidates:ranked,method:'Live recent/delayed NSE equity scan ranked by price change, momentum, RSI and relative volume.',provider:'Yahoo Finance chart adapter (unofficial)',disclaimer:'Not a guaranteed best stock or personalized recommendation. Verify current exchange/broker data before any decision.'});
+ const result=buildMarketPicksEnvelope(rows,{market:normalizedMarket.market,limit,nowMs:Date.now(),maxAgeMs:EXECUTION_FRESHNESS_MS});
+ return send(res,200,{...result,
+  method:'Recent/delayed equity scan ranked by price change, momentum, RSI and relative volume; stale or unofficial data remains ineligible for paper execution.',
+  provider:result.provider,
+  dataQualityWarnings:result.staleOrUnverifiedCount?['One or more candidates lack a fresh provider-timestamped quote. Verify source time before acting.']:[]
+ });
 }
 
 async function marketDataOS(req,res,u){
