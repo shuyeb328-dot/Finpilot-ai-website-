@@ -3,10 +3,22 @@ import {
  initializeAIOSMarketTrainingDirector,
  runAIOSMarketTrainingCycle,
  getAIOSMarketTrainingStatus,
+ normalizeSnapshot,
  resetAIOSMarketTrainingForTests
 } from '../server/ai-os-market-training.mjs';
 
 await resetAIOSMarketTrainingForTests();
+
+const validSource = {
+  ticker:'BTC',status:'LIVE',verified:true,stale:false,price:100,
+  provider:'test-provider',sourceTimestampType:'PROVIDER_TIMESTAMP',
+  asOf:new Date(Date.now()-1000).toISOString()
+};
+assert.equal(normalizeSnapshot('BTC',validSource,Date.now()).ok,true);
+const observationOnly=normalizeSnapshot('BTC',{...validSource,sourceTimestampType:'OBSERVATION_TIMESTAMP'},Date.now());
+assert.equal(observationOnly.ok,false,'observation time must not be treated as exchange timestamp');
+assert.ok(observationOnly.reasons.includes('PROVIDER_TIMESTAMP_PROVENANCE_REQUIRED'));
+
 let clockMs = Date.now();
 let index = 0;
 let repeatLast = false;
