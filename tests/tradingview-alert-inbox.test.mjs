@@ -47,6 +47,9 @@ assert.equal(inbox.status().queueSize,1);
 
 assert.equal(inbox.ingest({...valid,alertId:'old-alert',timestamp:new Date(now-120_000).toISOString()}).error,'INVALID_OR_EXPIRED_ALERT_TIMESTAMP');
 assert.equal(inbox.ingest({...valid,alertId:'future-alert',timestamp:new Date(now+6*60_000).toISOString()}).error,'INVALID_OR_EXPIRED_ALERT_TIMESTAMP');
+const futureSignal=inbox.ingest({...valid,alertId:'future-market-alert',ticker:'CME_MINI:ES1!',action:'BUY'});
+assert.equal(futureSignal.ok,true,'futures alerts should preserve TradingView-style exclamation tickers');
+assert.equal(inbox.list(secret).items[0].symbol,'CME_MINI:ES1!');
 
 for(let i=0;i<12;i++)inbox.ingest({...valid,alertId:'unique-'+i,timestamp:new Date(now+i).toISOString(),ticker:'AAPL'});
 assert.equal(inbox.status().queueSize,10,'inbox remains bounded at maxEntries');
