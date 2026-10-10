@@ -245,10 +245,12 @@ function scoreSearchResult(row,query,now=Date.now()){
  const rawDate=row.publishedAt?Date.parse(row.publishedAt):NaN;
  const recencyDays=Number.isFinite(rawDate)?Math.max(0,(now-rawDate)/86400000):null;
  if(SEARCH_RECENCY_INTENT_RE.test(query)&&recencyDays!==null){
-  if(recencyDays<=1)score+=2;
-  else if(recencyDays<=7)score+=1.25;
-  else if(recencyDays<=30)score+=0.5;
-  else if(recencyDays>180)score-=1;
+  if(recencyDays<=1)score+=3;
+  else if(recencyDays<=7)score+=2.5;
+  else if(recencyDays<=30)score+=1;
+  else if(recencyDays<=90)score-=0.5;
+  else if(recencyDays<=180)score-=1.5;
+  else score-=3;
  }
  return {
   score:Number(score.toFixed(3)),

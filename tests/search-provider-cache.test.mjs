@@ -18,7 +18,8 @@ globalThis.fetch=async url=>{
     const item=(title,link,description,date,source)=>'<item><title>'+title+'</title><link>'+link+'</link><description>'+description+'</description><pubDate>'+date+'</pubDate><source>'+source+'</source></item>';
     const generic=item('Microsoft Singapore','https://www.microsoft.com/en-sg/','Microsoft regional homepage.',published,'Microsoft');
     const story=item('Microsoft Q4 earnings and revenue top estimates','https://example.com/msft-earnings','Microsoft reported quarterly earnings and revenue above analyst expectations.',published,'Example Finance');
-    const rows=href.includes('www.bing.com/search?')?generic:story+generic;
+    const stale=item('Microsoft earnings report and quarterly outlook','https://example.com/msft-earnings-stale','Older review of Microsoft earnings and outlook.',new Date(Date.now()-65*86400000).toUTCString(),'Archive Finance');
+    const rows=href.includes('www.bing.com/search?')?generic+stale:story+generic;
     return {ok:true,status:200,text:async()=>'<rss><channel>'+rows+'</channel></rss>'};
   }
   if(href.includes('api.exa.ai')) return {ok:false,status:402,text:async()=>''};
@@ -155,6 +156,9 @@ try{
   assert.equal(genericResult.engineAgreementCount,3,'generic page fixture should retain its three-engine agreement');
   assert.ok(ranked.results[0].relevanceScore>genericResult.relevanceScore,'relevance score should place earnings result above generic result');
   assert.equal(ranked.results[0].engineAgreementCount,2,'earnings fixture has lower agreement, proving relevance ranks first');
+  const staleResult=ranked.results.find(x=>x.url==='https://example.com/msft-earnings-stale');
+  assert.ok(staleResult,'fixture should include a stale-but-relevant article');
+  assert.ok(ranked.results[0].relevanceScore>staleResult.relevanceScore,'fresh relevant earnings result should outrank an older near-duplicate');
   assert.equal(ranked.results[0].relevanceSignals.allQueryTermsInTitle,true);
   assert.match(ranked.message,/heuristic ranking aids/i);
   rankingMode=false;
