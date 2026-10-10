@@ -19,6 +19,10 @@ assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/run'/, 'server exposes
 assert.match(api,/AGENT_EVALUATION_RUN_LIMITER\.check\(clientKey\(req\)\)/, 'evaluation runs have a dedicated bounded rate limit');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/grade'/, 'server exposes decision output grading');
 assert.match(ui,/\/api\/ai-os\/training\/status/, 'console displays verified-only forecast-training status');
+assert.match(ui,/Forecast quality vs baselines/, 'console displays forecast metrics against simple baselines');
+assert.match(ui,/Uniform Brier/, 'console shows uniform baseline Brier score');
+assert.match(ui,/Rolling-prior tests/, 'console shows chronology-safe rolling prior evaluation count');
+assert.match(ui,/Do not promote this model/, 'underperforming forecasts must show an explicit no-promotion warning');
 assert.match(ui,/\/api\/agent-memory/, 'console displays agent memory status');
 assert.match(ui,/EPISODIC','SEMANTIC','PROCEDURAL','OUTCOME/, 'console distinguishes four memory layers');
 assert.match(ui,/UNVERIFIED CLIENT/, 'console labels client-reported telemetry separately');
