@@ -197,7 +197,6 @@
     try{
       const [status,history]=await Promise.all([getJson(STATUS_URL),getJson(HISTORY_URL)]);
       renderStatus(status);renderHistory(history);
-      try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}catch{}
       try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}
       catch(error){const host=panel.querySelector('[data-role="training-status"]');if(host)host.replaceChildren(node('h3','','Market Forecast Learning'),node('p','fpEvalMuted','Training status unavailable: '+(error.message||'unknown error')));}
       if(!busy)statusMessage('Ready. Evaluation runs only when requested; recurring market learning remains governed by server configuration.','info');
@@ -211,6 +210,7 @@
       renderRun(result);
       const [status,history]=await Promise.all([getJson(STATUS_URL),getJson(HISTORY_URL)]);
       renderStatus(status);renderHistory(history);
+      try{const training=await getJson(TRAINING_STATUS_URL);renderTrainingStatus(training);}catch{}
     }catch(error){
       statusMessage('Evaluation could not complete: '+(error.message||'unknown error'),'error');
     }finally{setBusy(false);}
