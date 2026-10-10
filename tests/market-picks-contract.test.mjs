@@ -72,7 +72,7 @@ assert.equal(mixed.count, 2);
 const unknownSourceTime = buildMarketPicksEnvelope([{...usRow,asOf:null}], {market:'AUTO',nowMs:now});
 assert.equal(unknownSourceTime.asOf, null, 'unknown source timestamps must not be replaced with retrieval time');
 assert.equal(unknownSourceTime.live, false);
-console.log('market-picks-contract: market filtering, source freshness, and metadata checks passed');
+
 
 
 const wronglyEligibleButStale = buildMarketPicksEnvelope([{
@@ -84,3 +84,5 @@ const wronglyEligibleButStale = buildMarketPicksEnvelope([{
 assert.equal(wronglyEligibleButStale.live,false);
 assert.equal(wronglyEligibleButStale.verified,false,'stale source timestamps must override a caller/provider executionEligible claim');
 assert.equal(wronglyEligibleButStale.executionEligible,false,'stale market picks cannot pass execution eligibility');
+
+console.log('market-picks-contract: market filtering, source freshness, and metadata checks passed');
