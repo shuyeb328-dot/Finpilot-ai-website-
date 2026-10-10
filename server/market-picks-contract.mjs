@@ -88,12 +88,15 @@ export function buildMarketPicksEnvelope(rows, {
   const freshCount = candidates.filter(row => isFreshProviderQuote(row, nowMs, maxAgeMs)).length;
   const providerNames = [...new Set(candidates.map(row => String(row.provider ?? '').trim()).filter(Boolean))];
   const allExecutionEligible = candidates.length > 0 && candidates.every(row => row.executionEligible === true);
+  // A candidate cannot be called verified for paper execution unless every selected quote is fresh and provider-timestamped.
+  const freshnessVerified = candidates.length > 0 && freshCount === candidates.length;
+  const verified = allExecutionEligible && freshnessVerified;
 
   return {
     ok: true,
     live: candidates.length > 0 && freshCount === candidates.length,
-    verified: allExecutionEligible,
-    executionEligible: allExecutionEligible,
+    verified,
+    executionEligible: verified,
     market: marketLabel,
     requestedMarket: market,
     count: candidates.length,
