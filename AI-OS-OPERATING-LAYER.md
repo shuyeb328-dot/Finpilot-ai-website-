@@ -32,6 +32,18 @@ The server autonomous research scheduler is opt-in through `FINPILOT_AUTO_RESEAR
 
 Continuous operations require more than a browser tab or an interval timer. Reliable 24/7 operation requires an always-on worker/scheduler, persistent database, health monitoring, restart-safe job claims, bounded retries, source rate limits, and alerts. A free web host may sleep or restart; therefore the web process by itself must not be advertised as a 24/7 guarantee.
 
+## Market Training OS
+
+The server-side `server/ai-os-market-training.mjs` worker is the first durable market-learning pipeline. It ingests a bounded configurable watchlist (default: BTC, ETH, SPY and NIFTY), accepts only provider-verified live snapshots with a non-unknown source timestamp, de-duplicates observations, and stores them in PostgreSQL when configured. After sufficient observations, it creates a transparent momentum-baseline forecast; later matching quotes after the horizon settle that forecast and produce Brier/log-loss scores. This is an evaluation baseline, not an AI foundation model, and its probabilities are not declared calibrated.
+
+The worker is opt-in. Automatic scheduling requires all three: `FINPILOT_AI_OS_TRAINING_ENABLED=true`, a working `DATABASE_URL`, and the market snapshot adapter. Default interval is 15 minutes, bounded to 5–60 minutes; default forecast horizon is 60 minutes and bounded to 15–240 minutes. `FINPILOT_AI_OS_TRAINING_WATCHLIST` can configure up to eight symbols. If PostgreSQL is absent or fails, the worker reports memory-only or database-error status and will not start its automatic timer. An operator-triggered cycle endpoint is disabled unless `FINPILOT_AI_OS_MANUAL_CYCLE_ENABLED=true`, because it makes external market-data requests.
+
+This worker does not yet fine-tune a foundation model or change specialist-agent behavior. It builds durable, scored market evidence that can become a training/evaluation dataset. Do not label the system as continuously learning from global markets until this worker is enabled with persistence and an always-on host, and the stored forecasts are accumulating and being settled. A free web service that sleeps cannot guarantee 24/7 operation.
+
+Endpoints:
+- `GET /api/ai-os/training/status`: schedule, storage, data/forecast counts, outcome metrics and blockers.
+- `POST /api/ai-os/training/cycle`: bounded read-only cycle only when the manual-cycle feature flag is enabled; it never places orders.
+
 ## Promotion gates
 
 Candidate improvements should be benchmarked against a fixed baseline on chronological, held-out data. Promotion checks should include accuracy and probability calibration, net simulated returns after costs where applicable, drawdown/risk regressions, data-source freshness, and safety tests. Shadow or canary evaluation does not equal verified improvement. There is no automatic source-code mutation, automatic candidate promotion or live-money execution in this operating layer.
