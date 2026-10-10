@@ -575,9 +575,18 @@ async function liveCrypto(t, interval='1h', multi=true){
    const coinPair=providerSymbols.coinbaseProduct;
    const cmap={'15m':900,'1h':3600,'4h':21600,'1d':86400};
    try{
-    const ct=await directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/ticker','coinbase');
-    const cc=await Promise.all(unique.map(x=>directProviderJson('https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair)+'/candles?granularity='+cmap[x],'coinbase')));
-    ticker={lastPrice:Number(ct?.price),prevClosePrice:Number(ct?.price),highPrice:Number(ct?.price),lowPrice:Number(ct?.price),volume:Number(ct?.volume||0),_sourceAsOf:ct?.time||null,_sourceObservedAt:ct?._finpilotCache?.observedAt||null};
+    const coinBaseUrl='https://api.exchange.coinbase.com/products/'+encodeURIComponent(coinPair);
+    const [stats,latestTrades,cc]=await Promise.all([
+     directProviderJson(coinBaseUrl+'/stats','coinbase'),
+     directProviderJson(coinBaseUrl+'/trades?limit=1','coinbase'),
+     Promise.all(unique.map(x=>directProviderJson(coinBaseUrl+'/candles?granularity='+cmap[x],'coinbase')))
+    ]);
+    const latestTrade=Array.isArray(latestTrades)?latestTrades[0]:null;
+    const tradeTime=String(latestTrade?.time||'');
+    const tradePrice=Number(latestTrade?.price);
+    const providerTradeValid=Number.isFinite(tradePrice)&&tradePrice>0&&Number.isFinite(Date.parse(tradeTime))&&Date.parse(tradeTime)<=Date.now()+5000;
+    const currentPrice=providerTradeValid?tradePrice:Number(stats?.last);
+    ticker={lastPrice:currentPrice,prevClosePrice:Number(stats?.open||currentPrice),highPrice:Number(stats?.high||currentPrice),lowPrice:Number(stats?.low||currentPrice),volume:Number(stats?.volume||0),_sourceAsOf:providerTradeValid?tradeTime:null,_sourceObservedAt:stats?._finpilotCache?.observedAt||null};
     series=cc.map(rows=>rows.filter(Array.isArray).map(v=>[Number(v[0])*1000,Number(v[3]),Number(v[2]),Number(v[1]),Number(v[4]),Number(v[5])]).sort((a,b)=>a[0]-b[0]).slice(-220));
     if(!Number.isFinite(ticker.lastPrice)||series.some(x=>x.length<2))throw new Error('Coinbase market data incomplete');
     provider='Coinbase Exchange public market data fallback';
@@ -1198,7 +1207,19 @@ async function marketDataOS(req,res,u){
   if(!providerSymbols)return send(res,400,{ok:false,error:'CRYPTO_PAIR_UNSUPPORTED',ticker:raw});
   await addAttempt('Binance public',async()=>{const x=await directProviderJson('https://api.binance.com/api/v3/ticker/24hr?symbol='+symbol,'binance-os');const asOf=Number(x.closeTime)>0?new Date(Number(x.closeTime)).toISOString():x?._finpilotCache?.observedAt||null;return {price:Number(x.lastPrice),changePct:Number(x.priceChangePercent),volume:Number(x.volume),high:Number(x.highPrice),low:Number(x.lowPrice),asOf,timestampType:Number(x.closeTime)>0?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
   await addAttempt('Kraken public',async()=>{const pair=providerSymbols.krakenPair;const x=await directProviderJson('https://api.kraken.com/0/public/Ticker?pair='+encodeURIComponent(pair),'kraken-os');const v=Object.values(x?.result||{})[0];return {price:Number(v?.c?.[0]),changePct:Number(v?.p?.[1])&&Number(v?.p?.[1])?((Number(v.c[0])-Number(v.o||v.c[0]))/Number(v.o||v.c[0]))*100:0,volume:Number(v?.v?.[1]||0),high:Number(v?.h?.[1]||v?.c?.[0]),low:Number(v?.l?.[1]||v?.c?.[0]),asOf:x?._finpilotCache?.observedAt||null,timestampType:'OBSERVATION_TIMESTAMP',live:true};});
-  await addAttempt('Coinbase public',async()=>{const pair=providerSymbols.coinbaseProduct;const x=await directProviderJson('https://api.exchange.coinbase.com/products/'+pair+'/ticker','coinbase-os');return {price:Number(x.price),changePct:0,volume:Number(x.volume||0),high:null,low:null,asOf:x.time||x?._finpilotCache?.observedAt||null,timestampType:x.time?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};});
+  await addAttempt('Coinbase public',async()=>{
+  const url='https://api.exchange.coinbase.com/products/'+providerSymbols.coinbaseProduct;
+  const [stats,trades]=await Promise.all([
+   directProviderJson(url+'/stats','coinbase-os'),
+   directProviderJson(url+'/trades?limit=1','coinbase-os')
+  ]);
+  const trade=Array.isArray(trades)?trades[0]:null;
+  const tradeTime=String(trade?.time||'');
+  const tradePrice=Number(trade?.price);
+  const providerTradeValid=Number.isFinite(tradePrice)&&tradePrice>0&&Number.isFinite(Date.parse(tradeTime))&&Date.parse(tradeTime)<=Date.now()+5000;
+  const price=providerTradeValid?tradePrice:Number(stats?.last);
+  return {price,changePct:Number(stats?.open)>0&&Number.isFinite(price)?((price-Number(stats.open))/Number(stats.open))*100:0,volume:Number(stats?.volume||0),high:Number(stats?.high||price),low:Number(stats?.low||price),asOf:providerTradeValid?tradeTime:stats?._finpilotCache?.observedAt||null,timestampType:providerTradeValid?'PROVIDER_TIMESTAMP':'OBSERVATION_TIMESTAMP',live:true};
+ });
  }else{
   const quoteCountBeforePrimary=quotes.length;
   const liveQuoteOk=await addAttempt('FinPilot equity provider',async()=>{const r=await liveEquity(raw);return {price:Number(r.price),changePct:Number(r.changePct||0),volume:Number(r.volume||0),high:Number(r.dayHigh||0),low:Number(r.dayLow||0),asOf:r.asOf,timestampType:r.sourceTimestampType||'UNKNOWN_TIMESTAMP',live:Boolean(r.live),executionEligible:r.executionEligible!==false,executionEligibilityReason:r.executionEligibilityReason||null,exchange:r.exchange};});
