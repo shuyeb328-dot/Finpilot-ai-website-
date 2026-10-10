@@ -194,7 +194,7 @@ function computeExecutiveDecision(state,findings,web,money,sourceAge){
  const evidenceReferences=[...new Set([
   ...(Array.isArray(web?.urls)?web.urls:[]),
   ...live.map(item=>item?.url)
- ].filter(url=>typeof url==='string'&&/^https?:\\/\\//i.test(url)))].slice(0,8);
+ ].filter(url=>typeof url==='string'&&(url.startsWith('https://')||url.startsWith('http://'))))].slice(0,8);
  const reserveLabel=Number.isFinite(reserveMonths)?reserveMonths.toFixed(1)+' months':'not measured';
  const gateLabels=blockingGates.map(g=>g.label);
  const gateList=gateLabels.length?gateLabels.join('; '):'No hard safety gate is blocking the current decision.';
