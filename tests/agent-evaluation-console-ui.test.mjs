@@ -22,6 +22,11 @@ assert.match(ui,/\/api\/ai-os\/training\/status/, 'console displays verified-onl
 assert.match(ui,/Forecast quality vs baselines/, 'console displays forecast metrics against simple baselines');
 assert.match(ui,/Uniform Brier/, 'console shows uniform baseline Brier score');
 assert.match(ui,/Rolling-prior tests/, 'console shows chronology-safe rolling prior evaluation count');
+assert.match(ui,/Outcome mix:/, 'console exposes class counts behind forecast scores');
+assert.match(ui,/Classes observed:/, 'console discloses class coverage before model selection');
+assert.match(ui,/Only 1 of 3 outcome classes/, 'console displays the class diversity warning when available');
+assert.match(ui,/Not applicable \(three-way tie\)/, 'uniform baseline top-class accuracy is not reported as misleading zero');
+assert.match(ui,/same asset and forecast horizon/, 'console explains that rolling priors are grouped by instrument and horizon');
 assert.match(ui,/Do not promote this model/, 'underperforming forecasts must show an explicit no-promotion warning');
 assert.match(ui,/\/api\/agent-memory/, 'console displays agent memory status');
 assert.match(ui,/EPISODIC','SEMANTIC','PROCEDURAL','OUTCOME/, 'console distinguishes four memory layers');
