@@ -94,7 +94,36 @@
     const safety=node('p','fpEvalMuted',
       'This is a deterministic baseline, not foundation-model training. Outcomes require future timestamped market observations. No trades or automatic promotion are permitted. '+(data.persistenceDetail||'')
     );
-    host.append(grid,counts,safety);
+    const benchmark=data.benchmark||{};
+    const model=benchmark.currentModel||{};
+    const uniform=benchmark.uniformBaseline||{};
+    const rolling=benchmark.rollingPriorBaseline||{};
+    const metric=value=>value===null||value===undefined||!Number.isFinite(Number(value))?'Not measured':Number(value).toFixed(4);
+    const benchBox=node('div','fpEvalBench');
+    benchBox.append(node('h4','','Forecast quality vs baselines'));
+    benchBox.append(node('p','fpEvalMuted',
+      'Evaluated forecasts: '+(benchmark.evaluatedForecasts??0)+' · selection minimum: '+(benchmark.minimumOutcomesForModelSelection??100)+
+      ' · status: '+(benchmark.modelSelectionStatus||'Not measured')
+    ));
+    const benchFacts=node('div','fpEvalFacts');
+    benchFacts.append(
+      node('span','', 'Model Brier: '+metric(model.meanBrier)),
+      node('span','', 'Uniform Brier: '+metric(uniform.meanBrier)),
+      node('span','', 'Model log loss: '+metric(model.meanLogLoss)),
+      node('span','', 'Uniform log loss: '+metric(uniform.meanLogLoss)),
+      node('span','', 'Brier skill vs uniform: '+(benchmark.currentVsUniform?.brierSkillPct==null?'Not measured':benchmark.currentVsUniform.brierSkillPct+'%')),
+      node('span','', 'Rolling-prior tests: '+(rolling.count??0))
+    );
+    benchBox.append(benchFacts,node('p',benchmark.currentVsUniform?.underperforms?'fpEvalBad':'fpEvalMuted',
+      benchmark.currentVsUniform?.underperforms
+       ? 'Warning: current probabilities underperform the uniform baseline on Brier score or log loss. Do not promote this model.'
+       : (benchmark.reason||'Benchmark comparison is not conclusive yet.')
+    ));
+    benchBox.append(node('p','fpEvalMuted',
+      'Rolling-prior Brier: '+metric(rolling.meanBrier)+' · log loss: '+metric(rolling.meanLogLoss)+
+      '. Forecasts are calibrated only after separate calibration and frozen holdout review; automatic promotion remains disabled.'
+    ));
+    host.append(grid,counts,benchBox,safety);
     const runButton=panel.querySelector('[data-action="market-cycle"]');
     if(runButton){
       const manualAllowed=data.manualCycleAllowed===true;
@@ -325,6 +354,8 @@
 .fpEvalTraining h3{margin:0 0 8px;font-size:15px}
 .fpEvalTraining .fpEvalStats{grid-template-columns:repeat(4,minmax(0,1fr))}
 .fpEvalTrainingResult{margin:8px 0}
+.fpEvalBench{border-top:1px solid #29445f;margin-top:12px;padding-top:10px}
+.fpEvalBench h4{margin:0 0 6px;font-size:13px}
 .fpEvalFooter{color:#9cb0c7;border-top:1px solid #263d56;padding-top:12px;font-size:11px}
 @media(max-width:640px){.fpEvalStats{grid-template-columns:repeat(2,minmax(0,1fr))}.fpEvalCaseList{grid-template-columns:1fr}.fpEvalPanel{padding:14px}.fpEvalHeader h2{font-size:20px}.fpEvalLauncher{bottom:100px;right:9px}}
 `;
