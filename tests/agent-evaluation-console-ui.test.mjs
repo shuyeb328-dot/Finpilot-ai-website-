@@ -15,6 +15,7 @@ assert.match(ui,/no automatic promotion/i, 'console makes promotion safeguards v
 assert.match(ui,/no real-money execution/i, 'console makes the non-execution boundary visible');
 assert.doesNotMatch(ui,/setInterval\(/, 'the console must not start a recurring learning timer');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/run'/, 'server exposes the controlled evaluation runner');
+assert.match(api,/AGENT_EVALUATION_RUN_LIMITER\.check\(clientKey\(req\)\)/, 'evaluation runs have a dedicated bounded rate limit');
 assert.match(api,/u\.pathname==='\/api\/agent-evaluation\/grade'/, 'server exposes decision output grading');
 assert.match(ui,/\/api\/ai-os\/training\/status/, 'console displays verified-only forecast-training status');
 assert.match(ui,/data\.manualCycleAllowed===true/, 'market-training cycles stay disabled until explicitly permitted by server configuration');
